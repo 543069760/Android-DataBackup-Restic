@@ -42,7 +42,6 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
 
     @Inject
     protected lateinit var resticRepo: ResticRepository
-    private var isResticInitialized = false
 
     override suspend fun onInitializingPreprocessingEntities(entities: MutableList<ProcessingInfoEntity>) {
         entities.apply {
@@ -51,15 +50,6 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                 title = mContext.getString(R.string.necessary_preparations),
                 type = ProcessingType.PREPROCESSING,
                 infoType = ProcessingInfoType.NECESSARY_PREPARATIONS
-            ).apply {
-                id = mTaskDao.upsert(this)
-            })
-            // 新增: Restic 初始化实体
-            add(ProcessingInfoEntity(
-                taskId = mTaskEntity.id,
-                title = "Initializing Restic Repository",
-                type = ProcessingType.PREPROCESSING,
-                infoType = ProcessingInfoType.RESTIC_INITIALIZATION
             ).apply {
                 id = mTaskDao.upsert(this)
             })
@@ -99,9 +89,6 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
     override suspend fun onInitializing() {
         // 生成本次备份的统一时间戳
         mBackupTimestamp = DateUtil.getTimestamp()
-
-        // 新增: 初始化 Restic 仓库 (异步调用)
-        kotlinx.coroutines.GlobalScope.launch { initResticRepository() }
 
         val packages = mPackageRepo.queryActivated(OpType.BACKUP)
 
@@ -168,34 +155,13 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
 
     private lateinit var necessaryInfo: NecessaryInfo
 
-    // Restic 辅助方法：初始化仓库
-    private suspend fun initResticRepository() {
-        val repoPath = getResticRepoPath()
-        val password = getResticPassword()
-
-        log { "Initializing Restic repository at: $repoPath" }
-
-        var initSuccess = false
-
-        resticRepo.initRepository(repoPath, password) { success, message ->
-            initSuccess = success
-            isResticInitialized = success
-
-            if (success) {
-                log { "Restic repository initialized successfully: $message" }
-            } else {
-                log { "Failed to initialize Restic repository: $message" }
-            }
-        }
-    }
-
     // Restic 辅助方法：获取仓库路径
-    private fun getResticRepoPath(): String {
+    protected fun getResticRepoPath(): String {
         return File(mContext.filesDir, "restic_repo").absolutePath
     }
 
     // Restic 辅助方法：生成密码
-    private fun getResticPassword(): String {
+    protected fun getResticPassword(): String {
         return "databackup_${mBackupTimestamp}"
     }
 
@@ -227,29 +193,6 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                 val isSuccess = runCatchingOnService { onTargetDirsCreated() }
                 entity.update(progress = 1f, state = if (isSuccess) OperationState.DONE else OperationState.ERROR)
             }
-
-            ProcessingInfoType.RESTIC_INITIALIZATION -> {
-                log { "Waiting for Restic repository initialization..." }
-
-                var waitCount = 0
-                val maxWait = 30
-
-                // 检查初始化状态，等待最多 30 秒
-                while (!isResticInitialized && waitCount < maxWait) {
-                    delay(1000)
-                    waitCount++
-                    log { "Waiting for Restic initialization... (${waitCount}/${maxWait})" }
-                }
-
-                if (isResticInitialized) {
-                    log { "Restic repository is ready for backup" }
-                    entity.update(progress = 1f, state = OperationState.DONE)
-                } else {
-                    log { "Restic repository initialization timeout or failed" }
-                    entity.update(progress = 1f, state = OperationState.ERROR)
-                }
-            }
-
             else -> {}
         }
     }
@@ -361,16 +304,17 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
         packageName: String,
         compressedFile: File
     ): Boolean {
-        if (!isResticInitialized) {
-            log { "Restic not initialized, skipping backup for $packageName" }
+        val repoPath = getResticRepoPath()
+        val password = getResticPassword()
+
+        // 动态检查仓库是否已初始化
+        if (!resticRepo.checkRepository(repoPath, password)) {
+            log { "Restic repository not initialized, skipping backup for $packageName" }
             return false
         }
 
         return try {
-            val repoPath = getResticRepoPath()
-            val password = getResticPassword()
             val filePath = compressedFile.absolutePath
-
             val packageTag = "package:$packageName"
             val timestampTag = "timestamp:$mBackupTimestamp"
             val tags = listOf(packageTag, timestampTag, "compression:zstd")

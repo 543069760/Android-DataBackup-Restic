@@ -18,6 +18,7 @@ dependencies {
     implementation(project(":core:util"))
     implementation(project(":core:rootservice"))
     implementation(project(":feature:setup"))
+    implementation(project(":core:restic"))
 
     // Compose Navigation
     implementation(libs.androidx.navigation.compose)

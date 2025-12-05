@@ -9,6 +9,7 @@ import java.io.InputStreamReader
 import javax.inject.Inject
 import javax.inject.Singleton
 import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 
 @Singleton
 class ResticRepository @Inject constructor(
@@ -26,6 +27,30 @@ class ResticRepository @Inject constructor(
         resticNative.getResticBinaryPath(context)
     }
 
+    // 获取 Restic 版本
+    suspend fun getVersion(): String? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val args = listOf(resticPath, "version")
+                val processBuilder = ProcessBuilder(args)
+                val process = processBuilder.start()
+                val output = InputStreamReader(process.inputStream).readText()
+                val exitCode = process.waitFor()
+
+                if (exitCode == 0) {
+                    // 解析版本信息，例如 "restic 0.16.2 compiled with go1.21.0 on linux/amd64"
+                    val versionLine = output.lines().firstOrNull()
+                    versionLine?.substringAfter("restic ")?.substringBefore(" ")
+                } else {
+                    null
+                }
+            } catch (e: Exception) {
+                logger.logCommandFailed(e)
+                null
+            }
+        }
+    }
+
     // 异步初始化仓库
     suspend fun initRepository(
         repoPath: String,
@@ -36,12 +61,10 @@ class ResticRepository @Inject constructor(
             try {
                 val args = listOf(resticPath, "init", "--repo", repoPath)
 
-                // 修复 1 & 2: 正确声明 processBuilder 实例，并在其上设置环境变量
                 val processBuilder = ProcessBuilder(args)
                 processBuilder.environment()["RESTIC_PASSWORD"] = password
 
                 val process = processBuilder.start()
-                // 修复 3: 使用 InputStreamReader 解决 bufferedReader 的歧义
                 val output = InputStreamReader(process.inputStream).readText()
                 val errorOutput = InputStreamReader(process.errorStream).readText()
                 val exitCode = process.waitFor()
@@ -49,9 +72,7 @@ class ResticRepository @Inject constructor(
                 val success = exitCode == 0
                 val resultOutput = if (success) output else errorOutput
 
-                // 将日志记录移到 ResticRepository 内部
                 logger.logCommandResult(exitCode, resultOutput)
-
                 callback(success, resultOutput)
             } catch (e: Exception) {
                 logger.logCommandFailed(e)
@@ -66,13 +87,13 @@ class ResticRepository @Inject constructor(
         password: String,
         filePath: String,
         tags: List<String>
-    ): Pair<Int, String> { // 推荐返回 Pair<Int, String> 以便上层获取快照ID或错误信息
+    ): Pair<Int, String> {
         return withContext(Dispatchers.IO) {
             try {
                 val args = listOf(
                     resticPath, "backup", "--repo", repoPath,
                     filePath, "--tag", tags.joinToString(","),
-                    "--json" // 添加 --json 以便获取结构化输出，便于后续处理快照ID
+                    "--json"
                 )
 
                 val processBuilder = ProcessBuilder(args)
@@ -152,6 +173,46 @@ class ResticRepository @Inject constructor(
             } catch (e: Exception) {
                 logger.logCommandFailed(e)
                 emptyList()
+            }
+        }
+    }
+    // 验证仓库密码是否正确
+    suspend fun validateRepository(repoPath: String, password: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                // 使用 snapshots 命令验证仓库和密码
+                val args = listOf(resticPath, "snapshots", "--repo", repoPath, "--json")
+                val processBuilder = ProcessBuilder(args)
+                processBuilder.environment()["RESTIC_REPOSITORY"] = repoPath
+                processBuilder.environment()["RESTIC_PASSWORD"] = password
+
+                val process = processBuilder.start()
+                val output = InputStreamReader(process.inputStream).readText()
+                val exitCode = process.waitFor()
+
+                logger.logCommandResult(exitCode, output)
+                exitCode == 0
+            } catch (e: Exception) {
+                logger.logCommandFailed(e)
+                false
+            }
+        }
+    }
+
+    // 删除仓库
+    suspend fun deleteRepository(repoPath: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val repoFile = File(repoPath)
+                if (repoFile.exists()) {
+                    repoFile.deleteRecursively()
+                    true
+                } else {
+                    false
+                }
+            } catch (e: Exception) {
+                logger.logCommandFailed(e)
+                false
             }
         }
     }

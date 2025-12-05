@@ -36,7 +36,6 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
 
     @Inject
     protected lateinit var resticRepo: ResticRepository
-    private var isResticInitialized = false
 
     override suspend fun onInitializingPreprocessingEntities(entities: MutableList<ProcessingInfoEntity>) {
         entities.apply {
@@ -45,15 +44,6 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                 title = mContext.getString(R.string.necessary_preparations),
                 type = ProcessingType.PREPROCESSING,
                 infoType = ProcessingInfoType.NECESSARY_PREPARATIONS
-            ).apply {
-                id = mTaskDao.upsert(this)
-            })
-            // 添加 Restic 初始化步骤
-            add(ProcessingInfoEntity(
-                taskId = mTaskEntity.id,
-                title = "Restic 初始化",
-                type = ProcessingType.PREPROCESSING,
-                infoType = ProcessingInfoType.RESTIC_INITIALIZATION
             ).apply {
                 id = mTaskDao.upsert(this)
             })
@@ -114,36 +104,22 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
         return "backup_${mBackupTimestamp}"
     }
 
-    // Restic 初始化方法 - 更新为无状态调用
-    protected suspend fun initResticRepository() {
-        if (!isResticInitialized) {
-            val repoPath = getResticRepoPath()
-            val password = getResticPassword()
-
-            resticRepo.initRepository(repoPath, password) { success, message ->
-                if (success) {
-                    isResticInitialized = true
-                    log { "Restic repository initialized successfully" }
-                } else {
-                    log { "Failed to initialize Restic repository: $message" }
-                }
-            }
-        }
-    }
-
     // Restic 备份方法 - 更新为无状态调用
     protected suspend fun backupWithRestic(
         mediaName: String,
         compressedFile: java.io.File
     ): Boolean {
-        if (!isResticInitialized) {
-            log { "Restic not initialized, skipping backup for $mediaName" }
+        val repoPath = getResticRepoPath()
+        val password = getResticPassword()
+
+        // 动态检查仓库是否已初始化
+        if (!resticRepo.checkRepository(repoPath, password)) {
+            log { "Restic repository not initialized, skipping backup for $mediaName" }
             return false
         }
 
         return try {
-            val repoPath = getResticRepoPath()
-            val password = getResticPassword()
+            // 删除重复的变量声明
             val filePath = compressedFile.absolutePath
 
             // 构建标签
@@ -196,13 +172,6 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                 val isSuccess = runCatchingOnService { onTargetDirsCreated() }
                 entity.update(progress = 1f, state = if (isSuccess) OperationState.DONE else OperationState.ERROR)
             }
-
-            ProcessingInfoType.RESTIC_INITIALIZATION -> {
-                log { "Initializing Restic for backup operations" }
-                initResticRepository()
-                entity.update(progress = 1f, state = if (isResticInitialized) OperationState.DONE else OperationState.ERROR)
-            }
-
             else -> {}
         }
     }

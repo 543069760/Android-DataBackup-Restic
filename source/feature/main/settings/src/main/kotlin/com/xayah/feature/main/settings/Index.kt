@@ -2,6 +2,7 @@ package com.xayah.feature.main.settings
 
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -36,6 +37,7 @@ import com.xayah.core.ui.component.Switchable
 import com.xayah.core.ui.component.Title
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TopAppBar  // 补充导入
+import androidx.compose.runtime.LaunchedEffect
 // Navigation and Routing
 import com.xayah.core.ui.route.MainRoutes
 import com.xayah.core.ui.util.LocalNavController // 补充导入
@@ -49,6 +51,7 @@ import com.xayah.core.util.readMappedLanguage
 import com.xayah.feature.setup.MainActivity as SetupActivity
 import com.xayah.feature.main.settings.R
 import com.xayah.feature.main.settings.IndexViewModel // 补充导入
+import com.xayah.feature.main.settings.restic.ResticViewModel
 
 @ExperimentalLayoutApi
 @ExperimentalAnimationApi
@@ -58,8 +61,25 @@ fun PageSettings() {
     val context = LocalContext.current
     val navController = LocalNavController.current!!
     val viewModel = hiltViewModel<IndexViewModel>()
+    val resticViewModel = hiltViewModel<ResticViewModel>()
     val directoryState by viewModel.directoryState.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
+
+    // 收集状态
+    val resticVersion by resticViewModel.resticVersionState.collectAsStateWithLifecycle()
+    val resticInitialized by resticViewModel.resticInitializedState.collectAsStateWithLifecycle(initialValue = false)
+    val snapshotCount by resticViewModel.resticSnapshotCountState.collectAsStateWithLifecycle(initialValue = 0)
+    val repoPath by resticViewModel.repoPathState.collectAsStateWithLifecycle()
+
+    // 触发 Restic 状态检查
+    LaunchedEffect(Unit) {
+        resticViewModel.checkResticStatus()
+    }
+
+    // 监听状态变化
+    LaunchedEffect(resticVersion, resticInitialized, snapshotCount) {
+        Log.d("Settings", "Restic状态: Version=$resticVersion, Initialized=$resticInitialized, Snapshots=$snapshotCount")
+    }
 
     Scaffold(
         topBar = {
@@ -141,19 +161,54 @@ fun PageSettings() {
 
             // --- Restic 配置 ---
             Title(title = stringResource(id = R.string.restic_configuration)) {
+                // 状态显示部分
                 Clickable(
-                    title = stringResource(id = R.string.restic_repo_path),
-                    value = stringResource(id = R.string.restic_repo_path_desc),
+                    title = stringResource(id = R.string.restic_version),
+                    value = if (resticVersion != null) {
+                        resticVersion
+                    } else {
+                        stringResource(id = R.string.restic_not_detected)
+                    }
                 ) {
-                    navController.navigateSingle(MainRoutes.ResticRepoPath.route)
+                    // 版本信息不可点击，仅用于显示
                 }
+
+                // 根据初始化状态显示不同信息
+                if (resticInitialized) {
+                    Clickable(
+                        title = stringResource(id = R.string.restic_initialization_status),
+                        value = stringResource(id = R.string.restic_initialized_at, repoPath ?: "")
+                    ) {
+                        // 状态信息不可点击，仅用于显示
+                    }
+
+                    Clickable(
+                        title = stringResource(id = R.string.restic_snapshot_count),
+                        value = if (snapshotCount > 0) {
+                            stringResource(id = R.string.restic_snapshots_count, snapshotCount)
+                        } else {
+                            stringResource(id = R.string.restic_no_snapshots)
+                        }
+                    ) {
+                        // 快照信息不可点击，仅用于显示
+                    }
+                } else {
+                    // 未初始化时显示初始化按钮
+                    Clickable(
+                        title = stringResource(id = R.string.initialize_restic),
+                        value = stringResource(id = R.string.initialize_restic_desc),
+                    ) {
+                        navController.navigateSingle(MainRoutes.ResticInitialization.route)
+                    }
+                }
+
+                // 配置选项 - 始终显示
                 Clickable(
                     title = stringResource(id = R.string.restic_password),
                     value = stringResource(id = R.string.restic_password_desc),
                 ) {
                     navController.navigateSingle(MainRoutes.ResticPassword.route)
                 }
-                // 使用正确的 KeyResticEnableCompression 常量
                 Switchable(
                     key = KeyResticEnableCompression,
                     defValue = true,

@@ -16,4 +16,29 @@
     <string name="restic_enable_compression_desc">Compress backup data to save storage space</string>
     <string name="save">Save</string>
     <string name="restic_repo_path_default">/storage/emulated/0/Android/data/com.xayah.databackup.s3/restic</string>
+
+    <!-- Restic 初始化功能字符串 -->
+    <string name="restic_version">Restic Version</string>
+    <string name="restic_initialization_status">Restic Initialization Status</string>
+    <string name="restic_initialized_at">Initialized at: %s</string>
+    <string name="restic_snapshot_count">Snapshot Count</string>
+    <string name="restic_snapshots_count">%d snapshots</string>
+    <string name="restic_no_snapshots">No snapshots</string>
+    <string name="restic_not_initialized">Please initialize first</string>
+    <string name="initialize_restic">Initialize Restic</string>
+    <string name="initialize_restic_desc">Set up Restic repository for backups</string>
+    <string name="select_restic_repo_path">Select Restic Repository Path</string>
+    <string name="restic_repo_will_be_created_at">Repository will be created at: %s</string>
+    <string name="initialize">Initialize</string>
+    <!-- Restic 初始化功能字符串 - 补充 -->
+    <string name="select_directory">Select Directory</string>
+    <string name="checking_path">Checking path...</string>
+    <string name="validating_repo_password">Validating repository password...</string>
+    <string name="initializing_repository">Initializing repository...</string>
+    <string name="error_with_message">Error: %s</string>
+    <string name="delete_existing_repository">Delete Existing Repository</string>
+    <string name="repo_password_validation_failed">Existing repository detected but password validation failed. Delete and reinitialize?\nPath: %s</string>
+    <string name="delete_and_reinitialize">Delete and Reinitialize</string>
+    <string name="cancel">Cancel</string>
+    <string name="restic_not_detected">No Restic detected</string>
 </resources>

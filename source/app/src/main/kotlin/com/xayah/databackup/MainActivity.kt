@@ -46,6 +46,7 @@ import com.xayah.feature.main.settings.restore.PageRestoreSettings
 import com.xayah.feature.main.settings.cache.PageCacheManagement
 import com.xayah.feature.main.settings.restic.ResticRepoPathScreen
 import com.xayah.feature.main.settings.restic.ResticPasswordScreen
+import com.xayah.feature.main.settings.restic.ResticInitializationScreen
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
@@ -167,6 +168,9 @@ class MainActivity : AppCompatActivity() {
                         }
                         composable(MainRoutes.ResticPassword.route) {
                             ResticPasswordScreen()
+                        }
+                        composable(MainRoutes.ResticInitialization.route) {
+                            ResticInitializationScreen()
                         }
                     }
                 }

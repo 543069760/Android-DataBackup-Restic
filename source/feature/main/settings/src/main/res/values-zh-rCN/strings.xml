@@ -16,4 +16,28 @@
     <string name="restic_enable_compression_desc">在备份时启用数据压缩以节省存储空间</string>
     <string name="save">保存</string>
     <string name="restic_repo_path_default">/storage/emulated/0/Android/data/com.xayah.databackup.s3/restic</string>
+
+    <!-- Restic 初始化功能字符串 -->
+    <string name="restic_version">Restic版本</string>
+    <string name="restic_initialization_status">Restic初始化状态</string>
+    <string name="restic_initialized_at">初始化位置：%s</string>
+    <string name="restic_snapshot_count">快照数量</string>
+    <string name="restic_snapshots_count">%d个快照</string>
+    <string name="restic_no_snapshots">无快照</string>
+    <string name="restic_not_initialized">请先初始化</string>
+    <string name="initialize_restic">初始化Restic</string>
+    <string name="initialize_restic_desc">设置Restic仓库用于备份</string>
+    <string name="select_restic_repo_path">选择Restic仓库路径</string>
+    <string name="restic_repo_will_be_created_at">仓库将创建于：%s</string>
+    <string name="initialize">初始化</string>
+    <string name="select_directory">选择目录</string>
+    <string name="checking_path">检查路径中...</string>
+    <string name="validating_repo_password">验证仓库密码中...</string>
+    <string name="initializing_repository">初始化仓库中...</string>
+    <string name="error_with_message">错误：%s</string>
+    <string name="delete_existing_repository">删除现有仓库</string>
+    <string name="repo_password_validation_failed">检测到现有仓库但密码验证失败。是否删除并重新初始化？\n路径：%s</string>
+    <string name="delete_and_reinitialize">删除并重新初始化</string>
+    <string name="cancel">取消</string>
+    <string name="restic_not_detected">没有检测到Restic</string>
 </resources>
