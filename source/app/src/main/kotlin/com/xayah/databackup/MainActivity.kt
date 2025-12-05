@@ -44,6 +44,8 @@ import com.xayah.feature.main.settings.blacklist.PageBlackList
 import com.xayah.feature.main.settings.language.PageLanguageSelector
 import com.xayah.feature.main.settings.restore.PageRestoreSettings
 import com.xayah.feature.main.settings.cache.PageCacheManagement
+import com.xayah.feature.main.settings.restic.ResticRepoPathScreen
+import com.xayah.feature.main.settings.restic.ResticPasswordScreen
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
@@ -159,6 +161,12 @@ class MainActivity : AppCompatActivity() {
                         }
                         composable(route = MainRoutes.Directory.route) {
                             PageDirectory()
+                        }
+                        composable(MainRoutes.ResticRepoPath.route) {
+                            ResticRepoPathScreen()
+                        }
+                        composable(MainRoutes.ResticPassword.route) {
+                            ResticPasswordScreen()
                         }
                     }
                 }
