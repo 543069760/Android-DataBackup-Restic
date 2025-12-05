@@ -3,6 +3,14 @@
 #include <ftw.h>
 #include <sys/stat.h>
 #include <climits>
+#include <android/log.h>  // 添加这行
+
+#define LOG_TAG "NativeLib"  // 添加这行
+#define ALOGV(...) __android_log_print(ANDROID_LOG_VERBOSE, LOG_TAG, __VA_ARGS__)  // 添加这行
+#define ALOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)    // 添加这行
+#define ALOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)     // 添加这行
+#define ALOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)     // 添加这行
+#define ALOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)    // 添加这行
 
 namespace NativeNS {
     thread_local size_t total_size{0};
@@ -17,7 +25,24 @@ extern "C" JNIEXPORT jlong JNICALL
 Java_com_xayah_libnative_NativeLib_calculateSize(JNIEnv *env, jobject, jstring path) {
     NativeNS::total_size = 0;
     const char *p_path = env->GetStringUTFChars(path, JNI_FALSE);
-    ftw(p_path, &NativeNS::on_walking, 1024);
+
+    ALOGD("Native calculateSize starting for path: %s", p_path);
+
+    // 检查路径是否存在
+    struct stat path_stat;
+    if (stat(p_path, &path_stat) == -1) {
+        ALOGE("Path does not exist or cannot access: %s (errno: %d)", p_path, errno);
+        env->ReleaseStringUTFChars(path, p_path);
+        return 0;
+    }
+
+    ALOGD("Path exists, starting ftw traversal for: %s", p_path);
+
+    int result = ftw(p_path, &NativeNS::on_walking, 1024);
+
+    ALOGD("ftw completed with result: %d, total_size: %zu", result, NativeNS::total_size);
+
+    env->ReleaseStringUTFChars(path, p_path);
     return NativeNS::total_size;
 }
 

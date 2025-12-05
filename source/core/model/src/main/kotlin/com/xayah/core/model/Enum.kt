@@ -170,4 +170,5 @@ enum class ProcessingInfoType {
     BACKUP_ITSELF,
     SAVE_ICONS,
     SET_UP_INST_ENV,
+    RESTIC_INITIALIZATION,  // 新增：Restic 初始化
 }

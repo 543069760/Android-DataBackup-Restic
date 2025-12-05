@@ -23,20 +23,32 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.padding
+// DataStore Keys
 import com.xayah.core.datastore.KeyAutoScreenOff
 import com.xayah.core.datastore.KeyMonet
+import com.xayah.core.datastore.KeyResticEnableCompression // 引入 Restic 压缩 Key
+// UI Components
 import com.xayah.core.ui.component.Clickable
 import com.xayah.core.ui.component.InnerBottomSpacer
 import com.xayah.core.ui.component.Switchable
 import com.xayah.core.ui.component.Title
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBar  // 补充导入
+// Navigation and Routing
 import com.xayah.core.ui.route.MainRoutes
+import com.xayah.core.ui.util.LocalNavController // 补充导入
+// Tokens and Utils
 import com.xayah.core.ui.token.SizeTokens
-import com.xayah.core.ui.util.LocalNavController
 import com.xayah.core.util.LanguageUtil
 import com.xayah.core.util.getActivity
 import com.xayah.core.util.navigateSingle
 import com.xayah.core.util.readMappedLanguage
+// Activities and ViewModels
 import com.xayah.feature.setup.MainActivity as SetupActivity
+import com.xayah.feature.main.settings.R
+import com.xayah.feature.main.settings.IndexViewModel // 补充导入
 
 @ExperimentalLayoutApi
 @ExperimentalAnimationApi
@@ -49,17 +61,23 @@ fun PageSettings() {
     val directoryState by viewModel.directoryState.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
 
-    SettingsScaffold(
-        scrollBehavior = scrollBehavior,
-        title = stringResource(id = R.string.settings),
-        actions = {}
-    ) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(id = R.string.settings)) },
+                scrollBehavior = scrollBehavior
+            )
+        }
+    ) { paddingValues ->  // 使用明确的参数名
         Column(
             modifier = Modifier
                 .verticalScroll(rememberScrollState())
-                .fillMaxSize(),
+                .fillMaxSize()
+                .padding(paddingValues),  // 使用 paddingValues 而不是 it
             verticalArrangement = Arrangement.spacedBy(SizeTokens.Level24)
         ) {
+
+            // --- 备份和恢复设置 ---
             Column {
                 Clickable(
                     icon = ImageVector.vectorResource(id = R.drawable.ic_rounded_acute),
@@ -77,10 +95,13 @@ fun PageSettings() {
                     title = stringResource(id = R.string.setup),
                     value = stringResource(id = R.string.enter_the_setup_page_again),
                 ) {
+                    // 重新进入设置页面（通常用于重新配置应用）
                     context.getActivity().finish()
                     context.startActivity(Intent(context, SetupActivity::class.java))
                 }
             }
+
+            // --- 外观设置 ---
             Title(title = stringResource(id = R.string.appearance)) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     Switchable(
@@ -99,6 +120,8 @@ fun PageSettings() {
                     navController.navigateSingle(MainRoutes.LanguageSettings.route)
                 }
             }
+
+            // --- 备份管理 ---
             Title(title = stringResource(id = R.string.manage_backups)) {
                 Clickable(
                     icon = Icons.Outlined.Block,
@@ -115,6 +138,31 @@ fun PageSettings() {
                     navController.navigateSingle(MainRoutes.Directory.route)
                 }
             }
+
+            // --- Restic 配置 ---
+            Title(title = stringResource(id = R.string.restic_configuration)) {
+                Clickable(
+                    title = stringResource(id = R.string.restic_repo_path),
+                    value = stringResource(id = R.string.restic_repo_path_desc),
+                ) {
+                    navController.navigateSingle(MainRoutes.ResticRepoPath.route)
+                }
+                Clickable(
+                    title = stringResource(id = R.string.restic_password),
+                    value = stringResource(id = R.string.restic_password_desc),
+                ) {
+                    navController.navigateSingle(MainRoutes.ResticPassword.route)
+                }
+                // 使用正确的 KeyResticEnableCompression 常量
+                Switchable(
+                    key = KeyResticEnableCompression,
+                    defValue = true,
+                    title = stringResource(id = R.string.restic_enable_compression),
+                    checkedText = stringResource(id = R.string.restic_enable_compression_desc),
+                )
+            }
+
+            // --- 高级设置 ---
             Title(title = stringResource(id = R.string.advanced)) {
                 Switchable(
                     key = KeyAutoScreenOff,
@@ -122,6 +170,7 @@ fun PageSettings() {
                     title = stringResource(id = R.string.auto_screen_off),
                     checkedText = stringResource(id = R.string.auto_screen_off_desc),
                 )
+
                 // 添加缓存管理入口
                 Clickable(
                     title = stringResource(id = R.string.cache_management),
@@ -142,7 +191,7 @@ fun PageSettings() {
                     navController.navigateSingle(MainRoutes.About.route)
                 }
             }
-            InnerBottomSpacer(innerPadding = it)
+            InnerBottomSpacer(innerPadding = paddingValues)
         }
     }
 }

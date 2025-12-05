@@ -6,4 +6,14 @@
     <string name="file_cache">Files Cache</string>
     <string name="refresh">Refresh</string>
     <string name="clear_all">Clear Alls</string>
+    <!-- Restic 配置字符串 -->
+    <string name="restic_configuration">Restic Configuration</string>
+    <string name="restic_repo_path">Restic Repository Path</string>
+    <string name="restic_repo_path_desc">Set the storage path for Restic backup repository</string>
+    <string name="restic_password">Restic Password</string>
+    <string name="restic_password_desc">Password for encrypting Restic repository</string>
+    <string name="restic_enable_compression">Enable Compression</string>
+    <string name="restic_enable_compression_desc">Compress backup data to save storage space</string>
+    <string name="save">Save</string>
+    <string name="restic_repo_path_default">/storage/emulated/0/Android/data/com.xayah.databackup.s3/restic</string>
 </resources>

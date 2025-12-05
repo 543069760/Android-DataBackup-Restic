@@ -35,6 +35,9 @@ data class MediaExtraInfo(
     var existed: Boolean,
     @ColumnInfo(defaultValue = "0") var isProtected: Boolean = false,  // 新增字段
     @ColumnInfo(defaultValue = "0") var isCanceled: Boolean = false,
+    // 添加 Restic 字段
+    @ColumnInfo(defaultValue = "NULL") var resticSnapshotId: String? = null,
+    @ColumnInfo(defaultValue = "NULL") var resticRepoPath: String? = null
 )
 
 @Serializable

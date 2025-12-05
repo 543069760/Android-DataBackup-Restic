@@ -29,6 +29,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
+import java.io.File
 
 @AndroidEntryPoint
 internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupService() {
@@ -104,7 +105,21 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
             return
         }
 
+        // 新增：在压缩完成后使用 Restic 进行块备份
         if (result.isSuccess && t.get(type).state != OperationState.SKIP) {
+            // 查找压缩文件
+            val compressedFile = findCompressedFile(dstDir, type)
+            if (compressedFile != null) {
+                // 调用 Restic 备份
+                val resticSuccess = backupWithRestic(p.packageName, compressedFile)
+                if (resticSuccess) {
+                    log { "Restic backup successful for ${p.packageName} $type" }
+                } else {
+                    log { "Restic backup failed for ${p.packageName} $type" }
+                }
+            }
+
+            // 原有的上传逻辑
             mPackagesBackupUtil.upload(
                 client = mClient,
                 p = p,
@@ -115,8 +130,22 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                 isCanceled = { isCanceled() }
             )
         }
+
         t.update(dataType = type, progress = 1f)
         t.update(processingIndex = t.processingIndex + 1)
+    }
+
+    // 辅助方法：查找压缩文件
+    private fun findCompressedFile(dstDir: String, dataType: DataType): File? {
+        return when (dataType) {
+            DataType.PACKAGE_APK -> File("$dstDir/${DataType.PACKAGE_APK.type}.tar.zst")
+            DataType.PACKAGE_USER -> File("$dstDir/${DataType.PACKAGE_USER.type}.tar.zst")
+            DataType.PACKAGE_USER_DE -> File("$dstDir/${DataType.PACKAGE_USER_DE.type}.tar.zst")
+            DataType.PACKAGE_DATA -> File("$dstDir/${DataType.PACKAGE_DATA.type}.tar.zst")
+            DataType.PACKAGE_OBB -> File("$dstDir/${DataType.PACKAGE_OBB.type}.tar.zst")
+            DataType.PACKAGE_MEDIA -> File("$dstDir/${DataType.PACKAGE_MEDIA.type}.tar.zst")
+            else -> null
+        }.takeIf { it?.exists() == true }
     }
 
     override suspend fun onConfigSaved(path: String, archivesRelativeDir: String) {
@@ -200,10 +229,33 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
             }
         }
 
-        // 4. 清理相关的 uploadId
+        // 清理相关的 uploadId
         log { "Cleaning up uploadId records for timestamp: $timestamp" }
         runCatching {
-            mUploadIdDao.deleteByTimestamp(timestamp)
+            val allUploadIds = mUploadIdDao.getAll()
+            allUploadIds.forEach { uploadIdEntity ->
+                // 检查 uploadId 是否属于本次备份
+                val belongsToThisBackup = mPkgEntities.any { pkg ->
+                    val remoteAppDir = getRemoteAppDir(pkg.packageEntity.archivesRelativeDir)
+                    uploadIdEntity.key.startsWith(remoteAppDir)
+                }
+
+                if (belongsToThisBackup) {
+                    log { "Aborting multipart upload: ${uploadIdEntity.uploadId} for key: ${uploadIdEntity.key}" }
+                    runCatching {
+                        if (mClient is S3ClientImpl) {
+                            (mClient as S3ClientImpl).abortMultipartUpload(
+                                bucket = uploadIdEntity.bucket,
+                                key = uploadIdEntity.key,
+                                uploadId = uploadIdEntity.uploadId
+                            )
+                        }
+                        mUploadIdDao.deleteById(uploadIdEntity.id)
+                    }.onFailure { e ->
+                        log { "Failed to abort upload ${uploadIdEntity.uploadId}: ${e.message}" }
+                    }
+                }
+            }
         }.onSuccess {
             log { "Successfully cleaned up uploadId records" }
         }.onFailure { e ->
@@ -212,104 +264,6 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
     }
 
     override suspend fun onItselfSaved(path: String, entity: ProcessingInfoEntity) {
-        entity.update(state = OperationState.UPLOADING)
-        var flag = true
-        var progress = 0f
-        var speed = 0L
-        var lastBytes = 0L
-        var lastTime = System.currentTimeMillis()
-
-        with(CoroutineScope(coroutineContext)) {
-            launch {
-                while (flag) {
-                    val speedText = if (speed > 0) speed.formatToStorageSizePerSecond() else ""
-                    val content = if (speedText.isNotEmpty()) {
-                        "$speedText | ${(progress * 100).toInt()}%"
-                    } else {
-                        "${(progress * 100).toInt()}%"
-                    }
-                    entity.update(content = content)
-                    delay(300)
-                }
-            }
-        }
-
-        mCloudRepo.upload(
-            client = mClient,
-            src = path,
-            dstDir = mRemotePath,
-            onUploading = { read, total ->
-                progress = read.toFloat() / total
-                val currentTime = System.currentTimeMillis()
-                val timeDiff = currentTime - lastTime
-                if (timeDiff >= 300) {
-                    val bytesDiff = read - lastBytes
-                    speed = if (timeDiff > 0) (bytesDiff * 1000 / timeDiff) else 0L
-                    lastTime = currentTime
-                    lastBytes = read
-                }
-            },
-            isCanceled = { isCanceled() }
-        ).apply {
-            flag = false
-            entity.update(
-                state = if (isSuccess) OperationState.DONE else OperationState.ERROR,
-                log = if (isSuccess) null else outString,
-                content = "100%"
-            )
-        }
-    }
-
-    override suspend fun onIconsSaved(path: String, entity: ProcessingInfoEntity) {
-        entity.update(state = OperationState.UPLOADING)
-        var flag = true
-        var progress = 0f
-        var speed = 0L
-        var lastBytes = 0L
-        var lastTime = System.currentTimeMillis()
-
-        with(CoroutineScope(coroutineContext)) {
-            launch {
-                while (flag) {
-                    val speedText = if (speed > 0) speed.formatToStorageSizePerSecond() else ""
-                    val content = if (speedText.isNotEmpty()) {
-                        "$speedText | ${(progress * 100).toInt()}%"
-                    } else {
-                        "${(progress * 100).toInt()}%"
-                    }
-                    entity.update(content = content)
-                    delay(500)
-                }
-            }
-        }
-
-        mCloudRepo.upload(
-            client = mClient,
-            src = path,
-            dstDir = mRemoteConfigsDir,
-            onUploading = { read, total ->
-                progress = read.toFloat() / total
-                val currentTime = System.currentTimeMillis()
-                val timeDiff = currentTime - lastTime
-                if (timeDiff >= 500) {
-                    val bytesDiff = read - lastBytes
-                    speed = if (timeDiff > 0) (bytesDiff * 1000 / timeDiff) else 0L
-                    lastTime = currentTime
-                    lastBytes = read
-                }
-            },
-            isCanceled = { isCanceled() }
-        ).apply {
-            flag = false
-            entity.update(
-                state = if (isSuccess) OperationState.DONE else OperationState.ERROR,
-                log = if (isSuccess) null else outString,
-                content = "100%"
-            )
-        }
-    }
-
-    override suspend fun onConfigsSaved(path: String, entity: ProcessingInfoEntity) {
         entity.update(state = OperationState.UPLOADING)
         var flag = true
         var progress = 0f

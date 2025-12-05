@@ -27,6 +27,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
+import java.io.File
 
 @AndroidEntryPoint
 internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupService() {
@@ -99,6 +100,21 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
             return
         }
 
+        // 新增：在压缩完成后使用 Restic 进行块备份
+        if (result.isSuccess && t.mediaInfo.state != OperationState.SKIP) {
+            // 查找压缩文件
+            val compressedFile = findCompressedFile(dstDir)
+            if (compressedFile != null) {
+                // 调用 Restic 备份
+                val resticSuccess = backupWithRestic(m.name, compressedFile)
+                if (resticSuccess) {
+                    log { "Restic backup successful for ${m.name}" }
+                } else {
+                    log { "Restic backup failed for ${m.name}" }
+                }
+            }
+        }
+
         if (t.mediaInfo.state != OperationState.SKIP) {
             mMediumBackupUtil.upload(
                 client = mClient,
@@ -113,6 +129,11 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
         t.update(processingIndex = t.processingIndex + 1)
     }
 
+    // 辅助方法：查找压缩文件
+    private fun findCompressedFile(dstDir: String): File? {
+        return File("$dstDir/media.tar.zst").takeIf { it.exists() }
+    }
+
     override suspend fun onConfigSaved(path: String, archivesRelativeDir: String) {
         mCloudRepo.upload(
             client = mClient,
@@ -124,21 +145,17 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
     }
 
     override suspend fun onCleanupFailedBackup(archivesRelativeDir: String) {
-        val remoteFileDir = getRemoteFileDir(archivesRelativeDir)  // 使用 getRemoteFileDir 而不是 getRemoteAppDir
+        val remoteFileDir = getRemoteFileDir(archivesRelativeDir)
         log { "Cleaning up failed backup at: $remoteFileDir" }
 
         runCatching {
-            // 1. 删除已完成上传的对象(使用现有的 deleteRecursively)
             mClient.deleteRecursively(remoteFileDir)
 
-            // 2. 清理未完成的分块上传
             val allUploadIds = mUploadIdDao.getAll()
             allUploadIds.forEach { uploadIdEntity ->
                 if (uploadIdEntity.key.startsWith(remoteFileDir)) {
                     runCatching {
-                        // 需要直接访问 S3ClientImpl 的方法
                         if (mClient is S3ClientImpl) {
-                            // 调用 S3 API 中止分块上传
                             (mClient as S3ClientImpl).abortMultipartUpload(
                                 uploadIdEntity.bucket,
                                 uploadIdEntity.key,
@@ -163,15 +180,12 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
 
         val timestamp = mBackupTimestamp
 
-        // 1. 删除远程文件并标记/删除数据库记录 - 只处理未完成的媒体(index >= currentIndex)
         mMediaEntities.forEachIndexed { index, media ->
             val m = media.mediaEntity
-            // 只删除时间戳匹配且状态不是 DONE 的媒体
             if (index >= currentIndex - 1 && media.mediaEntity.indexInfo.backupTimestamp == timestamp) {
                 val remoteFileDir = getRemoteFileDir(m.archivesRelativeDir)
                 log { "Cleaning up incomplete backup: ${m.name} at $remoteFileDir" }
 
-                // 删除远程文件
                 runCatching {
                     mClient.deleteRecursively(remoteFileDir)
                 }.onSuccess {
@@ -180,7 +194,6 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                     log { "Failed to cleanup: ${e.message}" }
                 }
 
-                // 标记和删除数据库记录
                 runCatching {
                     mMediaDao.markAsCanceledByTimestamp(timestamp, m.name)
                     mMediaDao.deleteCanceledByTimestamp(timestamp, OpType.RESTORE, m.name)
@@ -192,12 +205,10 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
             }
         }
 
-        // 2. 清理相关的 uploadId
         log { "Cleaning up uploadId records for timestamp: $timestamp" }
         runCatching {
             val allUploadIds = mUploadIdDao.getAll()
             allUploadIds.forEach { uploadIdEntity ->
-                // 检查 uploadId 是否属于本次备份
                 val belongsToThisBackup = mMediaEntities.any { media ->
                     val remoteFileDir = getRemoteFileDir(media.mediaEntity.archivesRelativeDir)
                     uploadIdEntity.key.startsWith(remoteFileDir)

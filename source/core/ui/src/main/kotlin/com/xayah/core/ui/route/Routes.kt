@@ -50,6 +50,8 @@ sealed class MainRoutes(val route: String) {
     data object RestoreSettings : MainRoutes(route = "main_restore_settings")
     data object LanguageSettings : MainRoutes(route = "main_language_settings")
     data object BlackList : MainRoutes(route = "main_blacklist")
+    data object ResticRepoPath : MainRoutes(route = "main_settings_restic_repo_path")
+    data object ResticPassword : MainRoutes(route = "main_settings_restic_password")
     data object Configurations : MainRoutes(route = "main_configurations")
     data object About : MainRoutes(route = "main_about")
     data object Translators : MainRoutes(route = "main_translators")

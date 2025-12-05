@@ -286,4 +286,16 @@ object DatabaseMigrations {
             )
         }
     }
+
+    val MIGRATION_10_11 = object : Migration(10, 11) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            // PackageEntity字段
+            database.execSQL("ALTER TABLE PackageEntity ADD COLUMN resticSnapshotId TEXT")
+            database.execSQL("ALTER TABLE PackageEntity ADD COLUMN resticRepoPath TEXT")
+
+            // MediaEntity字段
+            database.execSQL("ALTER TABLE MediaEntity ADD COLUMN extraInfo_resticSnapshotId TEXT")
+            database.execSQL("ALTER TABLE MediaEntity ADD COLUMN extraInfo_resticRepoPath TEXT")
+        }
+    }
 }

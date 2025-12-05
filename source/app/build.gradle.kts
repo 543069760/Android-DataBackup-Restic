@@ -1,11 +1,31 @@
 import com.android.build.gradle.internal.api.BaseVariantOutputImpl
 
+
 plugins {
     alias(libs.plugins.application.common)
     alias(libs.plugins.application.hilt)
     alias(libs.plugins.application.hilt.work)
     alias(libs.plugins.application.compose)
     alias(libs.plugins.refine)
+}
+
+// 在 android 块之前添加下载任务
+tasks.register("downloadResticBinaries") {
+    doLast {
+        if (System.getProperty("os.name").lowercase().contains("windows")) {
+            // Windows环境使用PowerShell下载
+            exec {
+                commandLine = listOf("powershell", "-File", "../build/download_restic.ps1")
+                workingDir = projectDir
+            }
+        } else {
+            // Unix环境使用shell脚本
+            exec {
+                commandLine = listOf("bash", "../build/download_restic.sh")
+                workingDir = projectDir
+            }
+        }
+    }
 }
 
 android {
@@ -121,6 +141,7 @@ dependencies {
     compileOnly(project(":core:hiddenapi"))
     implementation(project(":core:rootservice"))
     implementation(project(":core:network"))
+    implementation(project(":core:restic"))
 
     // Feature
     implementation(project(":feature:crash"))

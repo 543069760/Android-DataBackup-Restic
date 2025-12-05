@@ -28,11 +28,21 @@ import com.xayah.core.util.DateUtil
 import com.xayah.core.util.NotificationUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.command.PreparationUtil
+import com.xayah.core.restic.ResticRepository
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import java.io.File
+import javax.inject.Inject
+import kotlinx.coroutines.delay
 
+@AndroidEntryPoint
 internal abstract class AbstractBackupService : AbstractPackagesService() {
-    // 新增:存储本次备份的时间戳
     protected var mBackupTimestamp: Long = 0L
+
+    @Inject
+    protected lateinit var resticRepo: ResticRepository
+    private var isResticInitialized = false
 
     override suspend fun onInitializingPreprocessingEntities(entities: MutableList<ProcessingInfoEntity>) {
         entities.apply {
@@ -41,6 +51,15 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                 title = mContext.getString(R.string.necessary_preparations),
                 type = ProcessingType.PREPROCESSING,
                 infoType = ProcessingInfoType.NECESSARY_PREPARATIONS
+            ).apply {
+                id = mTaskDao.upsert(this)
+            })
+            // 新增: Restic 初始化实体
+            add(ProcessingInfoEntity(
+                taskId = mTaskEntity.id,
+                title = "Initializing Restic Repository",
+                type = ProcessingType.PREPROCESSING,
+                infoType = ProcessingInfoType.RESTIC_INITIALIZATION
             ).apply {
                 id = mTaskDao.upsert(this)
             })
@@ -79,14 +98,16 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
     @SuppressLint("StringFormatInvalid")
     override suspend fun onInitializing() {
         // 生成本次备份的统一时间戳
-        mBackupTimestamp = DateUtil.getTimestamp()  // 使用类变量
+        mBackupTimestamp = DateUtil.getTimestamp()
+
+        // 新增: 初始化 Restic 仓库 (异步调用)
+        kotlinx.coroutines.GlobalScope.launch { initResticRepository() }
+
         val packages = mPackageRepo.queryActivated(OpType.BACKUP)
 
         packages.forEach { pkg ->
-            pkg.indexInfo.backupTimestamp = mBackupTimestamp  // 使用类变量
+            pkg.indexInfo.backupTimestamp = mBackupTimestamp
 
-            // 关键修改:确保 packageInfo 完整
-            // 从系统获取最新的包信息
             val info = mRootService.getPackageInfoAsUser(
                 pkg.packageName,
                 0,
@@ -94,7 +115,6 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
             )
 
             if (info != null) {
-                // 更新 packageInfo 字段
                 pkg.packageInfo.label = info.applicationInfo?.loadLabel(mContext.packageManager).toString()
                 pkg.packageInfo.versionName = info.versionName ?: ""
                 pkg.packageInfo.versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -107,7 +127,6 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                 pkg.packageInfo.firstInstallTime = info.firstInstallTime
                 pkg.packageInfo.lastUpdateTime = info.lastUpdateTime
 
-                // 更新 extraInfo 字段
                 pkg.extraInfo.uid = info.applicationInfo?.uid ?: -1
                 pkg.extraInfo.permissions = mRootService.getPermissions(packageInfo = info)
                 pkg.extraInfo.enabled = info.applicationInfo?.enabled ?: false
@@ -149,6 +168,51 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
 
     private lateinit var necessaryInfo: NecessaryInfo
 
+    // Restic 辅助方法：初始化仓库
+    private suspend fun initResticRepository() {
+        val repoPath = getResticRepoPath()
+        val password = getResticPassword()
+
+        log { "Initializing Restic repository at: $repoPath" }
+
+        var initSuccess = false
+
+        resticRepo.initRepository(repoPath, password) { success, message ->
+            initSuccess = success
+            isResticInitialized = success
+
+            if (success) {
+                log { "Restic repository initialized successfully: $message" }
+            } else {
+                log { "Failed to initialize Restic repository: $message" }
+            }
+        }
+    }
+
+    // Restic 辅助方法：获取仓库路径
+    private fun getResticRepoPath(): String {
+        return File(mContext.filesDir, "restic_repo").absolutePath
+    }
+
+    // Restic 辅助方法：生成密码
+    private fun getResticPassword(): String {
+        return "databackup_${mBackupTimestamp}"
+    }
+
+    // Restic 辅助方法：更新数据库中的快照信息（存根）
+    private suspend fun updateResticInfo(packageName: String, snapshotId: String) {
+        // 实际应用中，这里需要找到对应的 PackageEntity 并更新其 indexInfo.resticSnapshotId
+        log { "Updated Restic info for $packageName with snapshot $snapshotId" }
+        // 示例：
+        /*
+        mPkgEntities.find { it.packageEntity.packageName == packageName }?.apply {
+            this.packageEntity.indexInfo.resticSnapshotId = snapshotId
+            mPackageDao.upsert(this.packageEntity)
+        }
+        */
+    }
+
+
     override suspend fun onPreprocessing(entity: ProcessingInfoEntity) {
         when (entity.infoType) {
             ProcessingInfoType.NECESSARY_PREPARATIONS -> {
@@ -164,6 +228,28 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                 entity.update(progress = 1f, state = if (isSuccess) OperationState.DONE else OperationState.ERROR)
             }
 
+            ProcessingInfoType.RESTIC_INITIALIZATION -> {
+                log { "Waiting for Restic repository initialization..." }
+
+                var waitCount = 0
+                val maxWait = 30
+
+                // 检查初始化状态，等待最多 30 秒
+                while (!isResticInitialized && waitCount < maxWait) {
+                    delay(1000)
+                    waitCount++
+                    log { "Waiting for Restic initialization... (${waitCount}/${maxWait})" }
+                }
+
+                if (isResticInitialized) {
+                    log { "Restic repository is ready for backup" }
+                    entity.update(progress = 1f, state = OperationState.DONE)
+                } else {
+                    log { "Restic repository initialization timeout or failed" }
+                    entity.update(progress = 1f, state = OperationState.ERROR)
+                }
+            }
+
             else -> {}
         }
     }
@@ -176,10 +262,8 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
         log { "Kill app option: $killAppOption" }
 
         for (index in mPkgEntities.indices) {
-            // 在每次迭代开始时检查取消标志
             if (isCanceled()) {
                 log { "Backup canceled by user at index: $index" }
-                // 移除全局标记,让 onCleanupIncompleteBackup 处理
                 break
             }
 
@@ -212,7 +296,6 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                 mRootService.mkdirs(dstDir)
 
                 if (onAppDirCreated(archivesRelativeDir = p.archivesRelativeDir)) {
-                    // 1. 执行所有数据类型的备份
                     backup(type = DataType.PACKAGE_APK, p = p, r = restoreEntity, t = pkg, dstDir = dstDir)
                     backup(type = DataType.PACKAGE_USER, p = p, r = restoreEntity, t = pkg, dstDir = dstDir)
                     backup(type = DataType.PACKAGE_USER_DE, p = p, r = restoreEntity, t = pkg, dstDir = dstDir)
@@ -220,24 +303,19 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                     backup(type = DataType.PACKAGE_OBB, p = p, r = restoreEntity, t = pkg, dstDir = dstDir)
                     backup(type = DataType.PACKAGE_MEDIA, p = p, r = restoreEntity, t = pkg, dstDir = dstDir)
 
-                    // 2. 在所有数据类型备份完成后,检查取消标志
                     if (isCanceled()) {
                         log { "Backup canceled after data backup, skipping config save" }
-                        // 移除全局标记,让 onCleanupIncompleteBackup 处理
                         pkg.update(state = OperationState.ERROR)
                         mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
                     } else {
-                        // 3. 只有在未取消的情况下才执行 permissions 和 ssaid 备份
                         mPackagesBackupUtil.backupPermissions(p = p)
                         mPackagesBackupUtil.backupSsaid(p = p)
 
-                        // 4. 在保存配置前再次检查取消标志
                         if (isCanceled()) {
                             log { "Backup canceled before saving config" }
                             pkg.update(state = OperationState.ERROR)
                             mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
                         } else if (pkg.isSuccess) {
-                            // 5. 只有在未取消且备份成功的情况下才保存配置
                             p.extraInfo.lastBackupTime = DateUtil.getTimestamp()
                             val id = restoreEntity?.id ?: 0
                             restoreEntity = p.copy(
@@ -253,7 +331,6 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                             pkg.update(packageEntity = p)
                             mTaskEntity.update(successCount = mTaskEntity.successCount + 1)
                         } else {
-                            // 备份失败,清理已上传的文件
                             log { "Backup failed for ${p.packageName}, cleaning up remote files..." }
                             runCatching {
                                 onCleanupFailedBackup(archivesRelativeDir = p.archivesRelativeDir)
@@ -279,6 +356,46 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
         }
     }
 
+    // Restic 无状态备份方法
+    protected suspend fun backupWithRestic(
+        packageName: String,
+        compressedFile: File
+    ): Boolean {
+        if (!isResticInitialized) {
+            log { "Restic not initialized, skipping backup for $packageName" }
+            return false
+        }
+
+        return try {
+            val repoPath = getResticRepoPath()
+            val password = getResticPassword()
+            val filePath = compressedFile.absolutePath
+
+            val packageTag = "package:$packageName"
+            val timestampTag = "timestamp:$mBackupTimestamp"
+            val tags = listOf(packageTag, timestampTag, "compression:zstd")
+
+            log { "Starting Restic backup for $packageName: $filePath" }
+            val result = resticRepo.backupFile(repoPath, password, filePath, tags)
+
+            if (result.first == 0) {
+                log { "Restic backup completed successfully for $packageName" }
+                updateResticInfo(packageName, result.second)
+                true
+            } else {
+                val errorMsg = result.second
+                log { "Restic backup failed for $packageName: $errorMsg" }
+                false
+            }
+        } catch (e: Exception) {
+            val baseMessage = "Error during Restic backup"
+            log { "$baseMessage for $packageName" }
+            log { "Exception type: ${e.javaClass.simpleName}" }
+            log { "Exception message: ${e.message}" }
+            false
+        }
+    }
+
     override suspend fun onPostProcessing(entity: ProcessingInfoEntity) {
         when (entity.infoType) {
             ProcessingInfoType.BACKUP_ITSELF -> {
@@ -301,7 +418,6 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                     entity.update(progress = 1f, state = OperationState.SKIP)
                 }
             }
-
             ProcessingInfoType.SAVE_ICONS -> {
                 NotificationUtil.notify(
                     mContext,

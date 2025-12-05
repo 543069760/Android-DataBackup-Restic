@@ -194,4 +194,12 @@ interface MediaDao {
 
     @Update(MediaEntity::class)
     suspend fun update(item: MediaEntity)
+
+    @Query(
+        "UPDATE MediaEntity" +
+                " SET extraInfo_resticSnapshotId = :snapshotId," +
+                " extraInfo_resticRepoPath = :repoPath" +
+                " WHERE id = :id"
+    )
+    suspend fun updateResticInfo(id: Long, snapshotId: String?, repoPath: String?)
 }

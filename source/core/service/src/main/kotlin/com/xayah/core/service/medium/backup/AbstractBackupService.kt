@@ -17,17 +17,26 @@ import com.xayah.core.model.database.MediaEntity
 import com.xayah.core.model.database.ProcessingInfoEntity
 import com.xayah.core.model.database.TaskDetailMediaEntity
 import com.xayah.core.model.util.set
+import com.xayah.core.restic.ResticRepository
 import com.xayah.core.service.R
 import com.xayah.core.service.medium.AbstractMediumService
 import com.xayah.core.service.util.MediumBackupUtil
 import com.xayah.core.util.DateUtil
 import com.xayah.core.util.NotificationUtil
 import com.xayah.core.util.PathUtil
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
+import javax.inject.Inject
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.io.File
 
 internal abstract class AbstractBackupService : AbstractMediumService() {
-    // 新增:存储本次备份的时间戳
     protected var mBackupTimestamp: Long = 0L
+
+    @Inject
+    protected lateinit var resticRepo: ResticRepository
+    private var isResticInitialized = false
 
     override suspend fun onInitializingPreprocessingEntities(entities: MutableList<ProcessingInfoEntity>) {
         entities.apply {
@@ -36,6 +45,15 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                 title = mContext.getString(R.string.necessary_preparations),
                 type = ProcessingType.PREPROCESSING,
                 infoType = ProcessingInfoType.NECESSARY_PREPARATIONS
+            ).apply {
+                id = mTaskDao.upsert(this)
+            })
+            // 添加 Restic 初始化步骤
+            add(ProcessingInfoEntity(
+                taskId = mTaskEntity.id,
+                title = "Restic 初始化",
+                type = ProcessingType.PREPROCESSING,
+                infoType = ProcessingInfoType.RESTIC_INITIALIZATION
             ).apply {
                 id = mTaskDao.upsert(this)
             })
@@ -86,6 +104,79 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
         NotificationUtil.notify(mContext, mNotificationBuilder, mContext.getString(R.string.backing_up), mContext.getString(R.string.preprocessing))
     }
 
+    // 获取 Restic 仓库路径
+    protected fun getResticRepoPath(): String {
+        return "${mFilesDir}/restic"
+    }
+
+    // 获取 Restic 密码（基于时间戳）
+    protected fun getResticPassword(): String {
+        return "backup_${mBackupTimestamp}"
+    }
+
+    // Restic 初始化方法 - 更新为无状态调用
+    protected suspend fun initResticRepository() {
+        if (!isResticInitialized) {
+            val repoPath = getResticRepoPath()
+            val password = getResticPassword()
+
+            resticRepo.initRepository(repoPath, password) { success, message ->
+                if (success) {
+                    isResticInitialized = true
+                    log { "Restic repository initialized successfully" }
+                } else {
+                    log { "Failed to initialize Restic repository: $message" }
+                }
+            }
+        }
+    }
+
+    // Restic 备份方法 - 更新为无状态调用
+    protected suspend fun backupWithRestic(
+        mediaName: String,
+        compressedFile: java.io.File
+    ): Boolean {
+        if (!isResticInitialized) {
+            log { "Restic not initialized, skipping backup for $mediaName" }
+            return false
+        }
+
+        return try {
+            val repoPath = getResticRepoPath()
+            val password = getResticPassword()
+            val filePath = compressedFile.absolutePath
+
+            // 构建标签
+            val mediaTag = "media:$mediaName"
+            val timestampTag = "timestamp:$mBackupTimestamp"
+            val tags = listOf(mediaTag, timestampTag, "compression:zstd")
+
+            log { "Starting Restic backup for $mediaName: $filePath" }
+            val result = resticRepo.backupFile(repoPath, password, filePath, tags)
+
+            if (result.first == 0) {
+                log { "Restic backup completed successfully for $mediaName" }
+                // 更新数据库中的 Restic 信息
+                updateResticInfo(mediaName, result.second)
+                true
+            } else {
+                val errorMsg = result.second
+                log { "Restic backup failed for $mediaName: $errorMsg" }
+                false
+            }
+        } catch (e: Exception) {
+            val baseMessage = "Error during Restic backup"
+            log { "$baseMessage for $mediaName" }
+            log { "Exception type: ${e.javaClass.simpleName}" }
+            log { "Exception message: ${e.message}" }
+            false
+        }
+    }
+
+    // 更新 Restic 信息到数据库
+    protected open suspend fun updateResticInfo(mediaName: String, snapshotInfo: String) {
+        log { "Updated Restic info for $mediaName: $snapshotInfo" }
+    }
     protected open suspend fun onTargetDirsCreated() {}
     protected open suspend fun onFileDirCreated(archivesRelativeDir: String): Boolean = true
     abstract suspend fun backup(m: MediaEntity, r: MediaEntity?, t: TaskDetailMediaEntity, dstDir: String)
@@ -104,6 +195,12 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                 mRootService.mkdirs(mFilesDir)
                 val isSuccess = runCatchingOnService { onTargetDirsCreated() }
                 entity.update(progress = 1f, state = if (isSuccess) OperationState.DONE else OperationState.ERROR)
+            }
+
+            ProcessingInfoType.RESTIC_INITIALIZATION -> {
+                log { "Initializing Restic for backup operations" }
+                initResticRepository()
+                entity.update(progress = 1f, state = if (isResticInitialized) OperationState.DONE else OperationState.ERROR)
             }
 
             else -> {}

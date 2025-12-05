@@ -239,4 +239,12 @@ interface PackageDao {
 
     @Query("DELETE FROM PackageEntity WHERE indexInfo_backupDir = :backupDir")
     suspend fun delete(backupDir: String)
+
+    @Query(
+        "UPDATE PackageEntity" +
+                " SET resticSnapshotId = :snapshotId," +
+                " resticRepoPath = :repoPath" +
+                " WHERE id = :id"
+    )
+    suspend fun updateResticInfo(id: Long, snapshotId: String?, repoPath: String?)
 }

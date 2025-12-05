@@ -8,6 +8,7 @@ import com.xayah.core.model.SelectionType
 import com.xayah.core.model.ThemeType
 import com.xayah.core.model.util.of
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first // <-- 修复 2：导入 first()
 
 // -----------------------------------------Keys-----------------------------------------
 val KeyBackupSavePath = stringPreferencesKey("backup_save_path")
@@ -19,6 +20,8 @@ val KeyThemeType = stringPreferencesKey("theme_type")
 val KeyCustomSUFile = stringPreferencesKey("custom_su_file")
 val KeyKillAppOption = stringPreferencesKey("kill_app_option")
 val KeyLanguage = stringPreferencesKey("language")
+val KeyResticRepoPath = stringPreferencesKey("restic_repo_path")
+val KeyResticPassword = stringPreferencesKey("restic_password")
 
 
 // -----------------------------------------Read-----------------------------------------
@@ -30,6 +33,11 @@ fun Context.readSelectionType() = readStoreString(key = KeySelectionType, defVal
 fun Context.readThemeType() = readStoreString(key = KeyThemeType, defValue = "").map { ThemeType.of(it) }
 fun Context.readKillAppOption() = readStoreString(key = KeyKillAppOption, defValue = "").map { KillAppOption.of(it) }
 fun Context.readLanguage() = readStoreString(key = KeyLanguage, defValue = ConstantUtil.LANGUAGE_SYSTEM)
+
+// 修复 1：将 defValue = null 改为 defValue = ""。
+// .first() 后的 .takeIf { it.isNotEmpty() } 将 "" 转换回 null，从而实现 String? 的返回。
+suspend fun Context.readResticRepoPath(): String? = readStoreString(key = KeyResticRepoPath, defValue = "").first().takeIf { it.isNotEmpty() }
+suspend fun Context.readResticPassword(): String? = readStoreString(key = KeyResticPassword, defValue = "").first().takeIf { it.isNotEmpty() }
 
 /**
  * The final path for saving the backup.
@@ -50,3 +58,5 @@ suspend fun Context.saveBackupSavePath(value: String) = saveStoreString(key = Ke
 suspend fun Context.saveCustomSUFile(value: String) = saveStoreString(key = KeyCustomSUFile, value = value.trim())
 suspend fun Context.saveKillAppOption(value: KillAppOption) = saveStoreString(key = KeyKillAppOption, value = value.name.trim())
 suspend fun Context.saveLanguage(value: String) = saveStoreString(key = KeyLanguage, value = value.trim())
+suspend fun Context.saveResticRepoPath(value: String) = saveStoreString(key = KeyResticRepoPath, value = value)
+suspend fun Context.saveResticPassword(value: String) = saveStoreString(key = KeyResticPassword, value = value)

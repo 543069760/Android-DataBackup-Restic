@@ -180,7 +180,10 @@ data class PackageEntity(
     @Embedded(prefix = "dataStates_") var dataStates: PackageDataStates,         // Selections
     @Embedded(prefix = "storageStats_") var storageStats: PackageStorageStats,   // Storage stats from system api
     @Embedded(prefix = "dataStats_") var dataStats: PackageDataStats,            // Storage stats for backing up
-    @Embedded(prefix = "displayStats_") var displayStats: PackageDataStats,      // Storage stats for display
+    @Embedded(prefix = "displayStats_") var displayStats: PackageDataStats,
+    // 新增 Restic 相关字段
+    @ColumnInfo(name = "resticSnapshotId") var resticSnapshotId: String? = null,
+    @ColumnInfo(name = "resticRepoPath") var resticRepoPath: String? = null  // Storage stats for display
 ) {
     val packageName: String
         get() = indexInfo.packageName
