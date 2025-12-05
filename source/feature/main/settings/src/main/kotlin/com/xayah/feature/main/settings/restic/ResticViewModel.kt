@@ -19,6 +19,7 @@ import com.xayah.core.ui.viewmodel.IndexUiEffect
 import com.xayah.core.ui.viewmodel.UiIntent
 import com.xayah.core.ui.viewmodel.UiState
 import com.xayah.core.rootservice.service.RemoteRootService
+import com.xayah.core.util.command.SELinux
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -227,11 +228,18 @@ class ResticViewModel @Inject constructor(
                 // 2. 设置目录权限
                 rootService.setAllPermissions(repoPath)
 
-                // 3. 初始化Restic仓库
+                // 3. 设置SELinux上下文（新增）
+                SELinux.getContext(path = repoPath).also { result ->
+                    val pathContext = if (result.isSuccess) result.outString else ""
+                    SELinux.chcon(context = pathContext, path = repoPath)
+                    val uidGid = context.applicationInfo.uid.toUInt()
+                    SELinux.chown(uid = uidGid, gid = uidGid, path = repoPath)
+                }
+
+                // 4. 初始化Restic仓库
                 val success = resticRepo.initRepository(repoPath, password) { success, message ->
                     initSuccess = success
                     if (success) {
-                        // 保存初始化状态
                         viewModelScope.launch {
                             saveInitializationState(repoPath, password)
                         }
