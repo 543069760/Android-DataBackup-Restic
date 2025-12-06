@@ -37,6 +37,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.material3.MaterialTheme
 import com.xayah.core.model.OpType
 import com.xayah.core.model.Target
 import com.xayah.core.model.database.PackageEntity
@@ -96,6 +97,7 @@ fun LazyListScope.listItems(
                         isProtected = item.isProtected,
                         flag = item.selectionFlag,
                         selected = item.selected,
+                        resticSnapshotId = item.resticSnapshotId,
                         onClick = {
                             navController.navigateSingle(MainRoutes.Details.getRoute(Target.Apps, uiState.opType, item.id))
                         },
@@ -142,6 +144,7 @@ fun AppItem(
     isProtected: Boolean,
     flag: Int,
     selected: Boolean,
+    resticSnapshotId: String?,
     onChangeFlag: (Long, Int) -> Unit,
     onSelectedChanged: (Long, Boolean) -> Unit,
     onClick: () -> Unit,
@@ -179,6 +182,15 @@ fun AppItem(
                         ),
                         color = ThemedColorSchemeKeyTokens.Outline.value,
                         maxLines = 1
+                    )
+                }
+
+                // 显示快照ID（如果有）
+                if (resticSnapshotId != null) {
+                    Text(
+                        text = "快照: ${resticSnapshotId.substring(0, 5)}...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

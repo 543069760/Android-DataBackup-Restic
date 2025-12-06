@@ -3,6 +3,7 @@ package com.xayah.feature.main.details
 import android.content.Context
 import android.content.pm.PackageManager
 import android.widget.Toast
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -25,6 +26,9 @@ import com.xayah.core.util.LogUtil
 import com.xayah.core.util.module.combine
 import com.xayah.core.util.launchOnDefault
 import com.xayah.core.util.withMainContext
+import com.xayah.core.restic.ResticRepository
+import com.xayah.core.restic.ResticSnapshot
+import com.xayah.core.datastore.readResticPassword
 import com.xayah.feature.main.details.DetailsUiState.Error
 import com.xayah.feature.main.details.DetailsUiState.Loading
 import com.xayah.feature.main.details.DetailsUiState.Success
@@ -36,6 +40,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
 import javax.inject.Inject
 
@@ -47,6 +52,7 @@ class DetailsViewModel @Inject constructor(
     private val appsRepo: AppsRepo,
     private val filesRepo: FilesRepo,
     private val labelsRepo: LabelsRepo,
+    private val resticRepo: ResticRepository,
 ) : ViewModel() {
     private val id: Long = savedStateHandle.get<String>(MainRoutes.ARG_ID)?.toLongOrNull() ?: 0L
     private val target: Target = Target.valueOf(savedStateHandle.get<String>(MainRoutes.ARG_TARGET)!!.decodeURL().trim())
@@ -330,6 +336,31 @@ class DetailsViewModel @Inject constructor(
         }
     }
 
+    // 添加快照详情状态
+    private val _snapshotDetailState = MutableStateFlow<ResticSnapshot?>(null)
+    val snapshotDetailState: StateFlow<ResticSnapshot?> = _snapshotDetailState.asStateFlow()
+
+    // 获取快照详情
+    fun loadSnapshotDetail(packageEntity: PackageEntity) {
+        viewModelScope.launch {
+            packageEntity.resticSnapshotId?.let { snapshotId ->
+                packageEntity.resticRepoPath?.let { repoPath ->
+                    val password = context.readResticPassword()
+                    // 检查密码是否为空
+                    if (password.isNullOrEmpty()) {
+                        Log.e(TAG, "Restic password is null or empty")
+                        return@launch
+                    }
+
+                    val snapshots = resticRepo.listSnapshots(repoPath, password)
+                    val snapshot = snapshots.find { it.id == snapshotId }
+                    _snapshotDetailState.value = snapshot
+                }
+            }
+        }
+    }
+
+    // 修复：将 delete() 方法移到类内部
     fun delete() {
         viewModelScope.launchOnDefault {
             when (uiState.value) {
@@ -340,13 +371,11 @@ class DetailsViewModel @Inject constructor(
                         OpType.BACKUP -> {
                             appsRepo.delete(app.id)
                         }
-
                         OpType.RESTORE -> {
                             appsRepo.deleteApp(app.indexInfo.cloud, app)
                         }
                     }
                 }
-
                 is Success.File -> {
                     val state = uiState.value.castTo<Success.File>()
                     val file = state.file
@@ -354,13 +383,11 @@ class DetailsViewModel @Inject constructor(
                         OpType.BACKUP -> {
                             filesRepo.delete(file.id)
                         }
-
                         OpType.RESTORE -> {
                             filesRepo.deleteFile(file.indexInfo.cloud, file)
                         }
                     }
                 }
-
                 else -> {}
             }
         }

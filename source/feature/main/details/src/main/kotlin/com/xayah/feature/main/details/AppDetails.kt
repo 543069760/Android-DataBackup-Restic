@@ -59,6 +59,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import com.xayah.core.restic.ResticSnapshot
 import com.xayah.core.common.util.toLineString
 import com.xayah.core.model.OpType
 import com.xayah.core.model.database.LabelAppCrossRefEntity
@@ -97,6 +102,7 @@ import kotlinx.coroutines.launch
 internal fun AppDetails(
     coroutineScope: CoroutineScope = rememberCoroutineScope(),
     uiState: DetailsUiState.Success.App,
+    viewModel: DetailsViewModel = hiltViewModel(),
     onSetDataStates: (Long, PackageDataStates) -> Unit,
     onAddLabel: (String) -> Unit,
     onDeleteLabel: (String) -> Unit,
@@ -107,6 +113,11 @@ internal fun AppDetails(
     onProtect: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val snapshotDetail by viewModel.snapshotDetailState.collectAsStateWithLifecycle()
+    // 加载快照详情
+    LaunchedEffect(uiState.app.id) {
+        viewModel.loadSnapshotDetail(uiState.app)
+    }
     var isShow by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
     val onDismissRequest: () -> Unit = {
@@ -157,7 +168,7 @@ internal fun AppDetails(
 
         BackupParts(app = app, isCalculating = uiState.isRefreshing, onSetDataStates = onSetDataStates)
 
-        Info(app = app)
+        Info(app = uiState.app, snapshotDetail = snapshotDetail)
 
         Permissions(permissions = app.extraInfo.permissions)
     }
@@ -522,7 +533,7 @@ private fun BackupParts(app: PackageEntity, isCalculating: Boolean, onSetDataSta
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
-private fun Info(app: PackageEntity) {
+private fun Info(app: PackageEntity, snapshotDetail: ResticSnapshot?) {
     Title(title = stringResource(id = R.string.info)) {
         Clickable(
             icon = ImageVector.vectorResource(id = R.drawable.ic_rounded_person),
@@ -553,6 +564,26 @@ private fun Info(app: PackageEntity) {
                 value = DateUtil.formatTimestamp(app.packageInfo.lastUpdateTime, DateUtil.PATTERN_YMD_HMS),
             )
         }
+
+        // 显示快照时间和ID（如果有Restic快照）
+        snapshotDetail?.let { snapshot ->
+            Clickable(
+                icon = Icons.Rounded.Update,
+                title = stringResource(id = R.string.snapshot_time),
+                value = DateUtil.formatTimestamp(
+                    runCatching {
+                        java.time.Instant.parse(snapshot.time).toEpochMilli()
+                    }.getOrDefault(0L),
+                    DateUtil.PATTERN_YMD_HMS
+                )
+            )
+            Clickable(
+                icon = Icons.Rounded._123,
+                title = stringResource(id = R.string.snapshot_id),
+                value = snapshot.id.substring(0, 5) + "..."  // 显示前5位
+            )
+        }
+
         if (app.extraInfo.lastBackupTime != 0L) {
             Clickable(
                 icon = ImageVector.vectorResource(id = R.drawable.ic_rounded_acute),

@@ -17,6 +17,8 @@ dependencies {
     implementation(project(":core:data"))
     compileOnly(project(":core:hiddenapi"))
     implementation(project(":core:rootservice"))
+    implementation(project(":core:restic"))
+    implementation(project(":core:datastore"))
 
     // Hilt navigation
     implementation(libs.androidx.hilt.navigation.compose)

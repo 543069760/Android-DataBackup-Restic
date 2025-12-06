@@ -114,26 +114,28 @@ data class PackageDataStates(
             else -> false
         }
 
-        fun DataType.setSelected(states: PackageDataStates, selected: Boolean): PackageDataStates = when (this) {
-            DataType.PACKAGE_APK -> states.copy(apkState = if (selected) DataState.Selected else DataState.NotSelected)
-            DataType.PACKAGE_USER -> states.copy(userState = if (selected) DataState.Selected else DataState.NotSelected)
-            DataType.PACKAGE_USER_DE -> states.copy(userDeState = if (selected) DataState.Selected else DataState.NotSelected)
-            DataType.PACKAGE_DATA -> states.copy(dataState = if (selected) DataState.Selected else DataState.NotSelected)
-            DataType.PACKAGE_OBB -> states.copy(obbState = if (selected) DataState.Selected else DataState.NotSelected)
-            DataType.PACKAGE_MEDIA -> states.copy(mediaState = if (selected) DataState.Selected else DataState.NotSelected)
-            else -> states
-        }
-
-        fun DataType.getDisplayStats(displayStats: PackageDataStats?): Long? = if (displayStats == null) null else
+        fun DataType.setSelected(states: PackageDataStates, selected: Boolean): PackageDataStates =
             when (this) {
-                DataType.PACKAGE_APK -> displayStats.apkBytes
-                DataType.PACKAGE_USER -> displayStats.userBytes
-                DataType.PACKAGE_USER_DE -> displayStats.userDeBytes
-                DataType.PACKAGE_DATA -> displayStats.dataBytes
-                DataType.PACKAGE_OBB -> displayStats.obbBytes
-                DataType.PACKAGE_MEDIA -> displayStats.mediaBytes
-                else -> null
+                DataType.PACKAGE_APK -> states.copy(apkState = if (selected) DataState.Selected else DataState.NotSelected)
+                DataType.PACKAGE_USER -> states.copy(userState = if (selected) DataState.Selected else DataState.NotSelected)
+                DataType.PACKAGE_USER_DE -> states.copy(userDeState = if (selected) DataState.Selected else DataState.NotSelected)
+                DataType.PACKAGE_DATA -> states.copy(dataState = if (selected) DataState.Selected else DataState.NotSelected)
+                DataType.PACKAGE_OBB -> states.copy(obbState = if (selected) DataState.Selected else DataState.NotSelected)
+                DataType.PACKAGE_MEDIA -> states.copy(mediaState = if (selected) DataState.Selected else DataState.NotSelected)
+                else -> states
             }
+
+        fun DataType.getDisplayStats(displayStats: PackageDataStats?): Long? =
+            if (displayStats == null) null else
+                when (this) {
+                    DataType.PACKAGE_APK -> displayStats.apkBytes
+                    DataType.PACKAGE_USER -> displayStats.userBytes
+                    DataType.PACKAGE_USER_DE -> displayStats.userDeBytes
+                    DataType.PACKAGE_DATA -> displayStats.dataBytes
+                    DataType.PACKAGE_OBB -> displayStats.obbBytes
+                    DataType.PACKAGE_MEDIA -> displayStats.mediaBytes
+                    else -> null
+                }
     }
 }
 
@@ -265,13 +267,8 @@ data class PackageEntity(
 
     val archivesRelativeDir: String
         get() {
-            val baseDir = "${packageName}/user_${userId}"
-            return if (indexInfo.backupTimestamp > 0L) {
-                "${baseDir}@${indexInfo.backupTimestamp}"
-            } else {
-                // 向后兼容旧格式
-                if (preserveId != 0L) "${baseDir}@${preserveId}" else baseDir
-            }
+            // 始终使用不带时间戳的路径，以支持增量备份
+            return "${packageName}/user_${userId}"
         }
 
     val pkgUserKey: String
@@ -288,7 +285,8 @@ fun PackageEntity.asExternalModel() = App(
     selectionFlag = selectionFlag,
     selected = extraInfo.activated,
     backupTimestamp = indexInfo.backupTimestamp,  // 新增
-    isProtected = extraInfo.isProtected  // 新增
+    isProtected = extraInfo.isProtected,
+    resticSnapshotId = resticSnapshotId// 新增
 )
 
 // Part update entity

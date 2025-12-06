@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="snapshot_time">快照时间</string>
+    <string name="snapshot_id">快照id</string>
+</resources>

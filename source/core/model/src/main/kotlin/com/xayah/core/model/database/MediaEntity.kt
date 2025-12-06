@@ -65,12 +65,8 @@ data class MediaEntity(
 
     val archivesRelativeDir: String
         get() {
-            return if (indexInfo.backupTimestamp > 0L) {
-                "${indexInfo.name}@${indexInfo.backupTimestamp}"
-            } else {
-                // 向后兼容旧格式
-                if (preserveId != 0L) "${indexInfo.name}@${preserveId}" else indexInfo.name
-            }
+            // 始终使用不带时间戳的路径，以支持增量备份
+            return indexInfo.name
         }
 
     val existed: Boolean
@@ -87,5 +83,6 @@ fun MediaEntity.asExternalModel() = File(
     preserveId = preserveId,
     selected = extraInfo.activated,
     backupTimestamp = indexInfo.backupTimestamp,  // 新增
-    isProtected = extraInfo.isProtected  // 新增
+    isProtected = extraInfo.isProtected,
+    resticSnapshotId = extraInfo.resticSnapshotId  // 新增
 )
