@@ -293,8 +293,10 @@ class ResticViewModel @Inject constructor(
     }
 
     suspend fun getRepoPath(): String {
-        // 从 DataStore 读取，如果为空则返回默认值
-        return context.readResticRepoPath() ?: File(context.filesDir, "restic_repo").absolutePath
+        val path = context.readResticRepoPath() ?: File(context.filesDir, "restic_repo").absolutePath
+        Log.d(TAG, "从 DataStore 读取的路径: ${context.readResticRepoPath()}")
+        Log.d(TAG, "最终使用的路径: $path")
+        return path
     }
 
     suspend fun getPassword(): String {

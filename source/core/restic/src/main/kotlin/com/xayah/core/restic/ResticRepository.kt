@@ -1,10 +1,12 @@
 package com.xayah.core.restic
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.Serializable
 import java.io.InputStreamReader
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -147,14 +149,18 @@ class ResticRepository @Inject constructor(
         }
     }
 
-    // 列出快照
     suspend fun listSnapshots(
         repoPath: String,
         password: String
     ): List<ResticSnapshot> {
         return withContext(Dispatchers.IO) {
             try {
+                // 添加查询开始日志
+                Log.d(TAG, "开始查询快照: repoPath=$repoPath")
+
                 val args = listOf(resticPath, "snapshots", "--repo", repoPath, "--json")
+                // 添加命令参数日志
+                Log.d(TAG, "执行命令: ${args.joinToString(" ")}")
 
                 val processBuilder = ProcessBuilder(args)
                 processBuilder.environment()["RESTIC_REPOSITORY"] = repoPath
@@ -164,13 +170,26 @@ class ResticRepository @Inject constructor(
                 val output = InputStreamReader(process.inputStream).readText()
                 val exitCode = process.waitFor()
 
+                // 添加命令执行结果日志
+                Log.d(TAG, "命令执行完成: exitCode=$exitCode, output长度=${output.length}")
+
                 if (exitCode == 0) {
-                    json.decodeFromString<List<ResticSnapshot>>(output)
+                    val snapshots = json.decodeFromString<List<ResticSnapshot>>(output)
+                    // 添加解析成功日志
+                    Log.d(TAG, "快照解析成功: 共${snapshots.size}个快照")
+                    snapshots.forEach { snapshot ->
+                        Log.d(TAG, "快照详情: id=${snapshot.id}, time=${snapshot.time}, paths=${snapshot.paths}")
+                    }
+                    snapshots
                 } else {
+                    // 添加错误日志
+                    Log.e(TAG, "快照查询失败: exitCode=$exitCode, output=$output")
                     logger.logCommandResult(exitCode, output)
                     emptyList()
                 }
             } catch (e: Exception) {
+                // 添加异常日志
+                Log.e(TAG, "快照查询异常", e)
                 logger.logCommandFailed(e)
                 emptyList()
             }
@@ -180,8 +199,10 @@ class ResticRepository @Inject constructor(
     suspend fun validateRepository(repoPath: String, password: String): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                // 使用 snapshots 命令验证仓库和密码
+                Log.d(TAG, "验证仓库: repoPath=$repoPath")
                 val args = listOf(resticPath, "snapshots", "--repo", repoPath, "--json")
+                Log.d(TAG, "执行验证命令: ${args.joinToString(" ")}")
+
                 val processBuilder = ProcessBuilder(args)
                 processBuilder.environment()["RESTIC_REPOSITORY"] = repoPath
                 processBuilder.environment()["RESTIC_PASSWORD"] = password
@@ -191,8 +212,15 @@ class ResticRepository @Inject constructor(
                 val exitCode = process.waitFor()
 
                 logger.logCommandResult(exitCode, output)
+
+                if (exitCode == 0) {
+                    Log.d(TAG, "仓库验证成功")
+                } else {
+                    Log.e(TAG, "仓库验证失败: exitCode=$exitCode, output=$output")
+                }
                 exitCode == 0
             } catch (e: Exception) {
+                Log.e(TAG, "仓库验证异常", e)
                 logger.logCommandFailed(e)
                 false
             }
@@ -244,6 +272,7 @@ class ResticRepository @Inject constructor(
     }
 }
 
+@Serializable
 data class ResticSnapshot(
     val id: String,
     val time: String,
