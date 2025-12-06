@@ -16,8 +16,10 @@ import com.xayah.core.service.util.PackagesBackupUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.localBackupSaveDir
 import com.xayah.core.model.OperationState
+import com.xayah.core.model.util.get
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import java.io.File
 
 @AndroidEntryPoint
 internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupService() {
@@ -72,12 +74,53 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
 
         // 检查备份结果,如果失败(可能是取消导致)则立即返回
         if (!result.isSuccess) {
-            log { "Backup failed or canceled for ${p.packageName}, type: ${type.type}" }
+            log { "COMPRESSION_FAILED: Backup compression failed for ${p.packageName} $type, skipping Restic backup" }
             return
+        }
+
+        // 新增：在压缩完成后使用 Restic 进行块备份
+        if (result.isSuccess && t.get(type).state != OperationState.SKIP) {
+            // 查找压缩文件
+            val compressedFile = findCompressedFile(dstDir, type)
+            if (compressedFile != null) {
+                log { "COMPRESSED_FILE_FOUND: Found compressed file for $type at ${compressedFile.absolutePath}" }
+                // 调用 Restic 备份
+                val resticSuccess = backupWithRestic(p.packageName, compressedFile)
+                if (resticSuccess) {
+                    log { "Restic backup successful for ${p.packageName} $type" }
+                } else {
+                    log { "Restic backup failed for ${p.packageName} $type" }
+                }
+            } else {
+                log { "COMPRESSED_FILE_NOT_FOUND: No compressed file found for $type at ${dstDir}/${type.type}.tar.zst" }
+            }
         }
 
         t.update(dataType = type, progress = 1f)
         t.update(processingIndex = t.processingIndex + 1)
+    }
+
+    // 辅助方法：查找压缩文件
+    private fun findCompressedFile(dstDir: String, dataType: DataType): File? {
+        val file = when (dataType) {
+            DataType.PACKAGE_APK -> File("$dstDir/${DataType.PACKAGE_APK.type}.tar.zst")
+            DataType.PACKAGE_USER -> File("$dstDir/${DataType.PACKAGE_USER.type}.tar.zst")
+            DataType.PACKAGE_USER_DE -> File("$dstDir/${DataType.PACKAGE_USER_DE.type}.tar.zst")
+            DataType.PACKAGE_DATA -> File("$dstDir/${DataType.PACKAGE_DATA.type}.tar.zst")
+            DataType.PACKAGE_OBB -> File("$dstDir/${DataType.PACKAGE_OBB.type}.tar.zst")
+            DataType.PACKAGE_MEDIA -> File("$dstDir/${DataType.PACKAGE_MEDIA.type}.tar.zst")
+            else -> null
+        }
+
+        return file?.takeIf {
+            if (it.exists()) {
+                log { "COMPRESSED_FILE_FOUND: Found compressed file for $dataType at ${it.absolutePath}" }
+                true
+            } else {
+                log { "COMPRESSED_FILE_NOT_FOUND: No compressed file found for $dataType at ${it.absolutePath}" }
+                false
+            }
+        }
     }
 
     @Inject

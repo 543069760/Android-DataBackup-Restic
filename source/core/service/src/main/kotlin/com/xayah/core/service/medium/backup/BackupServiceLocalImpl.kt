@@ -14,6 +14,9 @@ import com.xayah.core.service.util.CommonBackupUtil
 import com.xayah.core.service.util.MediumBackupUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.localBackupSaveDir
+import com.xayah.core.model.OperationState
+import com.xayah.core.model.util.get
+import java.io.File
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -59,12 +62,40 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
 
         // 检查备份结果,如果失败则立即返回
         if (!result.isSuccess) {
-            log { "Backup failed or canceled for ${m.name}, stopping further processing" }
+            log { "COMPRESSION_FAILED: Backup compression failed for ${m.name}, skipping Restic backup" }
             return
+        }
+
+        // 新增：在压缩完成后使用 Restic 进行块备份
+        if (result.isSuccess && t.mediaInfo.state != OperationState.SKIP) {
+            // 查找压缩文件
+            val compressedFile = findCompressedFile(dstDir)
+            if (compressedFile != null) {
+                log { "COMPRESSED_FILE_FOUND: Found compressed file at ${compressedFile.absolutePath}" }
+                // 调用 Restic 备份
+                val resticSuccess = backupWithRestic(m.name, compressedFile)
+                if (resticSuccess) {
+                    log { "Restic backup successful for ${m.name}" }
+                } else {
+                    log { "Restic backup failed for ${m.name}" }
+                }
+            } else {
+                log { "COMPRESSED_FILE_NOT_FOUND: No compressed file found at ${dstDir}/media.tar.zst" }
+            }
         }
 
         t.update(progress = 1f)
         t.update(processingIndex = t.processingIndex + 1)
+    }
+
+    // 辅助方法：查找压缩文件
+    private fun findCompressedFile(dstDir: String): File? {
+        val file = File("$dstDir/media.tar.zst")
+        return if (file.exists()) {
+            file
+        } else {
+            null
+        }
     }
 
     override suspend fun onCleanupIncompleteBackup(currentIndex: Int) {
