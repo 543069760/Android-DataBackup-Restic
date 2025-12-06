@@ -70,7 +70,7 @@ fun PageSettings() {
     val resticInitialized by resticViewModel.resticInitializedState.collectAsStateWithLifecycle(initialValue = false)
     val snapshotCount by resticViewModel.resticSnapshotCountState.collectAsStateWithLifecycle(initialValue = 0)
     val repoPath by resticViewModel.repoPathState.collectAsStateWithLifecycle()
-
+    val resticError by resticViewModel.resticErrorState.collectAsStateWithLifecycle()
     // 触发 Restic 状态检查
     LaunchedEffect(Unit) {
         resticViewModel.checkResticStatus()
@@ -173,33 +173,31 @@ fun PageSettings() {
                     // 版本信息不可点击，仅用于显示
                 }
 
-                // 根据初始化状态显示不同信息
-                if (resticInitialized) {
-                    Clickable(
-                        title = stringResource(id = R.string.restic_initialization_status),
-                        value = stringResource(id = R.string.restic_initialized_at, repoPath ?: "")
-                    ) {
-                        // 状态信息不可点击，仅用于显示
+                // 始终显示初始化状态
+                Clickable(
+                    title = stringResource(id = R.string.restic_initialization_status),
+                    value = when {
+                        resticError != null -> resticError!!
+                        !resticInitialized -> stringResource(id = R.string.restic_not_initialized)
+                        else -> stringResource(id = R.string.restic_initialized_at, repoPath ?: "")
                     }
-
-                    Clickable(
-                        title = stringResource(id = R.string.restic_snapshot_count),
-                        value = if (snapshotCount > 0) {
-                            stringResource(id = R.string.restic_snapshots_count, snapshotCount)
-                        } else {
-                            stringResource(id = R.string.restic_no_snapshots)
-                        }
-                    ) {
-                        // 快照信息不可点击，仅用于显示
-                    }
-                } else {
-                    // 未初始化时显示初始化按钮
-                    Clickable(
-                        title = stringResource(id = R.string.initialize_restic),
-                        value = stringResource(id = R.string.initialize_restic_desc),
-                    ) {
+                ) {
+                    if (!resticInitialized && resticError == null) {
                         navController.navigateSingle(MainRoutes.ResticInitialization.route)
                     }
+                }
+
+                // 始终显示快照数量
+                Clickable(
+                    title = stringResource(id = R.string.restic_snapshot_count),
+                    value = when {
+                        resticError != null -> resticError!!
+                        !resticInitialized -> stringResource(id = R.string.restic_not_initialized)
+                        snapshotCount > 0 -> stringResource(id = R.string.restic_snapshots_count, snapshotCount)
+                        else -> stringResource(id = R.string.restic_no_snapshots)
+                    }
+                ) {
+                    // 快照信息不可点击，仅用于显示
                 }
 
                 // 配置选项 - 始终显示

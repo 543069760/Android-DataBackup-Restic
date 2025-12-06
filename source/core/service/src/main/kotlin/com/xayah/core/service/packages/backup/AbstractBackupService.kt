@@ -29,6 +29,8 @@ import com.xayah.core.util.NotificationUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.command.PreparationUtil
 import com.xayah.core.restic.ResticRepository
+import com.xayah.core.datastore.readResticRepoPath
+import com.xayah.core.datastore.readResticPassword
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -156,13 +158,15 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
     private lateinit var necessaryInfo: NecessaryInfo
 
     // Restic 辅助方法：获取仓库路径
-    protected fun getResticRepoPath(): String {
-        return File(mContext.filesDir, "restic_repo").absolutePath
+    protected suspend fun getResticRepoPath(): String {
+        // 从 DataStore 读取用户配置的路径，与 ResticViewModel 保持一致
+        return mContext.readResticRepoPath() ?: File(mContext.filesDir, "restic_repo").absolutePath
     }
 
     // Restic 辅助方法：生成密码
-    protected fun getResticPassword(): String {
-        return "databackup_${mBackupTimestamp}"
+    protected suspend fun getResticPassword(): String {
+        // 从 DataStore 读取用户配置的密码，如果没有则使用默认值
+        return mContext.readResticPassword() ?: "databackup_${mBackupTimestamp}"
     }
 
     // Restic 辅助方法：更新数据库中的快照信息（存根）

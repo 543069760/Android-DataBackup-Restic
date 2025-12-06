@@ -89,7 +89,7 @@ class ResticViewModel @Inject constructor(
                 _repoPathState.value = repoPath
 
                 // Check initialization status and snapshot count
-                val defaultRepoPath = getResticRepoPath()  // 重命名变量
+                val defaultRepoPath = repoPath // 重命名变量
                 val password = getResticPassword()
 
                 val isInitialized = resticRepo.checkRepository(defaultRepoPath, password)
@@ -153,6 +153,7 @@ class ResticViewModel @Inject constructor(
 
                         // 保存到 DataStore
                         context.saveResticRepoPath(repoPath)
+                        _repoPathState.value = repoPath
                         true
                     } else {
                         // 密码错误
@@ -174,6 +175,7 @@ class ResticViewModel @Inject constructor(
 
                                 // 保存到 DataStore
                                 context.saveResticRepoPath(repoPath)
+                                _repoPathState.value = repoPath
                             } else {
                                 _initializationState.value = InitializationState.Error(message)
                             }
@@ -265,8 +267,8 @@ class ResticViewModel @Inject constructor(
         }
     }
 
-    fun getRepoPathDisplay(): String {
-        return getResticRepoPath()
+    suspend fun getRepoPathDisplay(): String {
+        return getRepoPath()
     }
 
     fun initializeRestic(selectedPath: String) {
@@ -283,6 +285,7 @@ class ResticViewModel @Inject constructor(
                         _resticSnapshotCountState.value = 0
                         // 保存到 DataStore
                         context.saveResticRepoPath(repoPath)
+                        _repoPathState.value = repoPath
                     }
                 }
             }
@@ -313,11 +316,10 @@ class ResticViewModel @Inject constructor(
         }
     }
 
-    private fun getResticRepoPath(): String {
-        return File(context.filesDir, "restic_repo").absolutePath
-    }
+    private val _resticErrorState = MutableStateFlow<String?>(null)
+    val resticErrorState: StateFlow<String?> = _resticErrorState
 
-    private fun getResticPassword(): String {
-        return "databackup_default"
+    private suspend fun getResticPassword(): String {
+        return context.readResticPassword() ?: "databackup_default"
     }
 }

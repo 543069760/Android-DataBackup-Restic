@@ -24,6 +24,8 @@ import com.xayah.core.service.util.MediumBackupUtil
 import com.xayah.core.util.DateUtil
 import com.xayah.core.util.NotificationUtil
 import com.xayah.core.util.PathUtil
+import com.xayah.core.datastore.readResticPassword
+import com.xayah.core.datastore.readResticRepoPath
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
@@ -95,13 +97,15 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
     }
 
     // 获取 Restic 仓库路径
-    protected fun getResticRepoPath(): String {
-        return "${mFilesDir}/restic"
+    protected suspend fun getResticRepoPath(): String {
+        // 从 DataStore 读取用户配置的路径，与 ResticViewModel 保持一致
+        return mContext.readResticRepoPath() ?: File(mFilesDir, "restic_repo").absolutePath
     }
 
     // 获取 Restic 密码（基于时间戳）
-    protected fun getResticPassword(): String {
-        return "backup_${mBackupTimestamp}"
+    protected suspend fun getResticPassword(): String {
+        // 从 DataStore 读取用户配置的密码，如果没有则使用默认值
+        return mContext.readResticPassword() ?: "backup_${mBackupTimestamp}"
     }
 
     // Restic 备份方法 - 更新为无状态调用
