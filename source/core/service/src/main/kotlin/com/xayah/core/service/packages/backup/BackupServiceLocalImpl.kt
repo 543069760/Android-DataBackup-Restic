@@ -85,7 +85,7 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
             if (compressedFile != null) {
                 log { "COMPRESSED_FILE_FOUND: Found compressed file for $type at ${compressedFile.absolutePath}" }
                 // 调用 Restic 备份
-                val resticSuccess = backupWithRestic(p.packageName, compressedFile)
+                val resticSuccess = backupWithRestic(p.packageName, compressedFile, type)
                 if (resticSuccess) {
                     log { "Restic backup successful for ${p.packageName} $type" }
                 } else {

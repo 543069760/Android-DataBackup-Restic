@@ -306,7 +306,8 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
     // Restic 无状态备份方法
     protected suspend fun backupWithRestic(
         packageName: String,
-        compressedFile: File
+        compressedFile: File,
+        dataType: DataType
     ): Boolean {
         val repoPath = getResticRepoPath()
         val password = getResticPassword()
@@ -319,11 +320,16 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
 
         return try {
             val filePath = compressedFile.absolutePath
-            val packageTag = "package:$packageName"
-            val timestampTag = "timestamp:$mBackupTimestamp"
-            val tags = listOf(packageTag, timestampTag, "compression:zstd")
+            // 从路径中提取用户信息,例如 "user_0"
+            val userId = extractUserIdFromPath(filePath)
+            // 从 DataType 获取备份类型,例如 "apk", "data" 等
+            val backupType = dataType.type
 
-            log { "Starting Restic backup for $packageName: $filePath" }
+            // 构建单一标签: 用户-包名-备份类型-时间戳
+            val tag = "$userId-$packageName-$mBackupTimestamp-$backupType"
+            val tags = listOf(tag)
+
+            log { "Starting Restic backup for $packageName with tag: $tag" }
             val result = resticRepo.backupFile(repoPath, password, filePath, tags)
 
             if (result.first == 0) {
@@ -342,6 +348,13 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
             log { "Exception message: ${e.message}" }
             false
         }
+    }
+
+
+    // 添加辅助方法：从路径中提取用户ID
+    private fun extractUserIdFromPath(path: String): String {
+        val regex = Regex("/(user_\\d+)/")
+        return regex.find(path)?.groupValues?.get(1) ?: "user_0"
     }
 
     override suspend fun onPostProcessing(entity: ProcessingInfoEntity) {

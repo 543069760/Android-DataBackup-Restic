@@ -178,7 +178,7 @@ class ResticRepository @Inject constructor(
                     // 添加解析成功日志
                     Log.d(TAG, "快照解析成功: 共${snapshots.size}个快照")
                     snapshots.forEach { snapshot ->
-                        Log.d(TAG, "快照详情: id=${snapshot.id}, time=${snapshot.time}, paths=${snapshot.paths}")
+                        Log.d(TAG, "快照详情: id=${snapshot.id}, time=${snapshot.time}, paths=${snapshot.paths}, tags=${snapshot.tags}")
                     }
                     snapshots
                 } else {

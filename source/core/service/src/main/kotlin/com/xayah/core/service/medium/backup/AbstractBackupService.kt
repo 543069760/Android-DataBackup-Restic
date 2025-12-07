@@ -127,9 +127,8 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
             val filePath = compressedFile.absolutePath
 
             // 构建标签
-            val mediaTag = "media:$mediaName"
-            val timestampTag = "timestamp:$mBackupTimestamp"
-            val tags = listOf(mediaTag, timestampTag, "compression:zstd")
+            val tag = "$mediaName-$mBackupTimestamp"
+            val tags = listOf(tag)
 
             log { "Starting Restic backup for $mediaName: $filePath" }
             val result = resticRepo.backupFile(repoPath, password, filePath, tags)
