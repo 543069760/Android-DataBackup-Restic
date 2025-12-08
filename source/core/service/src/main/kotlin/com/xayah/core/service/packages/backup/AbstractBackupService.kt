@@ -3,6 +3,7 @@ package com.xayah.core.service.packages.backup
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import com.xayah.core.common.util.toLineString
 import com.xayah.core.datastore.readBackupConfigs
 import com.xayah.core.datastore.readBackupItself
@@ -171,15 +172,32 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
 
     // Restic 辅助方法：更新数据库中的快照信息（存根）
     private suspend fun updateResticInfo(packageName: String, snapshotId: String) {
-        // 实际应用中，这里需要找到对应的 PackageEntity 并更新其 indexInfo.resticSnapshotId
-        log { "Updated Restic info for $packageName with snapshot $snapshotId" }
-        // 示例：
-        /*
-        mPkgEntities.find { it.packageEntity.packageName == packageName }?.apply {
-            this.packageEntity.indexInfo.resticSnapshotId = snapshotId
-            mPackageDao.upsert(this.packageEntity)
+        Log.d("ResticFlow", "updateResticInfo() called - packageName: $packageName, snapshotId: $snapshotId")
+
+        try {
+            // 找到对应的 PackageEntity 并更新
+            val entity = mPkgEntities.find { it.packageEntity.packageName == packageName }
+            if (entity != null) {
+                Log.d("ResticFlow", "Found PackageEntity for $packageName, id: ${entity.packageEntity.id}")
+
+                val repoPath = getResticRepoPath()
+                Log.d("ResticFlow", "Repo path: $repoPath")
+
+                // 使用 DAO 的专用方法更新
+                mPackageDao.updateResticInfo(
+                    id = entity.packageEntity.id,
+                    snapshotId = snapshotId,
+                    repoPath = repoPath
+                )
+                Log.d("ResticFlow", "PackageEntity updated successfully for $packageName")
+            } else {
+                Log.w("ResticFlow", "PackageEntity not found for $packageName")
+                Log.d("ResticFlow", "Available packages: ${mPkgEntities.map { it.packageEntity.packageName }}")
+            }
+        } catch (e: Exception) {
+            Log.e("ResticFlow", "Error updating Restic info for $packageName", e)
+            throw e // 重新抛出异常以便上层捕获
         }
-        */
     }
 
 
@@ -309,6 +327,7 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
         compressedFile: File,
         dataType: DataType
     ): Boolean {
+        Log.d("ResticFlow", "backupWithRestic() ENTRY - packageName: $packageName, file: ${compressedFile.absolutePath}, type: $dataType")
         val repoPath = getResticRepoPath()
         val password = getResticPassword()
 
@@ -334,7 +353,12 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
 
             if (result.first == 0) {
                 log { "Restic backup completed successfully for $packageName" }
-                updateResticInfo(packageName, result.second)
+                val snapshotId = extractSnapshotIdFromJson(result.second)
+                if (snapshotId != null) {
+                    updateResticInfo(packageName, snapshotId)
+                } else {
+                    Log.e("ResticFlow", "Failed to extract snapshot ID from: ${result.second}")
+                }
                 true
             } else {
                 val errorMsg = result.second
@@ -350,11 +374,19 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
         }
     }
 
-
     // 添加辅助方法：从路径中提取用户ID
     private fun extractUserIdFromPath(path: String): String {
         val regex = Regex("/(user_\\d+)/")
         return regex.find(path)?.groupValues?.get(1) ?: "user_0"
+    }
+
+    // 添加辅助方法：从JSON输出中提取快照ID
+    private fun extractSnapshotIdFromJson(jsonOutput: String): String? {
+        return jsonOutput.lines()
+            .find { it.contains("\"message_type\":\"summary\"") }
+            ?.let { line ->
+                Regex("\"snapshot_id\":\"([^\"]+)\"").find(line)?.groupValues?.get(1)
+            }
     }
 
     override suspend fun onPostProcessing(entity: ProcessingInfoEntity) {

@@ -1,5 +1,6 @@
 package com.xayah.core.service.packages.backup
 
+import android.util.Log
 import com.xayah.core.data.repository.PackageRepository
 import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.database.dao.PackageDao
@@ -80,12 +81,14 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
 
         // 新增：在压缩完成后使用 Restic 进行块备份
         if (result.isSuccess && t.get(type).state != OperationState.SKIP) {
+            Log.d("ResticFlow", "About to call backupWithRestic for ${p.packageName} $type")
             // 查找压缩文件
             val compressedFile = findCompressedFile(dstDir, type)
             if (compressedFile != null) {
                 log { "COMPRESSED_FILE_FOUND: Found compressed file for $type at ${compressedFile.absolutePath}" }
                 // 调用 Restic 备份
                 val resticSuccess = backupWithRestic(p.packageName, compressedFile, type)
+                Log.d("ResticFlow", "backupWithRestic returned: $resticSuccess")
                 if (resticSuccess) {
                     log { "Restic backup successful for ${p.packageName} $type" }
                 } else {

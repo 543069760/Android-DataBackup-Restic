@@ -1,5 +1,6 @@
 package com.xayah.feature.main.list
 
+import android.util.Log
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
@@ -120,6 +121,7 @@ fun LazyListScope.listItems(
                         backupTimestamp = item.backupTimestamp,
                         isProtected = item.isProtected,
                         selected = item.selected,
+                        resticSnapshotId = item.resticSnapshotId,
                         onClick = {
                             navController.navigateSingle(MainRoutes.Details.getRoute(Target.Files, uiState.opType, item.id))
                         },
@@ -184,14 +186,17 @@ fun AppItem(
                         maxLines = 1
                     )
                 }
-
                 // 显示快照ID（如果有）
                 if (resticSnapshotId != null) {
+                    Log.d("ResticFlow", "AppItem UI - displaying snapshot for $packageName: ${resticSnapshotId.substring(0, 5)}...")
                     Text(
                         text = "快照: ${resticSnapshotId.substring(0, 5)}...",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }else {
+                    // 添加日志
+                    Log.d("ResticFlow", "AppItem UI - resticSnapshotId is null for $packageName")
                 }
             }
 
@@ -224,6 +229,7 @@ fun FileItem(
     backupTimestamp: Long,
     isProtected: Boolean,
     selected: Boolean,
+    resticSnapshotId: String?,
     onSelectedChanged: (Long, Boolean) -> Unit,
     onClick: () -> Unit,
 ) {
@@ -261,6 +267,17 @@ fun FileItem(
                         color = ThemedColorSchemeKeyTokens.Outline.value,
                         maxLines = 1
                     )
+                }
+               // 显示快照ID（如果有）
+                if (resticSnapshotId != null) {
+                    Log.d("ResticFlow", "FileItem UI - displaying snapshot for $name: ${resticSnapshotId.substring(0, 5)}...")
+                    Text(
+                        text = "快照: ${resticSnapshotId.substring(0, 5)}...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Log.d("ResticFlow", "FileItem UI - resticSnapshotId is null for $name")
                 }
             }
 
