@@ -1,6 +1,6 @@
 package com.xayah.feature.main.restore
 
-import androidx.compose.animation.ExperimentalAnimationApi  // 添加这行
+import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +24,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import com.xayah.core.ui.component.BodyMediumText
 import com.xayah.core.ui.component.PackageIconImage
 import com.xayah.core.ui.component.Title
@@ -46,12 +48,23 @@ fun ResticBackupDetailPage(
         scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
             rememberTopAppBarState()
         ),
-        title = "备份详情"
+        title = "备份详情",
+        actions = {
+            Button(
+                onClick = {
+                    // TODO: 实现统一恢复逻辑
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("恢复快照备份")
+            }
+        }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(SizeTokens.Level16)
+                .verticalScroll(rememberScrollState())
         ) {
             // APP图标和基本信息
             Row(
@@ -96,19 +109,10 @@ fun ResticBackupDetailPage(
                                     style = MaterialTheme.typography.titleMedium
                                 )
                                 Text(
-                                    text = "快照ID: ${backup.snapshotId.substring(0, 8)}...",
+                                    text = "快照ID: ${backup.snapshotId}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                            }
-
-                            // 可以添加恢复按钮等操作
-                            Button(
-                                onClick = {
-                                    // 恢复该类型的备份
-                                }
-                            ) {
-                                Text("恢复")
                             }
                         }
 
