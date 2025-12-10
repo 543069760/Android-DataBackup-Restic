@@ -12,6 +12,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import com.xayah.core.model.restic.ResticBackupApp  // 添加导入
+import com.xayah.core.model.DataType              // 添加导入
 
 @Singleton
 class ResticRepository @Inject constructor(
@@ -246,6 +248,7 @@ class ResticRepository @Inject constructor(
     }
 
     // 检查仓库
+    // 检查仓库
     suspend fun checkRepository(
         repoPath: String,
         password: String
@@ -267,6 +270,55 @@ class ResticRepository @Inject constructor(
             } catch (e: Exception) {
                 logger.logCommandFailed(e)
                 false
+            }
+        }
+    }
+
+    // 查询已备份的应用 - 移入类内部
+    suspend fun listBackedUpApps(repoPath: String, password: String): List<ResticBackupApp> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val snapshots = listSnapshots(repoPath, password)
+                val apps = mutableListOf<ResticBackupApp>()
+
+                snapshots.forEach { snapshot ->
+                    snapshot.tags.forEach { tag ->
+                        // 解析 tag 格式: userId-packageName-timestamp-dataType
+                        val parts = tag.split("-")
+                        if (parts.size >= 4) {
+                            val userId = parts[0].split("_").lastOrNull()?.toIntOrNull() ?: 0
+                            val packageName = parts[1]
+                            val timestamp = parts[2].toLongOrNull() ?: 0L
+                            val dataTypeStr = parts[3]
+                            val dataType = when (dataTypeStr) {
+                                "apk" -> DataType.PACKAGE_APK
+                                "user" -> DataType.PACKAGE_USER
+                                "user_de" -> DataType.PACKAGE_USER_DE
+                                "data" -> DataType.PACKAGE_DATA
+                                "obb" -> DataType.PACKAGE_OBB
+                                "media" -> DataType.PACKAGE_MEDIA
+                                else -> null
+                            }
+
+                            if (dataType != null) {
+                                apps.add(ResticBackupApp(
+                                    packageName = packageName,
+                                    userId = userId,
+                                    timestamp = timestamp,
+                                    dataType = dataType,
+                                    snapshotId = snapshot.id,
+                                    snapshotTime = snapshot.time,
+                                    tags = snapshot.tags
+                                ))
+                            }
+                        }
+                    }
+                }
+
+                apps
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to list backed up apps", e)
+                emptyList()
             }
         }
     }

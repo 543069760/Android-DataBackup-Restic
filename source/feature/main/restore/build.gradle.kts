@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.library.common)
     alias(libs.plugins.library.hilt)
     alias(libs.plugins.library.compose)
+    alias(libs.plugins.serialization)
 }
 
 android {
@@ -16,6 +17,9 @@ dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:data"))
     implementation(project(":core:util"))
+    implementation(project(":core:restic"))
+
+    implementation(libs.kotlinx.serialization.json)
 
     // Compose Navigation
     implementation(libs.androidx.navigation.compose)

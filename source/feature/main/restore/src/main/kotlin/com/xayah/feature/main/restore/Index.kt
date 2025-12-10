@@ -156,17 +156,11 @@ fun PageRestore() {
             val appsInteractionSource = remember { MutableInteractionSource() }
             Clickable(
                 title = stringResource(id = R.string.apps),
-                value = if (uiState.packages.isEmpty()) null else
-                    "${context.getString(R.string.args_apps_backed_up, uiState.packages.size)}${if (uiState.packagesSize.isNotEmpty()) " (${uiState.packagesSize})" else ""}",
+                value = "从 Restic 块存储中查询已备份的应用",
                 leadingIcon = ImageVector.vectorResource(id = R.drawable.ic_rounded_apps),
                 interactionSource = appsInteractionSource,
-                content = if (uiState.packages.isEmpty()) null else {
-                    {
-                        PackageIcons(modifier = Modifier.paddingTop(SizeTokens.Level8), packages = uiState.packages)
-                    }
-                }
             ) {
-                viewModel.emitIntentOnIO(IndexUiIntent.ToAppList(navController))
+                navController.navigateSingle(MainRoutes.ResticRestore.route)
             }
 
             val filesInteractionSource = remember { MutableInteractionSource() }

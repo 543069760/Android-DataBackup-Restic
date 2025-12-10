@@ -47,9 +47,15 @@ import com.xayah.feature.main.settings.cache.PageCacheManagement
 import com.xayah.feature.main.settings.restic.ResticRepoPathScreen
 import com.xayah.feature.main.settings.restic.ResticPasswordScreen
 import com.xayah.feature.main.settings.restic.ResticInitializationScreen
+import com.xayah.feature.main.restore.ResticRestorePage
+import com.xayah.feature.main.restore.ResticBackupDetailPage
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.ExperimentalSerializationApi
+import com.xayah.feature.main.restore.ResticBackupGroup
 
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
@@ -136,6 +142,11 @@ class MainActivity : AppCompatActivity() {
                         composable(MainRoutes.Restore.route) {
                             PageRestore()
                         }
+
+                        composable(MainRoutes.ResticRestore.route) {  // 添加这行
+                            ResticRestorePage(navController = navController)
+                        }
+
                         composable(MainRoutes.Reload.route) {
                             PageReload()
                         }
@@ -162,6 +173,20 @@ class MainActivity : AppCompatActivity() {
                         }
                         composable(route = MainRoutes.Directory.route) {
                             PageDirectory()
+                        }
+                        composable(MainRoutes.ResticBackupDetail.route) { backStackEntry ->
+                            // 从 URL 参数中解析 group 数据
+                            val groupJson = backStackEntry.arguments?.getString("group")
+                            val group = if (!groupJson.isNullOrEmpty()) {
+                                Json.decodeFromString<ResticBackupGroup>(groupJson)
+                            } else {
+                                // 处理错误情况
+                                null
+                            }
+
+                            group?.let {
+                                ResticBackupDetailPage(navController = navController, group = it)
+                            }
                         }
                         composable(MainRoutes.ResticRepoPath.route) {
                             ResticRepoPathScreen()

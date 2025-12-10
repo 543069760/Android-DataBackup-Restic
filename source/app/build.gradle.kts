@@ -173,4 +173,6 @@ dependencies {
 
     // BountyCastle
     implementation(libs.bountycastle)
+
+    implementation(libs.kotlinx.serialization.json)
 }

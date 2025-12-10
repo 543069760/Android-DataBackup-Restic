@@ -56,10 +56,11 @@ sealed class MainRoutes(val route: String) {
     data object Configurations : MainRoutes(route = "main_configurations")
     data object About : MainRoutes(route = "main_about")
     data object Translators : MainRoutes(route = "main_translators")
+    data object ResticRestore : MainRoutes(route = "main_restic_restore")
+    data object ResticBackupDetail : MainRoutes(route = "main_restic_backup_detail")
 
     data object List : MainRoutes(route = "main_list/{$ARG_TARGET}/{$ARG_OP_TYPE}/{$ARG_ACCOUNT_NAME}/{$ARG_ACCOUNT_REMOTE}") {
-        fun getRoute(target: Target, opType: OpType, cloudName: String = encodedURLWithSpace, backupDir: String = encodedURLWithSpace) =
-            "main_list/${target}/${opType}/${cloudName}/${backupDir}"
+        fun getRoute(target: Target, opType: OpType, cloudName: String = encodedURLWithSpace, backupDir: String = encodedURLWithSpace) = "main_list/${target}/${opType}/${cloudName}/${backupDir}"
     }
 
     data object Details : MainRoutes(route = "main_details/{$ARG_TARGET}/{$ARG_OP_TYPE}/{$ARG_ID}") {
