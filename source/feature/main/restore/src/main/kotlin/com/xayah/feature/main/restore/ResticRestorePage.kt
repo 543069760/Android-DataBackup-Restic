@@ -1,5 +1,6 @@
 package com.xayah.feature.main.restore
 
+import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -106,10 +107,19 @@ fun ResticRestorePage(
                                 ResticBackupGroupItem(
                                     group = group,
                                     onClick = {
+                                        // 1. JSON 序列化
                                         val groupJson = Json.encodeToString(group)
-                                        navController.navigateSingle(
-                                            MainRoutes.ResticBackupDetail.route + "?group=${URLEncoder.encode(groupJson, "UTF-8")}"
-                                        )
+                                        Log.d("ResticRestorePage", "Navigating with groupJson: $groupJson")
+
+                                        // 2. URL 编码，并构造完整的路由
+                                        // 使用 getRoute 函数简化构造
+                                        val encodedJson = URLEncoder.encode(groupJson, "UTF-8")
+                                        val url = MainRoutes.ResticBackupDetail.getRoute(groupJsonEncoded = encodedJson)
+
+                                        Log.d("ResticRestorePage", "Full URL: $url")
+
+                                        // 3. 执行导航
+                                        navController.navigateSingle(url)
                                     },
                                     context = LocalContext.current
                                 )

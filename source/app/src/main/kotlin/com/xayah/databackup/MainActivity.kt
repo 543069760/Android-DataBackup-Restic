@@ -1,6 +1,7 @@
 package com.xayah.databackup
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.ExperimentalAnimationApi
@@ -11,6 +12,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.core.view.WindowCompat
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import androidx.navigation.NavType
+import java.net.URLDecoder
 import com.xayah.core.ui.component.AnimatedNavHost
 import com.xayah.core.ui.route.MainRoutes
 import com.xayah.core.ui.theme.DataBackupTheme
@@ -147,6 +151,44 @@ class MainActivity : AppCompatActivity() {
                             ResticRestorePage(navController = navController)
                         }
 
+                        composable(
+                            route = MainRoutes.ResticBackupDetail.route,
+                            arguments = listOf( // 【必须声明参数】
+                                navArgument(MainRoutes.ARG_GROUP) {
+                                    type = NavType.StringType
+                                    nullable = true
+                                }
+                            )
+                        ) { backStackEntry ->
+                            // 1. 提取已编码的参数
+                            val groupJsonEncoded = backStackEntry.arguments?.getString(MainRoutes.ARG_GROUP)
+
+                            val group = groupJsonEncoded?.let { encodedJson ->
+                                try {
+                                    // 2. URL 解码
+                                    val groupJsonDecoded = URLDecoder.decode(encodedJson, "UTF-8")
+
+                                    // 3. JSON 反序列化
+                                    val decodedGroup = Json.decodeFromString<ResticBackupGroup>(groupJsonDecoded)
+
+                                    Log.d("MainActivity", "Successfully decoded ResticBackupGroup.")
+                                    decodedGroup
+                                } catch (e: Exception) {
+                                    Log.e("MainActivity", "Failed to decode ResticBackupGroup for nav: ${e.message}", e)
+                                    null
+                                }
+                            }
+
+                            group?.let {
+                                // 4. 成功后导航到详情页
+                                ResticBackupDetailPage(navController = navController, group = it)
+                            } ?: run {
+                                Log.e("MainActivity", "Group is null, popping back stack.")
+                                // 参数获取失败，返回上一页
+                                navController.popBackStack()
+                            }
+                        }
+
                         composable(MainRoutes.Reload.route) {
                             PageReload()
                         }
@@ -174,20 +216,7 @@ class MainActivity : AppCompatActivity() {
                         composable(route = MainRoutes.Directory.route) {
                             PageDirectory()
                         }
-                        composable(MainRoutes.ResticBackupDetail.route) { backStackEntry ->
-                            // 从 URL 参数中解析 group 数据
-                            val groupJson = backStackEntry.arguments?.getString("group")
-                            val group = if (!groupJson.isNullOrEmpty()) {
-                                Json.decodeFromString<ResticBackupGroup>(groupJson)
-                            } else {
-                                // 处理错误情况
-                                null
-                            }
 
-                            group?.let {
-                                ResticBackupDetailPage(navController = navController, group = it)
-                            }
-                        }
                         composable(MainRoutes.ResticRepoPath.route) {
                             ResticRepoPathScreen()
                         }
