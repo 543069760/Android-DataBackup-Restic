@@ -125,22 +125,73 @@ class ResticRepository @Inject constructor(
         repoPath: String,
         password: String,
         snapshotId: String,
-        targetPath: String
+        targetPath: String,
+        includePath: String? = null,
+        progressCallback: ResticProgressCallback? = null
     ): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                val args = listOf(
+                val args = mutableListOf(
                     resticPath, "restore", snapshotId,
-                    "--repo", repoPath, "--target", targetPath
+                    "--repo", repoPath,
+                    "--target", targetPath,
+                    "--json"
                 )
+
+                if (!includePath.isNullOrEmpty()) {
+                    args.add("--include")
+                    args.add(includePath)
+                }
+
+                Log.d(TAG, "Restic restore command: ${args.joinToString(" ")}")
 
                 val processBuilder = ProcessBuilder(args)
                 processBuilder.environment()["RESTIC_REPOSITORY"] = repoPath
                 processBuilder.environment()["RESTIC_PASSWORD"] = password
-
+                processBuilder.environment()["HOME"] = context.filesDir.absolutePath
+                processBuilder.environment()["XDG_CACHE_HOME"] = File(context.cacheDir, "restic").absolutePath
                 val process = processBuilder.start()
-                val output = InputStreamReader(process.inputStream).readText()
+
+                // 分别读取标准输出和错误输出
+                val stdout = process.inputStream.bufferedReader()
+                val stderr = process.errorStream.bufferedReader()
+
+                // 处理标准输出（进度信息）
+                stdout.use { reader ->
+                    reader.forEachLine { line ->
+                        try {
+                            val progress = parseRestoreProgress(line)
+                            if (progress != null && progressCallback != null) {
+                                progressCallback.onProgress(
+                                    filesFinished = progress.files_finished ?: 0,
+                                    filesTotal = progress.files_total ?: 0,
+                                    bytesWritten = progress.bytes_written ?: 0,
+                                    bytesTotal = progress.bytes_total ?: 0,
+                                    filesSkipped = progress.files_skipped ?: 0,
+                                    bytesSkipped = progress.bytes_skipped ?: 0
+                                )
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to parse progress line: $line", e)
+                        }
+                    }
+                }
+
+                // 读取错误输出用于调试
+                val errorOutput = stderr.readText()
+                if (errorOutput.isNotEmpty()) {
+                    Log.e(TAG, "Restic restore error: $errorOutput")
+                }
+                val output = stdout.readText()
+
                 val exitCode = process.waitFor()
+
+                // 添加详细日志
+                Log.d(TAG, "Restic restore exit code: $exitCode")
+                if (exitCode != 0) {
+                    Log.e(TAG, "Restic restore error output: $errorOutput")
+                }
+                Log.d(TAG, "Restic restore output: $output")
 
                 logger.logCommandResult(exitCode, output)
                 exitCode == 0
@@ -149,6 +200,26 @@ class ResticRepository @Inject constructor(
                 false
             }
         }
+    }
+
+    // 添加进度解析方法
+    private fun parseRestoreProgress(line: String): ResticRestoreProgress? {
+        return try {
+            json.decodeFromString<ResticRestoreProgress>(line)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    interface ResticProgressCallback {
+        fun onProgress(
+            filesFinished: Long,
+            filesTotal: Long,
+            bytesWritten: Long,
+            bytesTotal: Long,
+            filesSkipped: Long = 0,
+            bytesSkipped: Long = 0
+        )
     }
 
     suspend fun listSnapshots(
@@ -167,7 +238,6 @@ class ResticRepository @Inject constructor(
                 val processBuilder = ProcessBuilder(args)
                 processBuilder.environment()["RESTIC_REPOSITORY"] = repoPath
                 processBuilder.environment()["RESTIC_PASSWORD"] = password
-
                 val process = processBuilder.start()
                 val output = InputStreamReader(process.inputStream).readText()
                 val exitCode = process.waitFor()
@@ -248,7 +318,6 @@ class ResticRepository @Inject constructor(
     }
 
     // 检查仓库
-    // 检查仓库
     suspend fun checkRepository(
         repoPath: String,
         password: String
@@ -323,6 +392,17 @@ class ResticRepository @Inject constructor(
         }
     }
 }
+
+@Serializable
+data class ResticRestoreProgress(
+    val message_type: String,
+    val files_finished: Long? = null,
+    val files_total: Long? = null,
+    val bytes_written: Long? = null,
+    val bytes_total: Long? = null,
+    val files_skipped: Long? = null,
+    val bytes_skipped: Long? = null
+)
 
 @Serializable
 data class ResticSnapshot(
