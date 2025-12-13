@@ -177,16 +177,20 @@ class ResticRestoreViewModel @Inject constructor(
 
                 val targetPath = "${context.localBackupSaveDir()}/restore/"
                 Log.d("ResticRestore", "恢复到用户备份目录: $targetPath")
-                // 构造 include 路径：指定快照中要恢复的确切文件
-                val includePath = "${targetPath}apps/${backup.packageName}/user_${backup.userId}/${backup.dataType.type}.tar.zst"
+                val backupBaseDir = context.readBackupDirectory() ?: context.localBackupSaveDir()
+                val snapshotSubPath = "$backupBaseDir/apps/${backup.packageName}/user_${backup.userId}"
+                val includePath = "${backup.dataType.type}.tar.zst"
+                val fullTargetPath = "${targetPath}apps/${backup.packageName}/user_${backup.userId}/"
                 Log.d("ResticRestore", "恢复 ${backup.dataType.type} 到目标: $targetPath")
+                Log.d("ResticRestore", "快照子路径: $snapshotSubPath")
                 Log.d("ResticRestore", "包含文件: $includePath")
                 val success = resticRepo.restoreSnapshot(
                     repoPath = repoPath,
                     password = password,
                     snapshotId = backup.snapshotId,
-                    targetPath = targetPath,
+                    targetPath = fullTargetPath,
                     includePath = includePath,
+                    snapshotSubPath = snapshotSubPath,
                     progressCallback = progressCallback
                 )
 

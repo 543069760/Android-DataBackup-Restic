@@ -126,13 +126,21 @@ class ResticRepository @Inject constructor(
         password: String,
         snapshotId: String,
         targetPath: String,
+        snapshotSubPath: String? = null,
         includePath: String? = null,
         progressCallback: ResticProgressCallback? = null
     ): Boolean {
         return withContext(Dispatchers.IO) {
             try {
+                // 构造带子路径的快照ID
+                val fullSnapshotId = if (!snapshotSubPath.isNullOrEmpty()) {
+                    "$snapshotId:$snapshotSubPath"
+                } else {
+                    snapshotId
+                }
+
                 val args = mutableListOf(
-                    resticPath, "restore", snapshotId,
+                    resticPath, "restore", fullSnapshotId,
                     "--repo", repoPath,
                     "--target", targetPath,
                     "--json"
@@ -152,56 +160,117 @@ class ResticRepository @Inject constructor(
                 processBuilder.environment()["XDG_CACHE_HOME"] = File(context.cacheDir, "restic").absolutePath
                 val process = processBuilder.start()
 
-                // 分别读取标准输出和错误输出
-                val stdout = process.inputStream.bufferedReader()
-                val stderr = process.errorStream.bufferedReader()
+                try {
+                    // 分别读取标准输出和错误输出
+                    val stdout = process.inputStream.bufferedReader()
+                    val stderr = process.errorStream.bufferedReader()
 
-                // 处理标准输出（进度信息）
-                stdout.use { reader ->
-                    reader.forEachLine { line ->
-                        try {
-                            val progress = parseRestoreProgress(line)
-                            if (progress != null && progressCallback != null) {
-                                progressCallback.onProgress(
-                                    filesFinished = progress.files_finished ?: 0,
-                                    filesTotal = progress.files_total ?: 0,
-                                    bytesWritten = progress.bytes_written ?: 0,
-                                    bytesTotal = progress.bytes_total ?: 0,
-                                    filesSkipped = progress.files_skipped ?: 0,
-                                    bytesSkipped = progress.bytes_skipped ?: 0
-                                )
+                    // 处理标准输出（进度信息）
+                    val outputBuilder = StringBuilder()
+                    stdout.use { reader ->
+                        reader.forEachLine { line ->
+                            outputBuilder.appendLine(line)  // 捕获输出
+
+                            try {
+                                val progress = parseRestoreProgress(line)
+                                if (progress != null && progressCallback != null) {
+                                    progressCallback.onProgress(
+                                        filesFinished = progress.files_finished ?: 0,
+                                        filesTotal = progress.files_total ?: 0,
+                                        bytesWritten = progress.bytes_written ?: 0,
+                                        bytesTotal = progress.bytes_total ?: 0,
+                                        filesSkipped = progress.files_skipped ?: 0,
+                                        bytesSkipped = progress.bytes_skipped ?: 0
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to parse progress line: $line", e)
                             }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Failed to parse progress line: $line", e)
                         }
                     }
+
+// 读取错误输出用于调试
+                    val errorOutput = stderr.readText()
+                    val output = outputBuilder.toString()  // 使用捕获的输出
+
+                    val exitCode = process.waitFor()
+
+                    // === 详细恢复过程诊断 ===
+                    Log.d(TAG, "========== Restic 恢复过程详情 ==========")
+                    Log.d(TAG, "命令: ${args.joinToString(" ")}")
+                    Log.d(TAG, "退出码: $exitCode")
+                    Log.d(TAG, "标准输出长度: ${output.length} 字符")
+                    Log.d(TAG, "错误输出长度: ${errorOutput.length} 字符")
+
+                    if (output.isNotEmpty()) {
+                        Log.d(TAG, "=== 标准输出内容 ===")
+                        output.lines().forEachIndexed { index, line ->
+                            Log.d(TAG, "stdout[$index]: $line")
+                        }
+                    }
+
+                    if (errorOutput.isNotEmpty()) {
+                        Log.e(TAG, "=== 错误输出内容 ===")
+                        errorOutput.lines().forEachIndexed { index, line ->
+                            Log.e(TAG, "stderr[$index]: $line")
+                        }
+                    }
+
+                    // 分析退出码原因
+                    if (exitCode != 0) {
+                        Log.w(TAG, "=== 退出码分析 ===")
+                        when {
+                            errorOutput.contains("warning", ignoreCase = true) -> {
+                                Log.w(TAG, "✓ 检测到警告信息")
+                            }
+                            errorOutput.contains("error", ignoreCase = true) -> {
+                                Log.e(TAG, "✗ 检测到错误信息")
+                            }
+                            errorOutput.contains("file not found", ignoreCase = true) -> {
+                                Log.e(TAG, "✗ 文件未找到")
+                            }
+                            errorOutput.contains("permission denied", ignoreCase = true) -> {
+                                Log.e(TAG, "✗ 权限被拒绝")
+                            }
+                            output.contains("restoring", ignoreCase = true) -> {
+                                Log.w(TAG, "✓ 检测到恢复操作记录")
+                            }
+                            else -> {
+                                Log.w(TAG, "? 未知原因的非零退出码")
+                            }
+                        }
+
+                        // 检查目标文件
+                        val targetFile = File(targetPath, includePath ?: "")
+                        Log.w(TAG, "目标文件检查: ${targetFile.absolutePath}")
+                        Log.w(TAG, "文件存在: ${targetFile.exists()}")
+                        if (targetFile.exists()) {
+                            Log.w(TAG, "文件大小: ${targetFile.length()} bytes")
+                            Log.w(TAG, "文件修改时间: ${targetFile.lastModified()}")
+                        }
+                    }
+
+                    Log.d(TAG, "========================================")
+
+                    logger.logCommandResult(exitCode, output)
+                    exitCode == 0
+                } catch (e: Exception) {
+                    Log.e(TAG, "Restic restore process exception", e)
+                    // 尝试获取可能的错误输出
+                    try {
+                        val errorOutput = process.errorStream.bufferedReader().readText()
+                        Log.e(TAG, "Process error output: $errorOutput")
+                    } catch (ex: Exception) {
+                        Log.e(TAG, "Failed to read error output", ex)
+                    }
+                    throw e
                 }
-
-                // 读取错误输出用于调试
-                val errorOutput = stderr.readText()
-                if (errorOutput.isNotEmpty()) {
-                    Log.e(TAG, "Restic restore error: $errorOutput")
-                }
-                val output = stdout.readText()
-
-                val exitCode = process.waitFor()
-
-                // 添加详细日志
-                Log.d(TAG, "Restic restore exit code: $exitCode")
-                if (exitCode != 0) {
-                    Log.e(TAG, "Restic restore error output: $errorOutput")
-                }
-                Log.d(TAG, "Restic restore output: $output")
-
-                logger.logCommandResult(exitCode, output)
-                exitCode == 0
             } catch (e: Exception) {
                 logger.logCommandFailed(e)
                 false
             }
         }
     }
-
     // 添加进度解析方法
     private fun parseRestoreProgress(line: String): ResticRestoreProgress? {
         return try {
