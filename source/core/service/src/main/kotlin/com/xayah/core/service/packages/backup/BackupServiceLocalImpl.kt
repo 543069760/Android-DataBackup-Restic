@@ -112,6 +112,7 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
             DataType.PACKAGE_DATA -> File("$dstDir/${DataType.PACKAGE_DATA.type}.tar.zst")
             DataType.PACKAGE_OBB -> File("$dstDir/${DataType.PACKAGE_OBB.type}.tar.zst")
             DataType.PACKAGE_MEDIA -> File("$dstDir/${DataType.PACKAGE_MEDIA.type}.tar.zst")
+            DataType.PACKAGE_CONFIG -> File("$dstDir/package_restore_config.json")
             else -> null
         }
 

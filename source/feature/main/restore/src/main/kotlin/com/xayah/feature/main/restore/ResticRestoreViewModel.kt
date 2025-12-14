@@ -49,6 +49,9 @@ class ResticRestoreViewModel @Inject constructor(
 
             val repoPath = context.readResticRepoPath()
             val password = context.readResticPassword()
+            // 添加调试日志
+            Log.d("ResticRestore", "读取到的 repoPath: $repoPath")
+            Log.d("ResticRestore", "读取到的 password: ${if (password.isNullOrEmpty()) "空" else "已设置"}")
 
             if (repoPath.isNullOrEmpty() || password.isNullOrEmpty()) {
                 _uiState.value = ResticRestoreUiState.Error("Restic not configured")
@@ -120,7 +123,8 @@ class ResticRestoreViewModel @Inject constructor(
                     DataType.PACKAGE_DATA -> 3
                     DataType.PACKAGE_OBB -> 4
                     DataType.PACKAGE_MEDIA -> 5
-                    else -> 6
+                    DataType.PACKAGE_CONFIG -> 6
+                    else -> 7
                 }
             }
             Log.d("ResticRestore", "排序后的数据类型: ${sortedBackups.map { it.dataType.type }}")
@@ -179,7 +183,10 @@ class ResticRestoreViewModel @Inject constructor(
                 Log.d("ResticRestore", "恢复到用户备份目录: $targetPath")
                 val backupBaseDir = context.readBackupDirectory() ?: context.localBackupSaveDir()
                 val snapshotSubPath = "$backupBaseDir/apps/${backup.packageName}/user_${backup.userId}"
-                val includePath = "${backup.dataType.type}.tar.zst"
+                val includePath = when (backup.dataType) {
+                    DataType.PACKAGE_CONFIG -> "package_restore_config.json"
+                    else -> "${backup.dataType.type}.tar.zst"
+                }
                 val fullTargetPath = "${targetPath}apps/${backup.packageName}/user_${backup.userId}/"
                 Log.d("ResticRestore", "恢复 ${backup.dataType.type} 到目标: $targetPath")
                 Log.d("ResticRestore", "快照子路径: $snapshotSubPath")

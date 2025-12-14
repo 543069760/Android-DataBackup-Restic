@@ -435,6 +435,7 @@ class ResticRepository @Inject constructor(
                                 "data" -> DataType.PACKAGE_DATA
                                 "obb" -> DataType.PACKAGE_OBB
                                 "media" -> DataType.PACKAGE_MEDIA
+                                "config" -> DataType.PACKAGE_CONFIG
                                 else -> null
                             }
 

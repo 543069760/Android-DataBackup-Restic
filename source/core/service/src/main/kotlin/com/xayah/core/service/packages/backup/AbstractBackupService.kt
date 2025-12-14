@@ -288,8 +288,20 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                                 indexInfo = p.indexInfo.copy(opType = OpType.RESTORE, cloud = mTaskEntity.cloud, backupDir = mTaskEntity.backupDir),
                                 extraInfo = p.extraInfo.copy(activated = false)
                             )
+
                             val configDst = PathUtil.getPackageRestoreConfigDst(dstDir = dstDir)
                             mRootService.writeJson(data = restoreEntity, dst = configDst)
+                            val configFile = File(configDst)
+                            if (configFile.exists()) {
+                                val configResticSuccess = backupWithRestic(
+                                    packageName = p.packageName,
+                                    compressedFile = configFile,
+                                    dataType = DataType.PACKAGE_CONFIG
+                                )
+                                if (configResticSuccess) {
+                                    log { "Restic backup successful for config file" }
+                                }
+                            }
                             onConfigSaved(path = configDst, archivesRelativeDir = p.archivesRelativeDir)
                             mPackageDao.upsert(restoreEntity)
                             mPackageDao.upsert(p)

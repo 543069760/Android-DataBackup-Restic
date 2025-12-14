@@ -87,6 +87,7 @@ class ResticViewModel @Inject constructor(
                 // 获取仓库路径
                 val repoPath = getRepoPath()
                 _repoPathState.value = repoPath
+                Log.d(TAG, "checkResticStatus: repoPath = $repoPath")
 
                 // Check initialization status and snapshot count
                 val defaultRepoPath = repoPath // 重命名变量
@@ -152,7 +153,10 @@ class ResticViewModel @Inject constructor(
                         _resticSnapshotCountState.value = snapshots.size
 
                         // 保存到 DataStore
-                        context.saveResticRepoPath(repoPath)
+                        withContext(Dispatchers.IO) {
+                            context.saveResticRepoPath(repoPath)
+                            context.saveResticPassword(password)
+                        }
                         _repoPathState.value = repoPath
                         true
                     } else {
@@ -164,24 +168,19 @@ class ResticViewModel @Inject constructor(
                     // 仓库不存在，进行初始化
                     _initializationState.value = InitializationState.Initializing
 
-                    resticRepo.initRepository(repoPath, password) { success, message ->
-                        // 在协程中处理回调
-                        viewModelScope.launch {
-                            if (success) {
-                                _resticInitializedState.value = true
-                                _resticRepoPathState.value = repoPath
-                                _resticSnapshotCountState.value = 0
-                                _initializationState.value = InitializationState.ReadyToUse(repoPath)
+                    // 直接调用初始化方法
+                    val initSuccess = initializeRepository(repoPath, password)
 
-                                // 保存到 DataStore
-                                context.saveResticRepoPath(repoPath)
-                                _repoPathState.value = repoPath
-                            } else {
-                                _initializationState.value = InitializationState.Error(message)
-                            }
-                        }
+                    if (initSuccess) {
+                        _resticInitializedState.value = true
+                        _resticRepoPathState.value = repoPath
+                        _resticSnapshotCountState.value = 0
+                        _initializationState.value = InitializationState.ReadyToUse(repoPath)
+                    } else {
+                        _initializationState.value = InitializationState.Error("Initialization failed")
                     }
-                    true
+
+                    initSuccess
                 }
             } catch (e: Exception) {
                 _initializationState.value = InitializationState.Error(e.message ?: "Unknown error")
@@ -284,7 +283,10 @@ class ResticViewModel @Inject constructor(
                         _resticRepoPathState.value = repoPath
                         _resticSnapshotCountState.value = 0
                         // 保存到 DataStore
-                        context.saveResticRepoPath(repoPath)
+                        withContext(Dispatchers.IO) {
+                            context.saveResticRepoPath(repoPath)
+                            context.saveResticPassword(password)
+                        }
                         _repoPathState.value = repoPath
                     }
                 }
