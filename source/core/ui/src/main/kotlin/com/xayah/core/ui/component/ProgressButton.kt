@@ -33,6 +33,7 @@ fun ProgressButton(
     speed: String = "0 B/s",
     progressSize: String = "0 B/0 B",
     enabled: Boolean = true,
+    text: String? = null,
     onClick: () -> Unit
 ) {
     val backgroundColor = MaterialTheme.colorScheme.primary
@@ -82,7 +83,7 @@ fun ProgressButton(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (progress > 0f) {
+                    text = text ?: if (progress > 0f) {
                         "[$currentIndex/$totalCount][$speed][$progressSize]"
                     } else {
                         "恢复快照备份"

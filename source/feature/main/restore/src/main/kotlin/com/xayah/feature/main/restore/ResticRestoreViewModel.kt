@@ -211,6 +211,7 @@ class ResticRestoreViewModel @Inject constructor(
             }
 
             Log.d("ResticRestore", "所有数据类型恢复完成")
+            _resticProgress.value = ResticProgressState(isCompleted = true)
             true  // 成功时返回 true
         } catch (e: Exception) {
             Log.e("ResticRestore", "快照恢复异常: ${e.message}", e)

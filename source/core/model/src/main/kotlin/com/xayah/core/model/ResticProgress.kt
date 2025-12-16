@@ -14,7 +14,8 @@ data class ResticProgressState(
     val speed: String = "0 B/s",
     val timeElapsed: String = "00:00",
     val currentDataTypeIndex: Int = 0,
-    val totalDataTypes: Int = 6
+    val totalDataTypes: Int = 0,
+    val isCompleted: Boolean = false
 ) {
     val progressText: String
         get() = "$filesFinished/$filesTotal files"

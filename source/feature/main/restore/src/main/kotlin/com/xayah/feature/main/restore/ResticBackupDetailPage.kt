@@ -42,6 +42,7 @@ import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
 import com.xayah.core.ui.theme.value
 import com.xayah.core.ui.token.SizeTokens
 import com.xayah.core.util.DateUtil
+import com.xayah.core.model.DataType
 import com.xayah.feature.main.restore.ResticBackupGroup
 import kotlinx.coroutines.launch
 
@@ -53,7 +54,33 @@ fun ResticBackupDetailPage(
     viewModel: ResticRestoreViewModel = hiltViewModel()
 ) {
     val resticProgress by viewModel.resticProgress.collectAsStateWithLifecycle()
-    val isRestoring = resticProgress.filesTotal > 0
+    val isRestoring = resticProgress.totalDataTypes > 0 &&
+            resticProgress.currentDataTypeIndex < resticProgress.totalDataTypes
+
+    val isCompleted = resticProgress.isCompleted
+
+// 按钮禁用条件：正在恢复 或 已完成
+    val buttonEnabled = !isRestoring && !isCompleted
+
+    fun getCurrentDataTypeName(group: ResticBackupGroup, index: Int): String {
+        val sortedBackups = group.backups.sortedBy { backup ->
+            when (backup.dataType) {
+                DataType.PACKAGE_APK -> 0
+                DataType.PACKAGE_USER -> 1
+                DataType.PACKAGE_USER_DE -> 2
+                DataType.PACKAGE_DATA -> 3
+                DataType.PACKAGE_OBB -> 4
+                DataType.PACKAGE_MEDIA -> 5
+                DataType.PACKAGE_CONFIG -> 6
+                else -> 7
+            }
+        }
+        return if (index < sortedBackups.size) {
+            sortedBackups[index].dataType.type.uppercase()
+        } else {
+            ""
+        }
+    }
 
     // 计算进度信息
     val currentProgress = if (resticProgress.bytesTotal > 0) {
@@ -78,9 +105,21 @@ fun ResticBackupDetailPage(
                 totalCount = totalCount,
                 speed = speed,
                 progressSize = progressSize,
-                enabled = !isRestoring,
+                enabled = buttonEnabled,
+                text = when {  // 将文本逻辑移到这里
+                    isRestoring -> {
+                        val currentDataType = getCurrentDataTypeName(group, currentIndex)
+                        "正在恢复${currentDataType}快照"
+                    }
+                    isCompleted -> {
+                        "快照恢复已完成"
+                    }
+                    else -> {
+                        "恢复快照备份"
+                    }
+                },
                 onClick = {
-                    if (!isRestoring) {
+                    if (!isRestoring && !isCompleted) {
                         Log.d("ResticRestore", "用户点击恢复按钮，开始恢复流程")
                         coroutineScope.launch {
                             try {
