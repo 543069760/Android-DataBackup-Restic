@@ -16,6 +16,7 @@ sealed class MainRoutes(val route: String) {
         const val ARG_OP_TYPE = "opType"
         const val ARG_ID = "id"
         const val ARG_GROUP = "group"
+        const val ARG_PACKAGE_NAME_FILTER = "packageName"
     }
 
     data object Dashboard : MainRoutes(route = "main_dashboard")
@@ -84,8 +85,8 @@ sealed class MainRoutes(val route: String) {
 
     data object PackagesRestoreProcessing : MainRoutes(route = "main_packages_restore_processing")
     data object PackagesRestoreProcessingSetup : MainRoutes(route = "main_packages_restore_processing_setup")
-    data object PackagesRestoreProcessingGraph : MainRoutes(route = "main_packages_restore_processing_graph/{$ARG_ACCOUNT_NAME}/{$ARG_ACCOUNT_REMOTE}") {
-        fun getRoute(cloudName: String = encodedURLWithSpace, backupDir: String = encodedURLWithSpace) = "main_packages_restore_processing_graph/${cloudName}/${backupDir}"
+    data object PackagesRestoreProcessingGraph : MainRoutes(route = "main_packages_restore_processing_graph/{$ARG_ACCOUNT_NAME}/{$ARG_ACCOUNT_REMOTE}/{$ARG_PACKAGE_NAME_FILTER}") {
+        fun getRoute(cloudName: String = encodedURLWithSpace, backupDir: String = encodedURLWithSpace, packageName: String = encodedURLWithSpace) = "main_packages_restore_processing_graph/${cloudName}/${backupDir}/${packageName}"
     }
 
     data object MediumBackupProcessing : MainRoutes(route = "main_medium_backup_processing")

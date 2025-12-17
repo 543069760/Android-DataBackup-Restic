@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 
 data object UpdateApps : ProcessingUiIntent()
+data class UpdateAppsWithFilter(val packageNameFilter: String) : ProcessingUiIntent()
 data class SetCloudEntity(val name: String) : ProcessingUiIntent()
 data class FinishSetup(val navController: NavController) : ProcessingUiIntent()
 data object GetUsers : ProcessingUiIntent()

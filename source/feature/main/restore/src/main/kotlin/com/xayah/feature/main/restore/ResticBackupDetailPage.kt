@@ -45,6 +45,7 @@ import com.xayah.core.util.DateUtil
 import com.xayah.core.model.DataType
 import com.xayah.feature.main.restore.ResticBackupGroup
 import kotlinx.coroutines.launch
+import java.net.URLEncoder
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalAnimationApi::class)
 @Composable
@@ -131,16 +132,16 @@ fun ResticBackupDetailPage(
                                     Log.d("ResticRestore", "恢复成功，准备读取备份目录")
                                     val backupDir = "${viewModel.readBackupDirectory()}/restore/"
                                     Log.d("ResticRestore", "导航到恢复页面，备份目录: $backupDir")
-
-                                    navController.navigateSingle(
-                                        MainRoutes.List.getRoute(
-                                            target = Target.Apps,
-                                            opType = OpType.RESTORE,
-                                            cloudName = "",
-                                            backupDir = backupDir
-                                        )
+                                    viewModel.refreshLocalDatabase(backupDir)
+                                    // 修改为传递备份目录参数
+                                    val route = MainRoutes.PackagesRestoreProcessingGraph.getRoute(
+                                        cloudName = URLEncoder.encode("", "UTF-8"),
+                                        backupDir = URLEncoder.encode(backupDir, "UTF-8"),
+                                        packageName = group.packageName
                                     )
-                                    Log.d("ResticRestore", "导航完成")
+                                    Log.d("Navigation", "构建路由: $route")
+                                    navController.navigateSingle(route)
+                                    Log.d("Navigation", "导航完成: ResticBackupDetailPage → PackagesRestoreProcessingGraph")
                                 } else {
                                     Log.e("ResticRestore", "恢复失败")
                                 }

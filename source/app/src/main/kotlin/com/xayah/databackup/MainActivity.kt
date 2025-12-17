@@ -128,8 +128,19 @@ class MainActivity : AppCompatActivity() {
                         composable(MainRoutes.PackagesBackupProcessingGraph.route) {
                             PackagesBackupProcessingGraph()
                         }
-                        composable(MainRoutes.PackagesRestoreProcessingGraph.route) {
-                            PackagesRestoreProcessingGraph()
+                        composable(
+                            route = MainRoutes.PackagesRestoreProcessingGraph.route,
+                            arguments = listOf(
+                                navArgument(MainRoutes.ARG_ACCOUNT_NAME) { type = NavType.StringType },
+                                navArgument(MainRoutes.ARG_ACCOUNT_REMOTE) { type = NavType.StringType },
+                                navArgument(MainRoutes.ARG_PACKAGE_NAME_FILTER) { type = NavType.StringType }
+                            )
+                        ) { backStackEntry ->
+                            val cloudName = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME) ?: ""
+                            val backupDir = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_REMOTE) ?: ""
+                            val packageName = backStackEntry.arguments?.getString(MainRoutes.ARG_PACKAGE_NAME_FILTER) ?: ""
+                            Log.d("Navigation", "PackagesRestoreProcessingGraph: cloudName=$cloudName, backupDir=$backupDir, packageName=$packageName")
+                            PackagesRestoreProcessingGraph(packageNameFilter = packageName)
                         }
                         composable(MainRoutes.MediumBackupProcessingGraph.route) {
                             MediumBackupProcessingGraph()

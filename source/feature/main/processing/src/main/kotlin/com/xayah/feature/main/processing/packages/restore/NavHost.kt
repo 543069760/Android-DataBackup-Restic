@@ -22,7 +22,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 @ExperimentalFoundationApi
 @ExperimentalMaterial3Api
 @Composable
-fun PackagesRestoreProcessingGraph() {
+fun PackagesRestoreProcessingGraph(packageNameFilter: String = "") {
     val localNavController = rememberNavController()
     val viewModel = hiltViewModel<RestoreViewModelImpl>()
 
@@ -47,7 +47,11 @@ fun PackagesRestoreProcessingGraph() {
             )
         }
         composable(MainRoutes.PackagesRestoreProcessingSetup.route) {
-            PagePackagesRestoreProcessingSetup(localNavController = localNavController, viewModel = viewModel)
+            PagePackagesRestoreProcessingSetup(
+                localNavController = localNavController,
+                viewModel = viewModel,
+                packageNameFilter = packageNameFilter  // 添加这行
+            )
         }
     }
 }

@@ -1,11 +1,13 @@
 package com.xayah.feature.main.processing.packages.restore
 
+import android.util.Log
 import android.content.Context
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.lifecycle.SavedStateHandle
 import com.xayah.core.data.repository.CloudRepository
 import com.xayah.core.data.repository.PackageRepository
 import com.xayah.core.data.repository.TaskRepository
+import com.xayah.core.data.repository.AppsRepo
 import com.xayah.core.model.OpType
 import com.xayah.core.model.StorageMode
 import com.xayah.core.model.database.PackageEntity
@@ -23,6 +25,7 @@ import com.xayah.core.util.LogUtil
 import com.xayah.core.util.decodeURL
 import com.xayah.core.util.localBackupSaveDir
 import com.xayah.core.util.navigateSingle
+import com.xayah.feature.main.processing.UpdateAppsWithFilter
 import com.xayah.feature.main.processing.AbstractPackagesProcessingViewModel
 import com.xayah.feature.main.processing.FinishSetup
 import com.xayah.feature.main.processing.GetUsers
@@ -49,6 +52,7 @@ class RestoreViewModelImpl @Inject constructor(
     mTaskRepo: TaskRepository,
     private val mPkgRepo: PackageRepository,
     private val mCloudRepo: CloudRepository,
+    private val appsRepo: AppsRepo,
     mLocalService: ProcessingServiceProxyLocalImpl,
     mCloudService: ProcessingServiceProxyCloudImpl,
     private val args: SavedStateHandle,
@@ -74,6 +78,40 @@ class RestoreViewModelImpl @Inject constructor(
                 }
                 _packages.value = packages
                 _packagesSize.value = bytes.formatSize()
+            }
+
+            is UpdateAppsWithFilter -> {
+                Log.d("RestoreViewModelImpl", "处理 UpdateAppsWithFilter: ${intent.packageNameFilter}")
+
+                val cloud: String
+                val backupSaveDir: String
+                if (uiState.value.cloudEntity == null) {
+                    cloud = ""
+                    backupSaveDir = "${mContext.localBackupSaveDir()}/restore/"
+                } else {
+                    cloud = uiState.value.cloudEntity!!.name
+                    backupSaveDir = "${uiState.value.cloudEntity!!.remote}/restore/"
+                }
+
+                Log.d("RestoreViewModelImpl", "查询参数: cloud=$cloud, backupDir=$backupSaveDir")
+
+                // 使用 mPkgRepo 而不是 appsRepo，并传入正确的参数
+                val allActivatedApps = mPkgRepo.queryActivated(OpType.RESTORE, cloud, backupSaveDir)
+                Log.d("RestoreViewModelImpl", "所有激活应用数: ${allActivatedApps.size}")
+                allActivatedApps.forEach { app ->
+                    Log.d("RestoreViewModelImpl", "激活应用: ${app.packageName}, cloud=${app.indexInfo.cloud}, backupDir=${app.indexInfo.backupDir}")
+                }
+
+                val packages = allActivatedApps.filter { it.packageName == intent.packageNameFilter }
+                Log.d("RestoreViewModelImpl", "筛选结果: 找到 ${packages.size} 个应用")
+
+                var bytes = 0.0
+                packages.forEach {
+                    bytes += it.displayStatsBytes
+                }
+                _packages.value = packages
+                _packagesSize.value = bytes.formatSize()
+                Log.d("RestoreViewModelImpl", "更新完成: packages=${packages.size}, size=${bytes.formatSize()}")
             }
 
             is SetCloudEntity -> {

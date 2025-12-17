@@ -1,5 +1,6 @@
 package com.xayah.feature.main.processing.packages.restore
 
+import android.util.Log
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -50,6 +51,7 @@ import com.xayah.feature.main.processing.ProcessingSetupScaffold
 import com.xayah.feature.main.processing.R
 import com.xayah.feature.main.processing.SetCloudEntity
 import com.xayah.feature.main.processing.UpdateApps
+import com.xayah.feature.main.processing.UpdateAppsWithFilter
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 
 @ExperimentalCoroutinesApi
@@ -58,17 +60,24 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 @ExperimentalAnimationApi
 @ExperimentalMaterial3Api
 @Composable
-fun PagePackagesRestoreProcessingSetup(localNavController: NavHostController, viewModel: RestoreViewModelImpl) {
+fun PagePackagesRestoreProcessingSetup(localNavController: NavHostController, viewModel: RestoreViewModelImpl,packageNameFilter: String = "") {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     val packages by viewModel.packages.collectAsStateWithLifecycle()
     val packagesSize by viewModel.packagesSize.collectAsStateWithLifecycle()
     val restoreUsers by viewModel.restoreUsers.collectAsStateWithLifecycle()
 
     LaunchedEffect(null) {
+        Log.d("Navigation", "PagePackagesRestoreProcessingSetup 启动，packageNameFilter: $packageNameFilter")
         viewModel.launchOnIO {
             viewModel.emitIntent(SetCloudEntity(""))
             viewModel.emitIntent(GetUsers)
-            viewModel.emitIntent(UpdateApps)
+            if (packageNameFilter.isNotEmpty()) {
+                Log.d("Navigation", "使用包名筛选: $packageNameFilter")
+                viewModel.emitIntent(UpdateAppsWithFilter(packageNameFilter))
+            } else {
+                Log.d("Navigation", "加载所有应用")
+                viewModel.emitIntent(UpdateApps)
+            }
         }
     }
 

@@ -15,6 +15,11 @@ import com.xayah.core.util.DateUtil
 import com.xayah.feature.main.restore.ResticBackupGroup
 import com.xayah.core.datastore.readBackupDirectory
 import com.xayah.core.util.localBackupSaveDir
+import com.xayah.core.data.repository.AppsRepo
+import com.xayah.core.model.OpType
+import com.xayah.core.model.database.PackageEntity
+import com.xayah.core.database.dao.PackageDao
+import com.xayah.core.rootservice.service.RemoteRootService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,11 +28,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import javax.inject.Inject
+import java.io.File
 
 @HiltViewModel
 class ResticRestoreViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val resticRepo: ResticRepository
+    private val resticRepo: ResticRepository,
+    private val appsRepo: AppsRepo,
+    private val rootService: RemoteRootService,  // 添加
+    private val appsDao: PackageDao
 ) : ViewModel() {
 
     // 速度跟踪变量 - 添加到这里
@@ -92,6 +101,105 @@ class ResticRestoreViewModel @Inject constructor(
         }
     }
 
+    suspend fun refreshLocalDatabase(backupDir: String) {
+        Log.d("ResticRestore", "刷新本地数据库: $backupDir")
+        try {
+            val restoreDir = File(backupDir)
+            if (restoreDir.exists()) {
+                Log.d("ResticRestore", "开始扫描恢复目录: $backupDir")
+
+                // 扫描 apps 子目录
+                val appsDir = File(restoreDir, "apps")
+                if (appsDir.exists()) {
+                    scanAppsDirectory(appsDir)
+                } else {
+                    Log.w("ResticRestore", "apps 目录不存在: ${appsDir.path}")
+                }
+            } else {
+                Log.w("ResticRestore", "恢复目录不存在: $backupDir")
+            }
+            Log.d("ResticRestore", "数据库刷新完成")
+        } catch (e: Exception) {
+            Log.e("ResticRestore", "数据库刷新失败: ${e.message}", e)
+        }
+    }
+
+    private suspend fun scanAppsDirectory(appsDir: File) {
+        val packageDirs = appsDir.listFiles { file -> file.isDirectory }
+        packageDirs?.forEach { packageDir ->
+            val userDirs = packageDir.listFiles { file -> file.isDirectory }
+            userDirs?.forEach { userDir ->
+                val configFile = File(userDir, "package_restore_config.json")
+                if (configFile.exists()) {
+                    try {
+                        // 读取配置文件并更新数据库
+                        val packageEntity = readPackageConfig(configFile, packageDir.name, userDir.name)
+                        if (packageEntity != null) {
+                            appsDao.upsert(packageEntity)
+                            Log.d("ResticRestore", "应用已插入数据库: ${packageDir.name}")
+                            updateDatabase(packageDir.name)
+                            Log.d("ResticRestore", "发现恢复的应用: ${packageDir.name}")
+                        }
+                    } catch (e: Exception) {
+                        Log.e("ResticRestore", "处理应用配置失败: ${configFile.path}", e)
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun readPackageConfig(configFile: File, packageName: String, userDirName: String): PackageEntity? {
+        return try {
+            val entity = rootService.readJson<PackageEntity>(configFile.path)
+            entity?.copy(
+                id = 0,
+                indexInfo = entity.indexInfo.copy(
+                    opType = OpType.RESTORE,
+                    packageName = packageName,
+                    userId = userDirName.split("_").lastOrNull()?.toIntOrNull() ?: 0,
+                    cloud = "",
+                    backupDir = "${context.localBackupSaveDir()}/restore/"
+                ),
+                extraInfo = entity.extraInfo.copy(activated = false)
+            )
+        } catch (e: Exception) {
+            Log.e("ResticRestore", "读取配置文件失败: ${configFile.path}", e)
+            null
+        }
+    }
+
+    private suspend fun updateDatabase(packageName: String) {
+        Log.d("ResticRestore", "激活应用: $packageName")
+        try {
+            // 查询该包名的所有应用记录
+            val existingApps = appsDao.queryPackages(OpType.RESTORE, "", "${context.localBackupSaveDir()}/restore/")
+                .filter { it.packageName == packageName }
+
+            Log.d("ResticRestore", "查询到的应用记录数: ${existingApps.size}")
+            existingApps.forEach { app ->
+                Log.d("ResticRestore", "应用记录: ${app.packageName}, backupDir: ${app.indexInfo.backupDir}, activated: ${app.extraInfo.activated}")
+            }
+
+            if (existingApps.isNotEmpty()) {
+                Log.d("ResticRestore", "激活应用: $packageName, 找到 ${existingApps.size} 个记录")
+                existingApps.forEach { app ->
+                    appsDao.activateById(app.id, true)
+                    Log.d("ResticRestore", "应用已激活: $packageName (ID: ${app.id})")
+                }
+            } else {
+                Log.w("ResticRestore", "未找到应用记录: $packageName")
+
+                // 添加调试查询
+                val allApps = appsDao.queryPackages(OpType.RESTORE, "", "${context.localBackupSaveDir()}/restore/")
+                Log.d("ResticRestore", "数据库中所有相关应用:")
+                allApps.forEach { app ->
+                    Log.d("ResticRestore", "- ${app.packageName}, backupDir: ${app.indexInfo.backupDir}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ResticRestore", "激活应用失败: ${e.message}", e)
+        }
+    }
     // 添加恢复方法
     suspend fun restoreFromResticSnapshots(group: ResticBackupGroup): Boolean {
         Log.d("ResticRestore", "开始快照恢复流程，包名: ${group.packageName}")
