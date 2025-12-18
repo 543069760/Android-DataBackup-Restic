@@ -109,6 +109,9 @@ interface PackageDao {
     @Query("DELETE FROM PackageEntity WHERE id in (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
 
+    @Query("DELETE FROM PackageEntity WHERE indexInfo_opType = :opType AND indexInfo_backupDir = :backupDir")
+    suspend fun deleteByOpTypeAndBackupDir(opType: OpType, backupDir: String)
+
     @Query("SELECT * FROM PackageEntity WHERE id = :id")
     suspend fun queryById(id: Long): PackageEntity?
 

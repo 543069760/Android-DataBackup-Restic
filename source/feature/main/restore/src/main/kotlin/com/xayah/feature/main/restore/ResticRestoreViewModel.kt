@@ -104,12 +104,15 @@ class ResticRestoreViewModel @Inject constructor(
     suspend fun refreshLocalDatabase(backupDir: String) {
         Log.d("ResticRestore", "刷新本地数据库: $backupDir")
         try {
-            val restoreDir = File(backupDir)
-            if (restoreDir.exists()) {
+            // 删除所有旧的恢复记录
+            val restoreDir = "${context.localBackupSaveDir()}/restore/"
+            appsDao.deleteByOpTypeAndBackupDir(OpType.RESTORE, restoreDir)
+
+            val restoreDirFile = File(backupDir)
+            if (restoreDirFile.exists()) {
                 Log.d("ResticRestore", "开始扫描恢复目录: $backupDir")
 
-                // 扫描 apps 子目录
-                val appsDir = File(restoreDir, "apps")
+                val appsDir = File(restoreDirFile, "apps")
                 if (appsDir.exists()) {
                     scanAppsDirectory(appsDir)
                 } else {
