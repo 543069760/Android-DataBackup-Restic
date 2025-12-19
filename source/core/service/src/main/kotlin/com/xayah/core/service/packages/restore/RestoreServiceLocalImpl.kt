@@ -1,5 +1,6 @@
 package com.xayah.core.service.packages.restore
 
+import android.util.Log
 import com.xayah.core.data.repository.PackageRepository
 import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.database.dao.PackageDao
@@ -17,6 +18,7 @@ import com.xayah.core.util.PathUtil
 import com.xayah.core.util.localBackupSaveDir
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import java.io.File
 
 @AndroidEntryPoint
 internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreService() {
@@ -50,7 +52,21 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
     }
 
     override suspend fun getPackages(): List<PackageEntity> {
-        return mPackageRepo.queryActivated(OpType.RESTORE, "", mRootDir)
+        // 检查是否为 Restic 恢复场景
+        val restoreDir = File("${mRootDir}/restore")
+        val backupDir = if (restoreDir.exists()) {
+            Log.d(mTAG, "检测到 Restic 恢复场景，使用 restore 子目录")
+            "${mRootDir}/restore/"
+        } else {
+            Log.d(mTAG, "使用标准恢复路径")
+            mRootDir
+        }
+
+        Log.d(mTAG, "查询参数: cloud=, backupDir=$backupDir")
+        val packages = mPackageRepo.queryActivated(OpType.RESTORE, "", backupDir)
+        Log.d(mTAG, "查询到 ${packages.size} 个激活的应用")
+
+        return packages
     }
 
     override suspend fun restore(type: DataType, userId: Int, p: PackageEntity, t: TaskDetailPackageEntity, srcDir: String) {
