@@ -216,6 +216,11 @@ This architectural upgrade achieves:
 
 > **This marks DataBackup Revived’s transformation from a traditional backup tool into a modern data management platform, laying a solid foundation for future deep cloud integration and intelligent backup strategies.**
 
+## Screenshots – Restic
+<div align="center">  
+    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233244_345_20.png" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233246_347_20.png" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233248_349_20.png" width="275px">  
+</div> 
+
 ## Screenshots – S3
 <div align="center">  
     <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233930_19_20.jpg" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233931_20_20.jpg" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233931_21_20.jpg" width="275px">  
