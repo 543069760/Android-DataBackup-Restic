@@ -216,6 +216,11 @@ val resticSuccess = backupWithRestic(packageName, compressedFile, dataType)
 
 > **这标志着 DataBackup Revived 从传统备份工具向现代化数据管理平台的重大转型，为后续的云存储深度集成与智能备份策略奠定了坚实基础。**
 
+## 截图 – Restic备份
+<div align="center">  
+    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233244_345_20.png" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233246_347_20.png" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233248_349_20.png" width="275px">  
+</div> 
+
 ## 截图 - S3
 <div align="center">  
     <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233930_19_20.jpg" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233931_20_20.jpg" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233931_21_20.jpg" width="275px">  
