@@ -6,12 +6,9 @@
 
 <h1 align="center">数据备份 Revived</h1>  
 
-[![文档](https://img.shields.io/badge/wiki-documentation-forestgreen)](https://DataBackupOfficial.github.io)  
 [![下载](https://img.shields.io/github/downloads/543069760/Android-DataBackup-S3/total)](https://github.com/543069760/Android-DataBackup-S3/releases)  
 [![GitHub release](https://img.shields.io/github/v/release/543069760/Android-DataBackup-S3?color=orange)](https://github.com/543069760/Android-DataBackup-S3/releases)  
 [![许可证](https://img.shields.io/github/license/543069760/Android-DataBackup-S3?color=ff69b4)](./LICENSE)  
-[![频道](https://img.shields.io/badge/channel-DataBackup-252850?color=blue&logo=telegram)](https://t.me/dabackupchannel)  
-[![群组](https://img.shields.io/badge/group-DataBackup-252850?color=blue&logo=telegram)](https://t.me/databackupchat)
 
 免费开源的数据备份应用
 
@@ -22,8 +19,6 @@
 
 :star: 基于 [XayahSuSuSu] 的(https://github.com/XayahSuSuSu/Android-DataBackup) 项目而来。
 
-## 使用说明
-查看[文档](https://DataBackupOfficial.github.io)。
 
 ## 功能特性
 * :deciduous_tree: **需要 Root 权限,支持 [Magisk](https://github.com/topjohnwu/Magisk)、[KernelSU](https://github.com/tiann/KernelSU)、[APatch](https://github.com/bmax121/APatch)**
