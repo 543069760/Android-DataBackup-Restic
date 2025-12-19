@@ -52,8 +52,8 @@ abstract class AbstractProcessingViewModel(
     @ApplicationContext private val mContext: Context,
     private val mRootService: RemoteRootService,
     private val mTaskRepo: TaskRepository,
-    private val mLocalService: AbstractProcessingServiceProxy,
-    private val mCloudService: AbstractProcessingServiceProxy,
+    protected val mLocalService: AbstractProcessingServiceProxy,
+    protected val mCloudService: AbstractProcessingServiceProxy,
 ) : BaseViewModel<IndexUiState, ProcessingUiIntent, IndexUiEffect>(
     IndexUiState(
         state = OperationState.IDLE,

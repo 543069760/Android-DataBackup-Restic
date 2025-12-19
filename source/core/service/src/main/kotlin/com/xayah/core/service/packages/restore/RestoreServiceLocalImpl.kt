@@ -1,6 +1,7 @@
 package com.xayah.core.service.packages.restore
 
 import android.util.Log
+import android.content.Intent
 import com.xayah.core.data.repository.PackageRepository
 import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.database.dao.PackageDao
@@ -23,6 +24,8 @@ import java.io.File
 @AndroidEntryPoint
 internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreService() {
     override val mTAG: String = "RestoreServiceLocalImpl"
+
+    private var mTargetPackageName: String = ""
 
     @Inject
     override lateinit var mRootService: RemoteRootService
@@ -51,6 +54,16 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
         )
     }
 
+    override fun onCreate() {
+        super.onCreate()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        mTargetPackageName = intent?.getStringExtra("TARGET_PACKAGE_NAME") ?: ""
+        Log.d(mTAG, "接收到目标包名: $mTargetPackageName")
+        return super.onStartCommand(intent, flags, startId)
+    }
+
     override suspend fun getPackages(): List<PackageEntity> {
         // 检查是否为 Restic 恢复场景
         val restoreDir = File("${mRootDir}/restore")
@@ -63,9 +76,16 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
         }
 
         Log.d(mTAG, "查询参数: cloud=, backupDir=$backupDir")
-        val packages = mPackageRepo.queryActivated(OpType.RESTORE, "", backupDir)
-        Log.d(mTAG, "查询到 ${packages.size} 个激活的应用")
+        val allPackages = mPackageRepo.queryActivated(OpType.RESTORE, "", backupDir)
 
+        // 使用传递的包名进行筛选
+        val packages = if (mTargetPackageName.isNotEmpty()) {
+            allPackages.filter { it.packageName == mTargetPackageName }
+        } else {
+            allPackages
+        }
+
+        Log.d(mTAG, "筛选后查询到 ${packages.size} 个应用")
         return packages
     }
 

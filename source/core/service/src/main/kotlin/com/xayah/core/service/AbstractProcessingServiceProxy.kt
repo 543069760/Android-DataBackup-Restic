@@ -89,6 +89,8 @@ abstract class AbstractProcessingServiceProxy {
         }
     }
 
+    abstract fun startRestore(packageName: String = "")
+
     suspend fun initialize() = getService().initialize()
 
     suspend fun preprocessing() = getService().preprocessing()

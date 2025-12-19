@@ -57,6 +57,7 @@ class RestoreViewModelImpl @Inject constructor(
     mCloudService: ProcessingServiceProxyCloudImpl,
     private val args: SavedStateHandle,
 ) : AbstractPackagesProcessingViewModel(mContext, mRootService, mTaskRepo, mLocalService, mCloudService) {
+    private var currentPackageNameFilter: String = ""
     override suspend fun onOtherEvent(state: IndexUiState, intent: ProcessingUiIntent) {
         when (intent) {
             is UpdateApps -> {
@@ -81,6 +82,7 @@ class RestoreViewModelImpl @Inject constructor(
             }
 
             is UpdateAppsWithFilter -> {
+                currentPackageNameFilter = intent.packageNameFilter
                 Log.d("RestoreViewModelImpl", "处理 UpdateAppsWithFilter: ${intent.packageNameFilter}")
 
                 val cloud: String
@@ -153,6 +155,7 @@ class RestoreViewModelImpl @Inject constructor(
                         intent.navController.popBackStack()
                         intent.navController.navigateSingle(MainRoutes.PackagesRestoreProcessing.route)
                     }
+                    mLocalService.startRestore(currentPackageNameFilter)
                 }
             }
 
