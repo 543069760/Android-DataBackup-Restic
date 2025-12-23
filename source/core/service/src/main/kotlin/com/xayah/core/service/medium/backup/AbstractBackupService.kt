@@ -203,12 +203,12 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
 
     override suspend fun onProcessing() {
         mTaskEntity.update(rawBytes = mTaskRepo.getRawBytes(TaskType.MEDIA), availableBytes = mTaskRepo.getAvailableBytes(OpType.BACKUP), totalBytes = mTaskRepo.getTotalBytes(OpType.BACKUP), totalCount = mMediaEntities.size)
-        log { "Task count: ${mMediaEntities.size}." }
+        Log.d(mTAG, "Task count: ${mMediaEntities.size}.")
 
         for (index in mMediaEntities.indices) {
             // 1. 循环开始时检查取消标志
             if (isCanceled()) {
-                log { "Backup canceled by user at media index: $index" }
+                Log.d(mTAG, "Backup canceled by user at media index: $index")
                 break  // 直接退出循环
             }
 
@@ -222,7 +222,7 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                     mMediaEntities.size,
                     index
                 )
-                log { "Current media: ${media.mediaEntity}" }
+                Log.d(mTAG, "Current media: ${media.mediaEntity}")
 
                 media.update(state = OperationState.PROCESSING)
                 val m = media.mediaEntity
@@ -250,21 +250,33 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                         mMediaDao.upsert(restoreEntity)
                         mMediaDao.upsert(m)
                         media.update(mediaEntity = m)
-                        // 新增：在配置文件创建后执行Restic备份
-                        val compressedFile = findCompressedFile(dstDir)
-                        if (compressedFile != null) {
-                            Log.d("ResticFlow", "配置文件创建后开始Restic备份: ${m.name}")
-                            val resticSuccess = backupWithRestic(m.name, compressedFile)
-                            Log.d("ResticFlow", "Restic备份结果: $resticSuccess")
+
+                        // 新增：双文件Restic备份
+                        val tarFile = File("$dstDir/media.tar")
+                        val configFile = File("$dstDir/media_restore_config.json")
+
+                        if (tarFile.exists() && configFile.exists()) {
+                            Log.d("ResticFlow", "两个文件都存在，开始Restic备份: ${m.name}")
+
+                            // 备份tar文件
+                            val tarSuccess = backupWithRestic("${m.name}-media", tarFile)
+                            Log.d("ResticFlow", "tar文件Restic备份结果: $tarSuccess")
+
+                            // 备份配置文件
+                            val configSuccess = backupWithRestic("${m.name}-config", configFile)
+                            Log.d("ResticFlow", "配置文件Restic备份结果: $configSuccess")
+                        } else {
+                            Log.d("ResticFlow", "文件缺失，跳过Restic备份")
                         }
+
                         mTaskEntity.update(successCount = mTaskEntity.successCount + 1)
                     } else {
                         // 备份失败,清理已上传的文件
-                        log { "Backup failed for ${m.name}, cleaning up remote files..." }
+                        Log.d(mTAG, "Backup failed for ${m.name}, cleaning up remote files...")
                         runCatching {
                             onCleanupFailedBackup(archivesRelativeDir = m.archivesRelativeDir)
                         }.onFailure { e ->
-                            log { "Failed to cleanup remote files: ${e.message}" }
+                            Log.e(mTAG, "Failed to cleanup remote files: ${e.message}")
                         }
                         mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
                     }
@@ -277,7 +289,7 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
 
             // 2. 备份完成后检查取消标志(在保存配置前)
             if (isCanceled()) {
-                log { "Backup canceled after media backup, skipping remaining items" }
+                Log.d(mTAG, "Backup canceled after media backup, skipping remaining items")
                 break  // 退出循环
             }
 
