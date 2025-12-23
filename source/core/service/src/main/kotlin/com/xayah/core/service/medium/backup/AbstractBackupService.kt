@@ -1,5 +1,6 @@
 package com.xayah.core.service.medium.backup
 
+import android.util.Log
 import android.annotation.SuppressLint
 import com.xayah.core.common.util.toLineString
 import com.xayah.core.datastore.readBackupConfigs
@@ -109,45 +110,48 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
     }
 
     // Restic 备份方法 - 更新为无状态调用
-    protected suspend fun backupWithRestic(
-        mediaName: String,
-        compressedFile: java.io.File
-    ): Boolean {
+    protected suspend fun backupWithRestic(mediaName: String, compressedFile: File): Boolean {
+        Log.d("ResticFlow", "=== 开始Restic备份: $mediaName ===")
+
         val repoPath = getResticRepoPath()
         val password = getResticPassword()
 
-        // 动态检查仓库是否已初始化
+        Log.d("ResticFlow", "Restic仓库路径: $repoPath")
+        Log.d("ResticFlow", "备份文件: ${compressedFile.absolutePath}")
+        Log.d("ResticFlow", "备份时间戳: $mBackupTimestamp")
+
         if (!resticRepo.checkRepository(repoPath, password)) {
-            log { "Restic repository not initialized, skipping backup for $mediaName" }
+            Log.w("ResticFlow", "Restic仓库未初始化，跳过备份: $mediaName")
             return false
         }
 
-        return try {
-            // 删除重复的变量声明
-            val filePath = compressedFile.absolutePath
+        Log.d("ResticFlow", "Restic仓库已初始化，开始备份...")
 
-            // 构建标签
+        return try {
+            val filePath = compressedFile.absolutePath
             val tag = "$mediaName-$mBackupTimestamp"
             val tags = listOf(tag)
 
-            log { "Starting Restic backup for $mediaName: $filePath" }
+            Log.d("ResticFlow", "Restic标签: $tag")
+            Log.d("ResticFlow", "执行restic backup命令...")
+
             val result = resticRepo.backupFile(repoPath, password, filePath, tags)
 
+            Log.d("ResticFlow", "Restic命令退出码: ${result.first}")
+            Log.d("ResticFlow", "Restic命令输出: ${result.second}")
+
             if (result.first == 0) {
-                log { "Restic backup completed successfully for $mediaName" }
-                // 更新数据库中的 Restic 信息
+                Log.d("ResticFlow", "Restic备份成功: $mediaName")
                 updateResticInfo(mediaName, result.second)
                 true
             } else {
-                val errorMsg = result.second
-                log { "Restic backup failed for $mediaName: $errorMsg" }
+                Log.e("ResticFlow", "Restic备份失败: $mediaName, 错误: ${result.second}")
                 false
             }
         } catch (e: Exception) {
-            val baseMessage = "Error during Restic backup"
-            log { "$baseMessage for $mediaName" }
-            log { "Exception type: ${e.javaClass.simpleName}" }
-            log { "Exception message: ${e.message}" }
+            Log.e("ResticFlow", "Restic备份异常: $mediaName")
+            Log.e("ResticFlow", "异常类型: ${e.javaClass.simpleName}")
+            Log.e("ResticFlow", "异常信息: ${e.message}")
             false
         }
     }

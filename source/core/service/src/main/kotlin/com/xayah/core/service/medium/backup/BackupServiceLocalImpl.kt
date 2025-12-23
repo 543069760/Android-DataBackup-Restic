@@ -1,5 +1,6 @@
 package com.xayah.core.service.medium.backup
 
+import android.util.Log
 import com.xayah.core.data.repository.MediaRepository
 import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.database.dao.MediaDao
@@ -52,35 +53,32 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
     }
 
     override suspend fun backup(m: MediaEntity, r: MediaEntity?, t: TaskDetailMediaEntity, dstDir: String) {
+        Log.d(mTAG, "=== 开始文件备份: ${m.name} ===")
+
         val result = mMediumBackupUtil.backupMedia(
-            m = m,
-            t = t,
-            r = r,
-            dstDir = dstDir,
-            isCanceled = { isCanceled() }
+            m = m, t = t, r = r, dstDir = dstDir, isCanceled = { isCanceled() }
         )
 
-        // 检查备份结果,如果失败则立即返回
+        Log.d(mTAG, "tar打包结果: ${result.isSuccess}, 输出: ${result.outString}")
+
         if (!result.isSuccess) {
-            log { "COMPRESSION_FAILED: Backup compression failed for ${m.name}, skipping Restic backup" }
+            Log.w(mTAG, "COMPRESSION_FAILED: Backup compression failed for ${m.name}, skipping Restic backup")
             return
         }
 
-        // 新增：在压缩完成后使用 Restic 进行块备份
         if (result.isSuccess && t.mediaInfo.state != OperationState.SKIP) {
-            // 查找压缩文件
+            Log.d(mTAG, "开始查找压缩文件...")
             val compressedFile = findCompressedFile(dstDir)
             if (compressedFile != null) {
-                log { "COMPRESSED_FILE_FOUND: Found compressed file at ${compressedFile.absolutePath}" }
-                // 调用 Restic 备份
+                Log.d(mTAG, "COMPRESSED_FILE_FOUND: 找到压缩文件 ${compressedFile.absolutePath}")
+                Log.d(mTAG, "文件大小: ${compressedFile.length()} bytes")
+
+                Log.d(mTAG, "开始Restic备份...")
                 val resticSuccess = backupWithRestic(m.name, compressedFile)
-                if (resticSuccess) {
-                    log { "Restic backup successful for ${m.name}" }
-                } else {
-                    log { "Restic backup failed for ${m.name}" }
-                }
+                Log.d(mTAG, "Restic备份结果: $resticSuccess")
             } else {
-                log { "COMPRESSED_FILE_NOT_FOUND: No compressed file found at ${dstDir}/media.tar.zst" }
+                Log.w(mTAG, "COMPRESSED_FILE_NOT_FOUND: 未找到压缩文件")
+                Log.d(mTAG, "检查目录内容: ${File(dstDir).listFiles()?.map { it.name }}")
             }
         }
 
@@ -90,27 +88,34 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
 
     // 辅助方法：查找压缩文件
     private fun findCompressedFile(dstDir: String): File? {
-        val file = File("$dstDir/media.tar.zst")
-        return if (file.exists()) {
-            file
+        val tarFile = File("$dstDir/media.tar")
+        val configFile = File("$dstDir/media_restore_config.json")
+
+        Log.d(mTAG, "检查tar文件: ${tarFile.absolutePath}, 存在: ${tarFile.exists()}")
+        Log.d(mTAG, "检查配置文件: ${configFile.absolutePath}, 存在: ${configFile.exists()}")
+
+        return if (tarFile.exists() && configFile.exists()) {
+            Log.d(mTAG, "两个文件都存在，返回tar文件进行Restic备份")
+            tarFile
         } else {
+            Log.d(mTAG, "文件缺失，跳过Restic备份")
             null
         }
     }
 
     override suspend fun onCleanupIncompleteBackup(currentIndex: Int) {
-        log { "Cleaning up incomplete local file backup from index: $currentIndex" }
+        Log.d(mTAG, "Cleaning up incomplete local file backup from index: $currentIndex")
 
         mMediaEntities.forEachIndexed { index, media ->
             if (index >= currentIndex) {
                 val localFileDir = "${mFilesDir}/${media.mediaEntity.archivesRelativeDir}"
-                log { "Cleaning up incomplete backup at: $localFileDir" }
+                Log.d(mTAG, "Cleaning up incomplete backup at: $localFileDir")
                 runCatching {
                     mRootService.deleteRecursively(localFileDir)
                 }.onSuccess {
-                    log { "Successfully cleaned up: $localFileDir" }
+                    Log.d(mTAG, "Successfully cleaned up: $localFileDir")
                 }.onFailure { e ->
-                    log { "Failed to cleanup: ${e.message}" }
+                    Log.e(mTAG, "Failed to cleanup: ${e.message}")
                 }
             }
         }
