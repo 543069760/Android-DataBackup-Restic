@@ -97,6 +97,24 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
         NotificationUtil.notify(mContext, mNotificationBuilder, mContext.getString(R.string.backing_up), mContext.getString(R.string.preprocessing))
     }
 
+    // 辅助方法：查找压缩文件
+    private fun findCompressedFile(dstDir: String): File? {
+        val tarFile = File("$dstDir/media.tar")
+        val configFile = File("$dstDir/media_restore_config.json")
+
+        Log.d(mTAG, "检查tar文件: ${tarFile.absolutePath}, 存在: ${tarFile.exists()}")
+        Log.d(mTAG, "检查配置文件: ${configFile.absolutePath}, 存在: ${configFile.exists()}")
+
+        return if (tarFile.exists() && configFile.exists()) {
+            Log.d(mTAG, "两个文件都存在，返回tar文件进行Restic备份")
+            tarFile
+        } else {
+            Log.d(mTAG, "文件缺失，跳过Restic备份")
+            null
+        }
+    }
+
+
     // 获取 Restic 仓库路径
     protected suspend fun getResticRepoPath(): String {
         // 从 DataStore 读取用户配置的路径，与 ResticViewModel 保持一致
@@ -232,6 +250,13 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                         mMediaDao.upsert(restoreEntity)
                         mMediaDao.upsert(m)
                         media.update(mediaEntity = m)
+                        // 新增：在配置文件创建后执行Restic备份
+                        val compressedFile = findCompressedFile(dstDir)
+                        if (compressedFile != null) {
+                            Log.d("ResticFlow", "配置文件创建后开始Restic备份: ${m.name}")
+                            val resticSuccess = backupWithRestic(m.name, compressedFile)
+                            Log.d("ResticFlow", "Restic备份结果: $resticSuccess")
+                        }
                         mTaskEntity.update(successCount = mTaskEntity.successCount + 1)
                     } else {
                         // 备份失败,清理已上传的文件
