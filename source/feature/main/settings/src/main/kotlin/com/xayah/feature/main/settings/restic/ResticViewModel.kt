@@ -14,6 +14,7 @@ import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.datastore.saveResticRepoPath
 import com.xayah.core.datastore.saveResticPassword
 import com.xayah.core.restic.ResticRepository
+import com.xayah.core.restic.ResticNative
 import com.xayah.core.ui.viewmodel.BaseViewModel
 import com.xayah.core.ui.viewmodel.IndexUiEffect
 import com.xayah.core.ui.viewmodel.UiIntent
@@ -29,6 +30,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.net.URL
+import java.net.HttpURLConnection
 import javax.inject.Inject
 
 
@@ -41,9 +44,93 @@ sealed class ResticUiIntent : UiIntent
 class ResticViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val resticRepo: ResticRepository,
-    private val rootService: RemoteRootService
+    private val rootService: RemoteRootService,
+    private val resticNative: ResticNative
 ) : BaseViewModel<ResticUiState, ResticUiIntent, IndexUiEffect>(ResticUiState) {
+    // 下载状态管理
+    private val _downloadState = MutableStateFlow<DownloadState>(DownloadState.Idle)
+    val downloadState: StateFlow<DownloadState> = _downloadState.asStateFlow()
 
+    // 下载URL状态
+    private val _downloadUrlState = MutableStateFlow<String>("")
+    val downloadUrlState: StateFlow<String> = _downloadUrlState.asStateFlow()
+
+    sealed class DownloadState {
+        object Idle : DownloadState()
+        object Downloading : DownloadState()
+        data class Success(val path: String) : DownloadState()
+        data class Error(val message: String) : DownloadState()
+    }
+
+    init {
+        viewModelScope.launch {
+            checkResticStatus()
+            // 检查是否需要下载
+            if (resticNative.isDownloadNeeded(context)) {
+                _downloadState.value = DownloadState.Idle
+            }
+        }
+    }
+
+    // 下载Restic二进制文件
+    suspend fun downloadResticBinary(url: String): Boolean {
+        _downloadState.value = DownloadState.Downloading
+        return withContext(Dispatchers.IO) {
+            try {
+                val targetFile = File(context.filesDir, "restic")
+
+                // 下载文件
+                downloadFile(url, targetFile)
+
+                // 设置可执行权限
+                targetFile.setExecutable(true)
+
+                // 清除下载标记
+                resticNative.clearDownloadFlag(context)
+
+                _downloadState.value = DownloadState.Success(targetFile.absolutePath)
+
+                // 重新检查Restic状态
+                checkResticStatus()
+
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "下载Restic失败", e)
+                _downloadState.value = DownloadState.Error(e.message ?: "下载失败")
+                false
+            }
+        }
+    }
+
+    private fun downloadFile(url: String, targetFile: File, onProgress: (Long, Long) -> Unit = { _, _ -> }) {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.connectTimeout = 10000
+        connection.readTimeout = 30000
+        connection.connect()
+
+        if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+            throw Exception("HTTP错误: ${connection.responseCode}")
+        }
+
+        val fileSize = connection.contentLength.toLong()
+        var downloadedBytes = 0L
+
+        connection.inputStream.use { input ->
+            targetFile.outputStream().use { output ->
+                val buffer = ByteArray(8192)
+                var bytesRead: Int
+                while (input.read(buffer).also { bytesRead = it } != -1) {
+                    output.write(buffer, 0, bytesRead)
+                    downloadedBytes += bytesRead
+                    onProgress(downloadedBytes, fileSize)
+                }
+            }
+        }
+    }
+
+    fun setDownloadUrl(url: String) {
+        _downloadUrlState.value = url
+    }
 
     companion object {
         private const val TAG = "ResticViewModel"
@@ -70,12 +157,6 @@ class ResticViewModel @Inject constructor(
     // Snapshot count
     private val _resticSnapshotCountState = MutableStateFlow(0)
     val resticSnapshotCountState: StateFlow<Int> = _resticSnapshotCountState
-
-    init {
-        viewModelScope.launch {
-            checkResticStatus()
-        }
-    }
 
     suspend fun checkResticStatus() {
         launchOnIO {
