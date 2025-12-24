@@ -47,8 +47,18 @@ class ResticViewModel @Inject constructor(
 ) : BaseViewModel<ResticUiState, ResticUiIntent, IndexUiEffect>(ResticUiState) {
 
     // --- 状态流管理 ---
-    private val _downloadState = MutableStateFlow<DownloadState>(DownloadState.Idle)
+    // 修改点 1: 初始值设为 None，防止进入页面立即弹窗
+    private val _downloadState = MutableStateFlow<DownloadState>(DownloadState.None)
     val downloadState: StateFlow<DownloadState> = _downloadState.asStateFlow()
+
+    // 修改点 2: 统一定义 DownloadState，增加 None 状态 (删除了类中后面重复的定义)
+    sealed class DownloadState {
+        object None : DownloadState()      // 默认静默状态，不触发 UI
+        object Idle : DownloadState()      // 确认需要下载时设为此状态，触发 UI 弹窗
+        object Downloading : DownloadState()
+        data class Success(val path: String) : DownloadState()
+        data class Error(val message: String) : DownloadState()
+    }
 
     private val _downloadUrlState = MutableStateFlow<String>("")
     val downloadUrlState: StateFlow<String> = _downloadUrlState.asStateFlow()
@@ -74,13 +84,6 @@ class ResticViewModel @Inject constructor(
     private val _resticErrorState = MutableStateFlow<String?>(null)
     val resticErrorState: StateFlow<String?> = _resticErrorState.asStateFlow()
 
-    sealed class DownloadState {
-        object Idle : DownloadState()
-        object Downloading : DownloadState()
-        data class Success(val path: String) : DownloadState()
-        data class Error(val message: String) : DownloadState()
-    }
-
     sealed class InitializationState {
         object Idle : InitializationState()
         object Checking : InitializationState()
@@ -93,44 +96,66 @@ class ResticViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            // 首先执行状态检查，确保拿到版本号（如果有的话）
             checkResticStatus()
-            if (resticNative.isDownloadNeeded(context)) {
-                _downloadState.value = DownloadState.Idle
+
+            val version = _resticVersionState.value
+
+            if (version == null) {
+                // 确实没有版本，根据标记判断是否需要弹出下载
+                if (resticNative.isDownloadNeeded(context)) {
+                    _downloadState.value = DownloadState.Idle
+                }
+            } else {
+                // 修改点 3: 已有版本的情况下，设为 None 保持静默
+                // 这样 UI 既不会弹出输入框，也不会弹出“下载成功”的提示
+                _downloadState.value = DownloadState.None
             }
         }
     }
 
-    // --- 核心逻辑：状态检查 ---
+    /**
+     * 核心逻辑：状态检查
+     * 合并为一个支持 withContext 的挂起函数，确保 init 块时序正确
+     */
     suspend fun checkResticStatus() {
-        launchOnIO {
+        withContext(Dispatchers.IO) {
             try {
                 val binaryPath = resticNative.getResticBinaryPath(context)
                 val binaryFile = File(binaryPath)
 
                 Log.d(TAG, "DEBUG: 检查二进制文件 -> 路径: $binaryPath")
 
+                // 1. 检查文件是否存在
                 if (!binaryFile.exists()) {
                     Log.e(TAG, "DEBUG: 失败原因 -> 文件不存在")
                     _resticVersionState.value = null
-                    return@launchOnIO
+                    return@withContext
                 }
 
-                // 即使存在，Root Shell 执行也需要 +x 权限
+                // 2. 修复执行权限
                 if (!binaryFile.canExecute()) {
                     Log.w(TAG, "DEBUG: 文件不可执行，尝试修复权限...")
                     binaryFile.setExecutable(true, false)
                 }
 
-                // 1. 获取版本 (通过 libsu 执行)
+                // 3. 获取版本号 (通过 libsu 执行)
                 val version = resticRepo.getVersion()
                 Log.d(TAG, "DEBUG: 尝试获取版本结果: $version")
                 _resticVersionState.value = version
 
-                // 2. 获取并同步仓库路径
+                // 4. 如果版本获取成功，清除下载标志位
+                if (version != null) {
+                    resticNative.clearDownloadFlag(context)
+                } else {
+                    return@withContext
+                }
+
+                // 5. 获取并同步仓库路径
                 val repoPath = getRepoPath()
                 _repoPathState.value = repoPath
 
-                // 3. 检查仓库初始化状态与快照
+                // 6. 检查仓库初始化状态与快照
                 val password = getResticPassword()
                 val isInitialized = resticRepo.checkRepository(repoPath, password)
 
@@ -143,6 +168,7 @@ class ResticViewModel @Inject constructor(
                 } else {
                     _resticSnapshotCountState.value = 0
                 }
+
             } catch (e: Exception) {
                 Log.e(TAG, "DEBUG: checkResticStatus 异常", e)
                 _resticVersionState.value = null
@@ -251,6 +277,8 @@ class ResticViewModel @Inject constructor(
                 targetFile.setExecutable(true, false)
 
                 resticNative.clearDownloadFlag(context)
+
+                // 这里保持 Success，因为这是真正的下载动作完成
                 _downloadState.value = DownloadState.Success(targetFile.absolutePath)
 
                 delay(300)
@@ -284,15 +312,13 @@ class ResticViewModel @Inject constructor(
             }
         }
     }
-    // 在 ResticViewModel.kt 中添加
+
     fun getFullPathFromUri(uri: Uri): String? {
         val path = uri.path ?: return null
         return when {
-            // 处理外部存储 (sdcard): content://.../tree/primary:Documents
             path.contains("primary:") -> {
                 "/storage/emulated/0/${path.split("primary:")[1]}"
             }
-            // 处理其他挂载点 (如外部 SD 卡): content://.../tree/1234-ABCD:Backup
             path.contains(":") -> {
                 val parts = path.split(":")
                 val diskId = parts[0].split("/").last()
@@ -313,14 +339,8 @@ class ResticViewModel @Inject constructor(
         }
     }
 
-    /**
-     * 获取当前保存的密码
-     */
     suspend fun getPassword(): String = getResticPassword()
 
-    /**
-     * 保存密码并重新检查仓库状态
-     */
     fun savePassword(password: String) {
         viewModelScope.launch {
             context.saveResticPassword(password)
@@ -328,27 +348,18 @@ class ResticViewModel @Inject constructor(
         }
     }
 
-    /**
-     * 保存仓库路径并更新 UI 状态
-     */
     fun saveRepoPath(path: String) {
-        val sanitizedPath = path.trim() // 防止末尾空格导致 shell 命令失效
+        val sanitizedPath = path.trim()
         viewModelScope.launch {
-            // 先更新 DataStore
             context.saveResticRepoPath(sanitizedPath)
             _repoPathState.value = sanitizedPath
-
-            // 切换到 IO 线程执行 Shell
             withContext(Dispatchers.IO) {
-                // libsu 的命令执行
                 Shell.cmd(
                     "mkdir -p '$sanitizedPath'",
                     "chmod 777 '$sanitizedPath'",
                     "restorecon -R '$sanitizedPath'"
                 ).exec()
             }
-
-            // 最后同步状态
             checkResticStatus()
         }
     }
