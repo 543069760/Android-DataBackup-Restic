@@ -2,16 +2,15 @@ package com.xayah.feature.main.settings
 
 import android.content.Intent
 import android.os.Build
-import android.util.Log
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -70,7 +69,7 @@ fun PageSettings() {
     val resticViewModel = hiltViewModel<ResticViewModel>()
     val directoryState by viewModel.directoryState.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
-    val scope = rememberCoroutineScope() // 用于在 UI 事件中启动协程
+    val scope = rememberCoroutineScope()
 
     // 状态收集
     val resticVersion by resticViewModel.resticVersionState.collectAsStateWithLifecycle()
@@ -82,14 +81,14 @@ fun PageSettings() {
 
     var showDownloadDialog by remember { mutableStateOf(false) }
 
-    // 逻辑：自动弹出下载对话框
+    // 逻辑：自动弹出下载对话框（仅当未检测到版本且不在下载中时）
     LaunchedEffect(resticVersion, downloadState) {
         if (resticVersion == null && downloadState is ResticViewModel.DownloadState.Idle) {
             showDownloadDialog = true
         }
     }
 
-    // 逻辑：进入页面检查状态
+    // 逻辑：首次进入页面检查状态
     LaunchedEffect(Unit) {
         resticViewModel.checkResticStatus()
     }
@@ -174,18 +173,26 @@ fun PageSettings() {
             Title(title = stringResource(id = R.string.restic_configuration)) {
                 Clickable(
                     title = stringResource(id = R.string.restic_version),
-                    value = resticVersion ?: stringResource(id = R.string.restic_not_detected)
-                ) {}
+                    // 修复点：如果正在下载，显示“正在下载...”，增强用户反馈
+                    value = if (downloadState is ResticViewModel.DownloadState.Downloading)
+                        "正在下载并检测..."
+                    else (resticVersion ?: stringResource(id = R.string.restic_not_detected))
+                ) {
+                    scope.launch {
+                        resticViewModel.checkResticStatus()
+                    }
+                }
 
                 Clickable(
                     title = stringResource(id = R.string.restic_initialization_status),
                     value = when {
+                        resticVersion == null -> stringResource(id = R.string.restic_not_detected)
                         resticError != null -> resticError!!
                         !resticInitialized -> stringResource(id = R.string.restic_not_initialized)
                         else -> stringResource(id = R.string.restic_initialized_at, repoPath ?: "")
                     }
                 ) {
-                    if (!resticInitialized && resticError == null) {
+                    if (resticVersion != null && !resticInitialized && resticError == null) {
                         navController.navigateSingle(MainRoutes.ResticInitialization.route)
                     }
                 }
@@ -193,6 +200,7 @@ fun PageSettings() {
                 Clickable(
                     title = stringResource(id = R.string.restic_snapshot_count),
                     value = when {
+                        resticVersion == null -> stringResource(id = R.string.restic_not_detected)
                         resticError != null -> resticError!!
                         !resticInitialized -> stringResource(id = R.string.restic_not_initialized)
                         snapshotCount > 0 -> stringResource(id = R.string.restic_snapshots_count, snapshotCount)
@@ -252,7 +260,7 @@ fun PageSettings() {
             onDismiss = { showDownloadDialog = false },
             onDownloadComplete = {
                 showDownloadDialog = false
-                // 修复点：使用 Composable 作用域中的 scope
+                // 修复点：在 UI 层确保下载完成后强制刷新状态
                 scope.launch {
                     resticViewModel.checkResticStatus()
                 }

@@ -9,6 +9,7 @@ android {
 }
 
 dependencies {
+    implementation(libs.libsu.core)
     implementation(project(":core:common"))
     implementation(project(":core:datastore"))
     implementation(project(":core:model"))

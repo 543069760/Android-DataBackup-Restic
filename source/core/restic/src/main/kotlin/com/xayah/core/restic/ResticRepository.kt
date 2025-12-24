@@ -2,18 +2,18 @@ package com.xayah.core.restic
 
 import android.content.Context
 import android.util.Log
+import com.topjohnwu.superuser.Shell // 确保使用正确的 libsu 包名
+import com.xayah.core.model.DataType
+import com.xayah.core.model.restic.ResticBackupApp
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.Serializable
-import java.io.InputStreamReader
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
-import dagger.hilt.android.qualifiers.ApplicationContext
-import java.io.File
-import com.xayah.core.model.restic.ResticBackupApp  // 添加导入
-import com.xayah.core.model.DataType              // 添加导入
 
 @Singleton
 class ResticRepository @Inject constructor(
@@ -23,104 +23,41 @@ class ResticRepository @Inject constructor(
 ) {
     companion object {
         private const val TAG = "ResticRepository"
-        private val json = Json { ignoreUnknownKeys = true }
+        private val json = Json {
+            ignoreUnknownKeys = true
+            coerceInputValues = true
+        }
     }
 
-    // 获取 restic 二进制路径
     private val resticPath: String by lazy {
         resticNative.getResticBinaryPath(context)
     }
 
-    // 获取 Restic 版本
-    suspend fun getVersion(): String? {
-        return withContext(Dispatchers.IO) {
-            try {
-                val args = listOf(resticPath, "version")
-                val processBuilder = ProcessBuilder(args)
-                val process = processBuilder.start()
-                val output = InputStreamReader(process.inputStream).readText()
-                val exitCode = process.waitFor()
+    /**
+     * 核心执行方法：使用 libsu 执行 Root 命令
+     */
+    private suspend fun executeRestic(
+        vararg args: String,
+        env: Map<String, String> = emptyMap()
+    ): Shell.Result = withContext(Dispatchers.IO) {
+        val defaultEnv = mutableMapOf(
+            "HOME" to context.filesDir.absolutePath,
+            "XDG_CACHE_HOME" to File(context.cacheDir, "restic").absolutePath
+        )
+        defaultEnv.putAll(env)
 
-                if (exitCode == 0) {
-                    // 解析版本信息，例如 "restic 0.16.2 compiled with go1.21.0 on linux/amd64"
-                    val versionLine = output.lines().firstOrNull()
-                    versionLine?.substringAfter("restic ")?.substringBefore(" ")
-                } else {
-                    null
-                }
-            } catch (e: Exception) {
-                logger.logCommandFailed(e)
-                null
-            }
-        }
+        // 构建带环境变量的命令
+        val envExports = defaultEnv.map { "export ${it.key}=\"${it.value}\"" }
+        val command = envExports.joinToString(" && ") + " && $resticPath ${args.joinToString(" ")}"
+
+        Log.d(TAG, "Executing Root Command: $command")
+
+        val result = Shell.cmd(command).exec()
+        logger.logCommandResult(result.code, result.out.joinToString("\n"))
+        result
     }
 
-    // 异步初始化仓库
-    suspend fun initRepository(
-        repoPath: String,
-        password: String,
-        callback: (Boolean, String) -> Unit
-    ) {
-        withContext(Dispatchers.IO) {
-            try {
-                val args = listOf(resticPath, "init", "--repo", repoPath)
-
-                val processBuilder = ProcessBuilder(args)
-                processBuilder.environment()["RESTIC_PASSWORD"] = password
-
-                val process = processBuilder.start()
-                val output = InputStreamReader(process.inputStream).readText()
-                val errorOutput = InputStreamReader(process.errorStream).readText()
-                val exitCode = process.waitFor()
-
-                val success = exitCode == 0
-                val resultOutput = if (success) output else errorOutput
-
-                logger.logCommandResult(exitCode, resultOutput)
-                callback(success, resultOutput)
-            } catch (e: Exception) {
-                logger.logCommandFailed(e)
-                callback(false, e.message ?: "Initialization failed")
-            }
-        }
-    }
-
-    // 备份文件
-    suspend fun backupFile(
-        repoPath: String,
-        password: String,
-        filePath: String,
-        tags: List<String>
-    ): Pair<Int, String> {
-        return withContext(Dispatchers.IO) {
-            try {
-                val args = listOf(
-                    resticPath, "backup", "--repo", repoPath,
-                    filePath, "--tag", tags.joinToString(","),
-                    "--json"
-                )
-
-                val processBuilder = ProcessBuilder(args)
-                processBuilder.environment()["RESTIC_REPOSITORY"] = repoPath
-                processBuilder.environment()["RESTIC_PASSWORD"] = password
-
-                val process = processBuilder.start()
-                val output = InputStreamReader(process.inputStream).readText()
-                val errorOutput = InputStreamReader(process.errorStream).readText()
-                val exitCode = process.waitFor()
-
-                val resultOutput = if (exitCode == 0) output else errorOutput
-                logger.logCommandResult(exitCode, resultOutput)
-
-                Pair(exitCode, resultOutput)
-            } catch (e: Exception) {
-                logger.logCommandFailed(e)
-                Pair(-1, e.message ?: "Backup failed due to exception")
-            }
-        }
-    }
-
-    // 恢复快照
+    // --- 恢复快照（包含详细诊断逻辑） ---
     suspend fun restoreSnapshot(
         repoPath: String,
         password: String,
@@ -132,7 +69,8 @@ class ResticRepository @Inject constructor(
     ): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                // 构造带子路径的快照ID
+                Log.d(TAG, "开始恢复快照: $snapshotId -> $targetPath")
+
                 val fullSnapshotId = if (!snapshotSubPath.isNullOrEmpty()) {
                     "$snapshotId:$snapshotSubPath"
                 } else {
@@ -140,326 +78,188 @@ class ResticRepository @Inject constructor(
                 }
 
                 val args = mutableListOf(
-                    resticPath, "restore", fullSnapshotId,
-                    "--repo", repoPath,
-                    "--target", targetPath,
+                    "restore", fullSnapshotId,
+                    "--repo", "\"$repoPath\"",
+                    "--target", "\"$targetPath\"",
                     "--json"
                 )
 
                 if (!includePath.isNullOrEmpty()) {
-                    args.add("--include")
-                    args.add(includePath)
+                    args.addAll(listOf("--include", "\"$includePath\""))
                 }
 
-                Log.d(TAG, "Restic restore command: ${args.joinToString(" ")}")
+                // 执行命令
+                val result = executeRestic(*args.toTypedArray(), env = mapOf("RESTIC_PASSWORD" to password))
+                val output = result.out.joinToString("\n")
+                val exitCode = result.code
 
-                val processBuilder = ProcessBuilder(args)
-                processBuilder.environment()["RESTIC_REPOSITORY"] = repoPath
-                processBuilder.environment()["RESTIC_PASSWORD"] = password
-                processBuilder.environment()["HOME"] = context.filesDir.absolutePath
-                processBuilder.environment()["XDG_CACHE_HOME"] = File(context.cacheDir, "restic").absolutePath
-                val process = processBuilder.start()
-
-                try {
-                    // 分别读取标准输出和错误输出
-                    val stdout = process.inputStream.bufferedReader()
-                    val stderr = process.errorStream.bufferedReader()
-
-                    // 处理标准输出（进度信息）
-                    val outputBuilder = StringBuilder()
-                    stdout.use { reader ->
-                        reader.forEachLine { line ->
-                            outputBuilder.appendLine(line)  // 捕获输出
-
-                            try {
-                                val progress = parseRestoreProgress(line)
-                                if (progress != null && progressCallback != null) {
-                                    progressCallback.onProgress(
-                                        filesFinished = progress.files_finished ?: 0,
-                                        filesTotal = progress.files_total ?: 0,
-                                        bytesWritten = progress.bytes_written ?: 0,
-                                        bytesTotal = progress.bytes_total ?: 0,
-                                        filesSkipped = progress.files_skipped ?: 0,
-                                        bytesSkipped = progress.bytes_skipped ?: 0
-                                    )
-                                }
-                            } catch (e: Exception) {
-                                Log.w(TAG, "Failed to parse progress line: $line", e)
-                            }
-                        }
+                // 处理进度回调
+                result.out.forEach { line ->
+                    parseRestoreProgress(line)?.let { p ->
+                        progressCallback?.onProgress(
+                            p.files_finished ?: 0, p.files_total ?: 0,
+                            p.bytes_written ?: 0, p.bytes_total ?: 0,
+                            p.files_skipped ?: 0, p.bytes_skipped ?: 0
+                        )
                     }
-
-// 读取错误输出用于调试
-                    val errorOutput = stderr.readText()
-                    val output = outputBuilder.toString()  // 使用捕获的输出
-
-                    val exitCode = process.waitFor()
-
-                    // === 详细恢复过程诊断 ===
-                    Log.d(TAG, "========== Restic 恢复过程详情 ==========")
-                    Log.d(TAG, "命令: ${args.joinToString(" ")}")
-                    Log.d(TAG, "退出码: $exitCode")
-                    Log.d(TAG, "标准输出长度: ${output.length} 字符")
-                    Log.d(TAG, "错误输出长度: ${errorOutput.length} 字符")
-
-                    if (output.isNotEmpty()) {
-                        Log.d(TAG, "=== 标准输出内容 ===")
-                        output.lines().forEachIndexed { index, line ->
-                            Log.d(TAG, "stdout[$index]: $line")
-                        }
-                    }
-
-                    if (errorOutput.isNotEmpty()) {
-                        Log.e(TAG, "=== 错误输出内容 ===")
-                        errorOutput.lines().forEachIndexed { index, line ->
-                            Log.e(TAG, "stderr[$index]: $line")
-                        }
-                    }
-
-                    // 分析退出码原因
-                    if (exitCode != 0) {
-                        Log.w(TAG, "=== 退出码分析 ===")
-                        when {
-                            errorOutput.contains("warning", ignoreCase = true) -> {
-                                Log.w(TAG, "✓ 检测到警告信息")
-                            }
-                            errorOutput.contains("error", ignoreCase = true) -> {
-                                Log.e(TAG, "✗ 检测到错误信息")
-                            }
-                            errorOutput.contains("file not found", ignoreCase = true) -> {
-                                Log.e(TAG, "✗ 文件未找到")
-                            }
-                            errorOutput.contains("permission denied", ignoreCase = true) -> {
-                                Log.e(TAG, "✗ 权限被拒绝")
-                            }
-                            output.contains("restoring", ignoreCase = true) -> {
-                                Log.w(TAG, "✓ 检测到恢复操作记录")
-                            }
-                            else -> {
-                                Log.w(TAG, "? 未知原因的非零退出码")
-                            }
-                        }
-
-                        // 检查目标文件
-                        val targetFile = File(targetPath, includePath ?: "")
-                        Log.w(TAG, "目标文件检查: ${targetFile.absolutePath}")
-                        Log.w(TAG, "文件存在: ${targetFile.exists()}")
-                        if (targetFile.exists()) {
-                            Log.w(TAG, "文件大小: ${targetFile.length()} bytes")
-                            Log.w(TAG, "文件修改时间: ${targetFile.lastModified()}")
-                        }
-                    }
-
-                    Log.d(TAG, "========================================")
-
-                    logger.logCommandResult(exitCode, output)
-                    exitCode == 0
-                } catch (e: Exception) {
-                    Log.e(TAG, "Restic restore process exception", e)
-                    // 尝试获取可能的错误输出
-                    try {
-                        val errorOutput = process.errorStream.bufferedReader().readText()
-                        Log.e(TAG, "Process error output: $errorOutput")
-                    } catch (ex: Exception) {
-                        Log.e(TAG, "Failed to read error output", ex)
-                    }
-                    throw e
                 }
+
+                // === 详细恢复过程诊断 (原始逻辑回归) ===
+                Log.d(TAG, "========== Restic 恢复过程详情 ==========")
+                Log.d(TAG, "命令参数: ${args.joinToString(" ")}")
+                Log.d(TAG, "退出码: $exitCode")
+                Log.d(TAG, "标准输出长度: ${output.length} 字符")
+
+                if (output.isNotEmpty()) {
+                    Log.d(TAG, "=== 标准输出内容 ===")
+                    result.out.forEachIndexed { index, line ->
+                        Log.d(TAG, "stdout[$index]: $line")
+                    }
+                }
+
+                // 分析失败原因
+                if (exitCode != 0) {
+                    Log.w(TAG, "=== 退出码分析 ===")
+                    when {
+                        output.contains("warning", ignoreCase = true) -> Log.w(TAG, "✓ 检测到警告信息")
+                        output.contains("error", ignoreCase = true) -> Log.e(TAG, "✗ 检测到错误信息")
+                        output.contains("file not found", ignoreCase = true) -> Log.e(TAG, "✗ 文件未找到")
+                        output.contains("permission denied", ignoreCase = true) -> Log.e(TAG, "✗ 权限被拒绝 (SELinux 或 文件系统只读)")
+                        output.contains("restoring", ignoreCase = true) -> Log.w(TAG, "✓ 检测到恢复操作记录，但命令未成功完成")
+                        else -> Log.w(TAG, "? 未知原因的非零退出码")
+                    }
+
+                    // 检查物理文件是否存在
+                    val targetFile = File(targetPath, includePath ?: "")
+                    Log.w(TAG, "目标文件检查: ${targetFile.absolutePath}")
+                    Log.w(TAG, "文件物理存在: ${targetFile.exists()}")
+                    if (targetFile.exists()) {
+                        Log.w(TAG, "文件大小: ${targetFile.length()} bytes")
+                        Log.w(TAG, "最后修改时间: ${targetFile.lastModified()}")
+                    }
+                }
+                Log.d(TAG, "========================================")
+
+                exitCode == 0
             } catch (e: Exception) {
+                Log.e(TAG, "Restic restore process exception", e)
                 logger.logCommandFailed(e)
                 false
             }
         }
     }
-    // 添加进度解析方法
-    private fun parseRestoreProgress(line: String): ResticRestoreProgress? {
-        return try {
-            json.decodeFromString<ResticRestoreProgress>(line)
-        } catch (e: Exception) {
-            null
+
+    // --- 其他方法 (保持 libsu 优化版) ---
+
+    suspend fun getVersion(): String? {
+        val result = executeRestic("version")
+        return if (result.isSuccess) {
+            result.out.firstOrNull()?.substringAfter("restic ")?.substringBefore(" ")
+        } else null
+    }
+
+    /**
+     * 重构后的初始化仓库方法
+     * @return Result<String> 成功时包含输出信息，失败时包含异常
+     */
+    suspend fun initRepository(repoPath: String, password: String): Result<String> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val result = executeRestic(
+                    "init",
+                    "--repo", "\"$repoPath\"",
+                    env = mapOf("RESTIC_PASSWORD" to password)
+                )
+
+                val output = if (result.isSuccess) {
+                    result.out.joinToString("\n")
+                } else {
+                    result.err.joinToString("\n")
+                }
+
+                if (result.isSuccess) {
+                    Result.success(output)
+                } else {
+                    Result.failure(Exception(output.ifEmpty { "Unknown error during restic init" }))
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
         }
+    }
+
+    suspend fun backupFile(repoPath: String, password: String, filePath: String, tags: List<String>): Pair<Int, String> {
+        val result = executeRestic(
+            "backup", "--repo", "\"$repoPath\"", "\"$filePath\"",
+            "--tag", "\"${tags.joinToString(",")}\"", "--json",
+            env = mapOf("RESTIC_PASSWORD" to password)
+        )
+        return Pair(result.code, result.out.joinToString("\n"))
+    }
+
+    suspend fun listSnapshots(repoPath: String, password: String): List<ResticSnapshot> {
+        val result = executeRestic("snapshots", "--repo", "\"$repoPath\"", "--json", env = mapOf("RESTIC_PASSWORD" to password))
+        return if (result.isSuccess) {
+            try {
+                // 过滤：仅保留看起来像 JSON 内容的行（以 [ 或 { 开头），防止 Shell 杂质干扰
+                val jsonStr = result.out
+                    .filter { it.trim().startsWith("[") || it.trim().startsWith("{") }
+                    .joinToString("")
+
+                if (jsonStr.isEmpty()) return emptyList()
+                json.decodeFromString<List<ResticSnapshot>>(jsonStr)
+            } catch (e: Exception) {
+                Log.e(TAG, "JSON 解析快照失败: ${e.message}")
+                emptyList()
+            }
+        } else emptyList()
+    }
+
+    suspend fun validateRepository(repoPath: String, password: String): Boolean =
+        executeRestic("snapshots", "--repo", "\"$repoPath\"", "--json", env = mapOf("RESTIC_PASSWORD" to password)).isSuccess
+
+    suspend fun deleteRepository(repoPath: String): Boolean = withContext(Dispatchers.IO) {
+        try { File(repoPath).deleteRecursively() } catch (e: Exception) { false }
+    }
+
+    suspend fun checkRepository(repoPath: String, password: String): Boolean =
+        executeRestic("check", "--repo", "\"$repoPath\"", env = mapOf("RESTIC_PASSWORD" to password)).isSuccess
+
+    suspend fun listBackedUpApps(repoPath: String, password: String): List<ResticBackupApp> {
+        val snapshots = listSnapshots(repoPath, password)
+        val apps = mutableListOf<ResticBackupApp>()
+        snapshots.forEach { snapshot ->
+            snapshot.tags.forEach { tag ->
+                val parts = tag.split("-")
+                if (parts.size >= 4) {
+                    val userId = parts[0].split("_").lastOrNull()?.toIntOrNull() ?: 0
+                    val packageName = parts[1]
+                    val timestamp = parts[2].toLongOrNull() ?: 0L
+                    val dataType = when (parts[3]) {
+                        "apk" -> DataType.PACKAGE_APK
+                        "user" -> DataType.PACKAGE_USER
+                        "user_de" -> DataType.PACKAGE_USER_DE
+                        "data" -> DataType.PACKAGE_DATA
+                        "obb" -> DataType.PACKAGE_OBB
+                        "media" -> DataType.PACKAGE_MEDIA
+                        "config" -> DataType.PACKAGE_CONFIG
+                        else -> null
+                    }
+                    if (dataType != null) {
+                        apps.add(ResticBackupApp(packageName, userId, timestamp, dataType, snapshot.id, snapshot.time, snapshot.tags))
+                    }
+                }
+            }
+        }
+        return apps
+    }
+
+    private fun parseRestoreProgress(line: String): ResticRestoreProgress? {
+        return try { if (line.contains("message_type")) json.decodeFromString<ResticRestoreProgress>(line) else null } catch (e: Exception) { null }
     }
 
     interface ResticProgressCallback {
-        fun onProgress(
-            filesFinished: Long,
-            filesTotal: Long,
-            bytesWritten: Long,
-            bytesTotal: Long,
-            filesSkipped: Long = 0,
-            bytesSkipped: Long = 0
-        )
-    }
-
-    suspend fun listSnapshots(
-        repoPath: String,
-        password: String
-    ): List<ResticSnapshot> {
-        return withContext(Dispatchers.IO) {
-            try {
-                // 添加查询开始日志
-                Log.d(TAG, "开始查询快照: repoPath=$repoPath")
-
-                val args = listOf(resticPath, "snapshots", "--repo", repoPath, "--json")
-                // 添加命令参数日志
-                Log.d(TAG, "执行命令: ${args.joinToString(" ")}")
-
-                val processBuilder = ProcessBuilder(args)
-                processBuilder.environment()["RESTIC_REPOSITORY"] = repoPath
-                processBuilder.environment()["RESTIC_PASSWORD"] = password
-                val process = processBuilder.start()
-                val output = InputStreamReader(process.inputStream).readText()
-                val exitCode = process.waitFor()
-
-                // 添加命令执行结果日志
-                Log.d(TAG, "命令执行完成: exitCode=$exitCode, output长度=${output.length}")
-
-                if (exitCode == 0) {
-                    val snapshots = json.decodeFromString<List<ResticSnapshot>>(output)
-                    // 添加解析成功日志
-                    Log.d(TAG, "快照解析成功: 共${snapshots.size}个快照")
-                    snapshots.forEach { snapshot ->
-                        Log.d(TAG, "快照详情: id=${snapshot.id}, time=${snapshot.time}, paths=${snapshot.paths}, tags=${snapshot.tags}")
-                    }
-                    snapshots
-                } else {
-                    // 添加错误日志
-                    Log.e(TAG, "快照查询失败: exitCode=$exitCode, output=$output")
-                    logger.logCommandResult(exitCode, output)
-                    emptyList()
-                }
-            } catch (e: Exception) {
-                // 添加异常日志
-                Log.e(TAG, "快照查询异常", e)
-                logger.logCommandFailed(e)
-                emptyList()
-            }
-        }
-    }
-    // 验证仓库密码是否正确
-    suspend fun validateRepository(repoPath: String, password: String): Boolean {
-        return withContext(Dispatchers.IO) {
-            try {
-                Log.d(TAG, "验证仓库: repoPath=$repoPath")
-                val args = listOf(resticPath, "snapshots", "--repo", repoPath, "--json")
-                Log.d(TAG, "执行验证命令: ${args.joinToString(" ")}")
-
-                val processBuilder = ProcessBuilder(args)
-                processBuilder.environment()["RESTIC_REPOSITORY"] = repoPath
-                processBuilder.environment()["RESTIC_PASSWORD"] = password
-
-                val process = processBuilder.start()
-                val output = InputStreamReader(process.inputStream).readText()
-                val exitCode = process.waitFor()
-
-                logger.logCommandResult(exitCode, output)
-
-                if (exitCode == 0) {
-                    Log.d(TAG, "仓库验证成功")
-                } else {
-                    Log.e(TAG, "仓库验证失败: exitCode=$exitCode, output=$output")
-                }
-                exitCode == 0
-            } catch (e: Exception) {
-                Log.e(TAG, "仓库验证异常", e)
-                logger.logCommandFailed(e)
-                false
-            }
-        }
-    }
-
-    // 删除仓库
-    suspend fun deleteRepository(repoPath: String): Boolean {
-        return withContext(Dispatchers.IO) {
-            try {
-                val repoFile = File(repoPath)
-                if (repoFile.exists()) {
-                    repoFile.deleteRecursively()
-                    true
-                } else {
-                    false
-                }
-            } catch (e: Exception) {
-                logger.logCommandFailed(e)
-                false
-            }
-        }
-    }
-
-    // 检查仓库
-    suspend fun checkRepository(
-        repoPath: String,
-        password: String
-    ): Boolean {
-        return withContext(Dispatchers.IO) {
-            try {
-                val args = listOf(resticPath, "check", "--repo", repoPath)
-
-                val processBuilder = ProcessBuilder(args)
-                processBuilder.environment()["RESTIC_REPOSITORY"] = repoPath
-                processBuilder.environment()["RESTIC_PASSWORD"] = password
-
-                val process = processBuilder.start()
-                val output = InputStreamReader(process.inputStream).readText()
-                val exitCode = process.waitFor()
-
-                logger.logCommandResult(exitCode, output)
-                exitCode == 0
-            } catch (e: Exception) {
-                logger.logCommandFailed(e)
-                false
-            }
-        }
-    }
-
-    // 查询已备份的应用 - 移入类内部
-    suspend fun listBackedUpApps(repoPath: String, password: String): List<ResticBackupApp> {
-        return withContext(Dispatchers.IO) {
-            try {
-                val snapshots = listSnapshots(repoPath, password)
-                val apps = mutableListOf<ResticBackupApp>()
-
-                snapshots.forEach { snapshot ->
-                    snapshot.tags.forEach { tag ->
-                        // 解析 tag 格式: userId-packageName-timestamp-dataType
-                        val parts = tag.split("-")
-                        if (parts.size >= 4) {
-                            val userId = parts[0].split("_").lastOrNull()?.toIntOrNull() ?: 0
-                            val packageName = parts[1]
-                            val timestamp = parts[2].toLongOrNull() ?: 0L
-                            val dataTypeStr = parts[3]
-                            val dataType = when (dataTypeStr) {
-                                "apk" -> DataType.PACKAGE_APK
-                                "user" -> DataType.PACKAGE_USER
-                                "user_de" -> DataType.PACKAGE_USER_DE
-                                "data" -> DataType.PACKAGE_DATA
-                                "obb" -> DataType.PACKAGE_OBB
-                                "media" -> DataType.PACKAGE_MEDIA
-                                "config" -> DataType.PACKAGE_CONFIG
-                                else -> null
-                            }
-
-                            if (dataType != null) {
-                                apps.add(ResticBackupApp(
-                                    packageName = packageName,
-                                    userId = userId,
-                                    timestamp = timestamp,
-                                    dataType = dataType,
-                                    snapshotId = snapshot.id,
-                                    snapshotTime = snapshot.time,
-                                    tags = snapshot.tags
-                                ))
-                            }
-                        }
-                    }
-                }
-
-                apps
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to list backed up apps", e)
-                emptyList()
-            }
-        }
+        fun onProgress(filesFinished: Long, filesTotal: Long, bytesWritten: Long, bytesTotal: Long, filesSkipped: Long, bytesSkipped: Long)
     }
 }
 
