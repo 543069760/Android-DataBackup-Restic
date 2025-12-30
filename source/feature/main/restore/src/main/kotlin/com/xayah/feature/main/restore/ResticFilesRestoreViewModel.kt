@@ -47,16 +47,21 @@ class ResticFilesRestoreViewModel @Inject constructor(
             try {
                 val files = resticRepo.listBackedUpFiles(repoPath, password)
 
-                // 按路径分组，确保唯一性
+                // 按媒体名称+前缀路径+时间戳分组
                 val groupedByPath = files
-                    .groupBy { "${it.fullPath}-${it.timestamp}" }
-                    .map { (key, backups) ->
-                        val first = backups.first()
+                    .groupBy {
+                        // 提取前缀路径（去掉最后一层）
+                        val prefixPath = it.fullPath.substringBeforeLast("/")
+                        Triple(it.mediaName, prefixPath, it.timestamp)
+                    }
+                    .map { (groupKey, backups) ->
+                        val (mediaName, prefixPath, timestamp) = groupKey
                         ResticFileBackupGroup(
-                            mediaName = first.mediaName,
-                            fullPath = first.fullPath,
-                            timestamp = first.timestamp,
-                            backups = backups.sortedBy { it.dataType.type }
+                            mediaName = mediaName,
+                            fullPath = prefixPath, // 使用前缀路径用于分组逻辑
+                            timestamp = timestamp,
+                            backups = backups, // 直接使用backups
+                            mediaLabel = mediaName
                         )
                     }
                     .sortedByDescending { it.timestamp }
