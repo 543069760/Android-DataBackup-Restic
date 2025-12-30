@@ -130,7 +130,7 @@ fun ResticFilesBackupDetailPage(
 
                                 if (success) {
                                     Log.d("ResticFilesRestore", "恢复成功，准备读取备份目录")
-                                    val backupDir = "${context.readBackupDirectory()}/restore/"
+                                    val backupDir = "${viewModel.readBackupDirectory()}/restore/"
                                     Log.d("ResticFilesRestore", "导航到恢复页面，备份目录: $backupDir")
                                     viewModel.refreshLocalDatabase(backupDir)
                                     // 导航到媒体恢复处理页面

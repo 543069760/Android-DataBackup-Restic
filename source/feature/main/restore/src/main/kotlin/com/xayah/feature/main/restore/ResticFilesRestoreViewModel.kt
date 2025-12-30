@@ -186,7 +186,7 @@ class ResticFilesRestoreViewModel @Inject constructor(
 
                 val filesDir = File(restoreDirFile, "files")
                 if (filesDir.exists()) {
-                    scanMediaDirectory(filesDir)
+                    scanFilesDirectory(filesDir)  // 修复：使用正确的扫描方法
                 } else {
                     Log.w("ResticFilesRestore", "files 目录不存在: ${filesDir.path}")
                 }
@@ -196,7 +196,48 @@ class ResticFilesRestoreViewModel @Inject constructor(
         }
     }
 
-    private suspend fun readBackupDirectory(): String {
+    private suspend fun updateFilesDatabase(mediaName: String) {
+        Log.d("ResticFilesRestore", "激活媒体: $mediaName")
+        try {
+            // 查询该媒体名称的所有记录
+            val existingMedia = mediaDao.query(OpType.RESTORE, "", "${context.localBackupSaveDir()}/restore/")
+                .filter { it.name == mediaName }
+
+            if (existingMedia.isNotEmpty()) {
+                existingMedia.forEach { media ->
+                    mediaDao.activateById(media.id, true)
+                    Log.d("ResticFilesRestore", "媒体已激活: $mediaName (ID: ${media.id})")
+                }
+            } else {
+                Log.w("ResticFilesRestore", "未找到媒体记录: $mediaName")
+            }
+        } catch (e: Exception) {
+            Log.e("ResticFilesRestore", "激活媒体失败: ${e.message}", e)
+        }
+    }
+
+    private suspend fun scanFilesDirectory(filesDir: File) {
+        val mediaDirs = filesDir.listFiles { file -> file.isDirectory }
+        mediaDirs?.forEach { mediaDir ->
+            val configFile = File(mediaDir, "media_restore_config.json")
+            if (configFile.exists()) {
+                try {
+                    // 读取配置文件并更新数据库
+                    val mediaEntity = readMediaConfig(configFile, mediaDir.name)
+                    if (mediaEntity != null) {
+                        mediaDao.upsert(mediaEntity)
+                        Log.d("ResticFilesRestore", "媒体已插入数据库: ${mediaDir.name}")
+                        updateFilesDatabase(mediaDir.name)
+                        Log.d("ResticFilesRestore", "发现恢复的媒体: ${mediaDir.name}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("ResticFilesRestore", "处理媒体配置失败: ${configFile.path}", e)
+                }
+            }
+        }
+    }
+
+    suspend fun readBackupDirectory(): String {
         Log.d("ResticFilesRestore", "从 DataStore 读取备份目录配置")
         val backupDir = context.localBackupSaveDir()
         Log.d("ResticFilesRestore", "读取到的备份目录: $backupDir")
@@ -209,23 +250,6 @@ class ResticFilesRestoreViewModel @Inject constructor(
             this < 1024 * 1024 -> "${this / 1024} KiB/s"
             this < 1024 * 1024 * 1024 -> "${this / (1024 * 1024)} MiB/s"
             else -> "${this / (1024 * 1024 * 1024)} GiB/s"
-        }
-    }
-
-    private suspend fun scanMediaDirectory(mediaDir: File) {
-        Log.d("ResticFilesRestore", "扫描媒体目录: ${mediaDir.path}")
-        try {
-            mediaDir.listFiles()?.forEach { mediaTypeDir ->
-                if (mediaTypeDir.isDirectory) {
-                    val configFile = File(mediaTypeDir, "media_restore_config.json")
-                    if (configFile.exists()) {
-                        val entity = readMediaConfig(configFile, mediaTypeDir.name)
-                        entity?.let { mediaDao.upsert(it) }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("ResticFilesRestore", "扫描媒体目录失败: ${e.message}", e)
         }
     }
 
