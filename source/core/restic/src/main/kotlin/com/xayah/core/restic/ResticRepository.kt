@@ -2,9 +2,10 @@ package com.xayah.core.restic
 
 import android.content.Context
 import android.util.Log
-import com.topjohnwu.superuser.Shell // 确保使用正确的 libsu 包名
+import com.topjohnwu.superuser.Shell
 import com.xayah.core.model.DataType
 import com.xayah.core.model.restic.ResticBackupApp
+import com.xayah.core.model.restic.ResticBackupFiles
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -213,6 +214,38 @@ class ResticRepository @Inject constructor(
                 emptyList()
             }
         } else emptyList()
+    }
+
+    suspend fun listBackedUpFiles(repoPath: String, password: String): List<ResticBackupFiles> {
+        val snapshots = listSnapshots(repoPath, password)
+        val files = mutableListOf<ResticBackupFiles>()
+        snapshots.forEach { snapshot ->
+            snapshot.tags.forEach { tag ->
+                val parts = tag.split("-")
+                if (parts.size >= 3) {
+                    val mediaName = parts.dropLast(2).joinToString("-")
+                    val timestamp = parts.last().toLongOrNull() ?: 0L
+                    val dataType = when (parts[parts.size - 2]) {
+                        "media" -> DataType.PACKAGE_MEDIA
+                        "config" -> DataType.PACKAGE_CONFIG
+                        else -> null
+                    }
+                    if (dataType != null) {
+                        val fullPath = snapshot.paths.firstOrNull() ?: ""
+                        files.add(ResticBackupFiles(
+                            mediaName = mediaName,
+                            fullPath = fullPath,
+                            timestamp = timestamp,
+                            dataType = dataType,
+                            snapshotId = snapshot.id,
+                            snapshotTime = snapshot.time,
+                            tags = snapshot.tags
+                        ))
+                    }
+                }
+            }
+        }
+        return files
     }
 
     suspend fun validateRepository(repoPath: String, password: String): Boolean =

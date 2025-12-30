@@ -52,6 +52,7 @@ import com.xayah.feature.main.settings.restic.ResticRepoPathScreen
 import com.xayah.feature.main.settings.restic.ResticPasswordScreen
 import com.xayah.feature.main.settings.restic.ResticInitializationScreen
 import com.xayah.feature.main.restore.ResticRestorePage
+import com.xayah.feature.main.restore.ResticFilesRestorePage
 import com.xayah.feature.main.restore.ResticBackupDetailPage
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -226,6 +227,10 @@ class MainActivity : AppCompatActivity() {
                         }
                         composable(route = MainRoutes.Directory.route) {
                             PageDirectory()
+                        }
+
+                        composable(MainRoutes.ResticFilesRestore.route) {
+                            ResticFilesRestorePage(navController = navController)
                         }
 
                         composable(MainRoutes.ResticRepoPath.route) {
