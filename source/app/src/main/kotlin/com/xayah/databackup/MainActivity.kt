@@ -61,6 +61,8 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.ExperimentalSerializationApi
 import com.xayah.feature.main.restore.ResticBackupGroup
+import com.xayah.feature.main.restore.ResticFileBackupGroup
+import com.xayah.feature.main.restore.ResticFilesBackupDetailPage
 
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
@@ -194,6 +196,44 @@ class MainActivity : AppCompatActivity() {
                             group?.let {
                                 // 4. 成功后导航到详情页
                                 ResticBackupDetailPage(navController = navController, group = it)
+                            } ?: run {
+                                Log.e("MainActivity", "Group is null, popping back stack.")
+                                // 参数获取失败，返回上一页
+                                navController.popBackStack()
+                            }
+                        }
+
+                        composable(
+                            route = MainRoutes.ResticFilesBackupDetail.route,
+                            arguments = listOf(
+                                navArgument(MainRoutes.ARG_GROUP) {
+                                    type = NavType.StringType
+                                    nullable = true
+                                }
+                            )
+                        ) { backStackEntry ->
+                            // 1. 提取已编码的参数
+                            val groupJsonEncoded = backStackEntry.arguments?.getString(MainRoutes.ARG_GROUP)
+
+                            val group = groupJsonEncoded?.let { encodedJson ->
+                                try {
+                                    // 2. URL 解码
+                                    val groupJsonDecoded = URLDecoder.decode(encodedJson, "UTF-8")
+
+                                    // 3. JSON 反序列化
+                                    val decodedGroup = Json.decodeFromString<ResticFileBackupGroup>(groupJsonDecoded)
+
+                                    Log.d("MainActivity", "Successfully decoded ResticFileBackupGroup.")
+                                    decodedGroup
+                                } catch (e: Exception) {
+                                    Log.e("MainActivity", "Failed to decode ResticFileBackupGroup for nav: ${e.message}", e)
+                                    null
+                                }
+                            }
+
+                            group?.let {
+                                // 4. 成功后导航到详情页
+                                ResticFilesBackupDetailPage(navController = navController, group = it)
                             } ?: run {
                                 Log.e("MainActivity", "Group is null, popping back stack.")
                                 // 参数获取失败，返回上一页

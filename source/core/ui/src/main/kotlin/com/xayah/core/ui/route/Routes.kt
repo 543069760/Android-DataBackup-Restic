@@ -60,6 +60,9 @@ sealed class MainRoutes(val route: String) {
     data object Translators : MainRoutes(route = "main_translators")
     data object ResticRestore : MainRoutes(route = "main_restic_restore")
     data object ResticFilesRestore : MainRoutes(route = "main_restic_files_restore")
+    data object ResticFilesBackupDetail : MainRoutes(route = "main_restic_files_backup_detail?${ARG_GROUP}={${ARG_GROUP}}") {
+        fun getRoute(groupJsonEncoded: String) = "main_restic_files_backup_detail?${ARG_GROUP}=${groupJsonEncoded}"
+    }
     data object ResticBackupDetail : MainRoutes(route = "main_restic_backup_detail?${ARG_GROUP}={${ARG_GROUP}}") {
         fun getRoute(groupJsonEncoded: String) = "main_restic_backup_detail?${ARG_GROUP}=${groupJsonEncoded}"
     }

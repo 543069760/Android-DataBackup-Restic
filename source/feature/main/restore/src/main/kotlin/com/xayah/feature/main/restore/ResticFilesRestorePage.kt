@@ -44,8 +44,13 @@ import com.xayah.feature.main.restore.RestoreScaffold
 import com.xayah.core.ui.component.BodyMediumText
 import com.xayah.core.ui.component.TitleLargeText
 import com.xayah.core.ui.token.SizeTokens
+import com.xayah.core.ui.route.MainRoutes
+import com.xayah.core.util.navigateSingle
 import com.xayah.feature.main.restore.ResticFilesRestoreUiState
 import com.xayah.feature.main.restore.ResticFileBackupGroup
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
+import java.net.URLEncoder
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -150,7 +155,10 @@ fun ResticFilesRestorePage(
                                 ResticFileBackupGroupItem(
                                     group = group,
                                     onClick = {
-                                        // 导航到文件恢复详情页
+                                        val groupJson = Json.encodeToString(group)
+                                        val encodedJson = URLEncoder.encode(groupJson, "UTF-8")
+                                        val url = MainRoutes.ResticFilesBackupDetail.getRoute(encodedJson)
+                                        navController.navigateSingle(url)
                                     },
                                     context = LocalContext.current
                                 )

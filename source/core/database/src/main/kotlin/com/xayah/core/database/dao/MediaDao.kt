@@ -126,6 +126,9 @@ interface MediaDao {
     @Query("UPDATE MediaEntity SET extraInfo_activated = 0 WHERE indexInfo_opType = :opType")
     suspend fun clearActivated(opType: OpType)
 
+    @Query("DELETE FROM MediaEntity WHERE indexInfo_opType = :opType AND indexInfo_backupDir = :backupDir")
+    suspend fun deleteByOpTypeAndBackupDir(opType: OpType, backupDir: String)
+
     @Query("UPDATE MediaEntity SET extraInfo_blocked = 0")
     suspend fun clearBlocked()
 
