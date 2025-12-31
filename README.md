@@ -67,11 +67,13 @@ Free and open-source data backup application
 
 > 🎯 **Complete Restic Transition: All local backups now use block-level deduplication with libsu integration**
 
+> ⚠️ **Special Note: As of December 31, 2025, Restic snapshot backups are limited to local storage only and cover APKs, application data, and user files.**
+
 ### 🏗️ Complete Dual-Layer Backup Architecture
 
 #### Final Backup Architecture
 
-Raw data → tar+zstd compression → Restic block-level deduplication → Local storage [+ Cloud storage]
+Raw data → tar+zstd compression → Restic block-level deduplication → Local storage
 
 ---
 
