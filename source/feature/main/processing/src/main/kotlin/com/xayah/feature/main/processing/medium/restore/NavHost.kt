@@ -22,7 +22,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 @ExperimentalFoundationApi
 @ExperimentalMaterial3Api
 @Composable
-fun MediumRestoreProcessingGraph() {
+fun MediumRestoreProcessingGraph(mediaName: String = "") {
     val localNavController = rememberNavController()
     val viewModel = hiltViewModel<RestoreViewModelImpl>()
 
@@ -43,11 +43,15 @@ fun MediumRestoreProcessingGraph() {
                 finishedSubtitleId = R.string.args_files_restored,
                 finishedWithErrorsSubtitleId = R.string.args_files_restored_and_failed,
                 viewModel = viewModel,
-                opType = OpType.RESTORE  // 添加这一行
+                opType = OpType.RESTORE
             )
         }
         composable(MainRoutes.MediumRestoreProcessingSetup.route) {
-            PageMediumRestoreProcessingSetup(localNavController = localNavController, viewModel = viewModel)
+            PageMediumRestoreProcessingSetup(
+                localNavController = localNavController,
+                viewModel = viewModel,
+                mediaName = mediaName  // 添加这行
+            )
         }
     }
 }

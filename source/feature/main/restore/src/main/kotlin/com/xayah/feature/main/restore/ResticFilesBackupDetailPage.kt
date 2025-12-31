@@ -136,7 +136,8 @@ fun ResticFilesBackupDetailPage(
                                     // 导航到媒体恢复处理页面
                                     val route = MainRoutes.MediumRestoreProcessingGraph.getRoute(
                                         cloudName = URLEncoder.encode("", "UTF-8"),
-                                        backupDir = URLEncoder.encode(backupDir, "UTF-8")
+                                        backupDir = URLEncoder.encode(backupDir, "UTF-8"),
+                                        mediaName = URLEncoder.encode(group.mediaName, "UTF-8")
                                     )
                                     Log.d("Navigation", "构建路由: $route")
                                     navController.navigateSingle(route)

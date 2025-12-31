@@ -2,6 +2,7 @@ package com.xayah.feature.main.processing
 
 import android.content.Context
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.navigation.NavController
 import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.service.AbstractProcessingServiceProxy
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 
 data object UpdateFiles : ProcessingUiIntent()
+data class UpdateFilesWithFilter(val mediaNameFilter: String, val navController: NavController) : ProcessingUiIntent()
 
 @ExperimentalCoroutinesApi
 @ExperimentalMaterial3Api

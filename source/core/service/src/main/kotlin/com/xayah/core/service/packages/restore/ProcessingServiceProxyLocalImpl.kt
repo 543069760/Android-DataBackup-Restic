@@ -21,4 +21,8 @@ class ProcessingServiceProxyLocalImpl @Inject constructor() : AbstractProcessing
         }
         context.startForegroundService(intent)
     }
+    // 修复 startMediaRestore 方法（移除默认参数）
+    override suspend fun startMediaRestore(mediaName: String) {
+        throw UnsupportedOperationException("startMediaRestore not supported in backup service")
+    }
 }

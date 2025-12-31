@@ -17,4 +17,9 @@ class ProcessingServiceProxyLocalImpl @Inject constructor() : AbstractProcessing
         // 暂时不支持，抛出异常或记录日志
         throw UnsupportedOperationException("startRestore with package name not supported")
     }
+
+    // 修复 startMediaRestore 方法（移除默认参数）
+    override suspend fun startMediaRestore(mediaName: String) {
+        throw UnsupportedOperationException("startMediaRestore not supported in backup service")
+    }
 }

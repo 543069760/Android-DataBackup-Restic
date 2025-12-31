@@ -12,9 +12,14 @@ class ProcessingServiceProxyCloudImpl @Inject constructor() : AbstractProcessing
     override lateinit var context: Context
 
     override val intent by lazy { Intent(context, BackupServiceCloudImpl::class.java) }
-    // 在所有其他 ProcessingServiceProxy 实现中添加
+
+    // 保留现有的 startRestore 方法
     override fun startRestore(packageName: String) {
-        // 暂时不支持，抛出异常或记录日志
         throw UnsupportedOperationException("startRestore with package name not supported")
+    }
+
+    // 修复 startMediaRestore 方法（移除默认参数）
+    override suspend fun startMediaRestore(mediaName: String) {
+        throw UnsupportedOperationException("startMediaRestore not supported in backup service")
     }
 }

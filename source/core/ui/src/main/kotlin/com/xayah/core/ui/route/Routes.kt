@@ -99,7 +99,7 @@ sealed class MainRoutes(val route: String) {
 
     data object MediumRestoreProcessing : MainRoutes(route = "main_medium_restore_processing")
     data object MediumRestoreProcessingSetup : MainRoutes(route = "main_medium_restore_processing_setup")
-    data object MediumRestoreProcessingGraph : MainRoutes(route = "main_medium_restore_processing_graph/{$ARG_ACCOUNT_NAME}/{$ARG_ACCOUNT_REMOTE}") {
-        fun getRoute(cloudName: String = encodedURLWithSpace, backupDir: String = encodedURLWithSpace) = "main_medium_restore_processing_graph/${cloudName}/${backupDir}"
+    data object MediumRestoreProcessingGraph : MainRoutes(route = "main_medium_restore_processing_graph/{$ARG_ACCOUNT_NAME}/{$ARG_ACCOUNT_REMOTE}/{$ARG_MEDIA_NAME}") {
+        fun getRoute(cloudName: String = encodedURLWithSpace, backupDir: String = encodedURLWithSpace, mediaName: String = encodedURLWithSpace) = "main_medium_restore_processing_graph/${cloudName}/${backupDir}/${mediaName}"
     }
 }

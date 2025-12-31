@@ -1,5 +1,6 @@
 package com.xayah.feature.main.processing.medium.restore
 
+import android.util.Log
 import android.content.Context
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.lifecycle.SavedStateHandle
@@ -30,6 +31,7 @@ import com.xayah.feature.main.processing.ProcessingUiIntent
 import com.xayah.feature.main.processing.R
 import com.xayah.feature.main.processing.SetCloudEntity
 import com.xayah.feature.main.processing.UpdateFiles
+import com.xayah.feature.main.processing.UpdateFilesWithFilter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -52,6 +54,8 @@ class RestoreViewModelImpl @Inject constructor(
     mCloudService: ProcessingServiceProxyCloudImpl,
     private val args: SavedStateHandle,
 ) : AbstractMediumProcessingViewModel(mContext, mRootService, mTaskRepo, mLocalService, mCloudService) {
+    private var currentMediaNameFilter: String = ""
+
     override suspend fun onOtherEvent(state: IndexUiState, intent: ProcessingUiIntent) {
         when (intent) {
             is UpdateFiles -> {
@@ -73,6 +77,37 @@ class RestoreViewModelImpl @Inject constructor(
                 }
                 _medium.value = medium
                 _mediumSize.value = bytes.formatSize()
+            }
+
+            is UpdateFilesWithFilter -> {
+                currentMediaNameFilter = intent.mediaNameFilter
+                Log.d("RestoreViewModelImpl", "处理 UpdateFilesWithFilter: ${intent.mediaNameFilter}")
+
+                val cloud: String
+                val backupSaveDir: String
+                if (uiState.value.cloudEntity == null) {
+                    cloud = ""
+                    backupSaveDir = "${mContext.localBackupSaveDir()}/restore/"
+                } else {
+                    cloud = uiState.value.cloudEntity!!.name
+                    backupSaveDir = "${uiState.value.cloudEntity!!.remote}/restore/"
+                }
+
+                Log.d("RestoreViewModelImpl", "查询参数: cloud=$cloud, backupDir=$backupSaveDir")
+
+                val allActivatedMedia = mMediaRepo.queryActivated(OpType.RESTORE, cloud, backupSaveDir)
+                Log.d("RestoreViewModelImpl", "所有激活媒体数: ${allActivatedMedia.size}")
+
+                val media = allActivatedMedia.filter { it.name == intent.mediaNameFilter }
+                Log.d("RestoreViewModelImpl", "筛选结果: 找到 ${media.size} 个媒体")
+
+                var bytes = 0.0
+                media.forEach {
+                    bytes += it.displayStatsBytes
+                }
+                _medium.value = media
+                _mediumSize.value = bytes.formatSize()
+                Log.d("RestoreViewModelImpl", "更新完成: media=${media.size}, size=${bytes.formatSize()}")
             }
 
             is SetCloudEntity -> {
@@ -114,6 +149,7 @@ class RestoreViewModelImpl @Inject constructor(
                         intent.navController.popBackStack()
                         intent.navController.navigateSingle(MainRoutes.MediumRestoreProcessing.route)
                     }
+                    mLocalService.startMediaRestore(currentMediaNameFilter)
                 }
             }
 

@@ -1,5 +1,6 @@
 package com.xayah.feature.main.processing.medium.restore
 
+import android.util.Log
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +39,7 @@ import com.xayah.feature.main.processing.ProcessingSetupScaffold
 import com.xayah.feature.main.processing.R
 import com.xayah.feature.main.processing.SetCloudEntity
 import com.xayah.feature.main.processing.UpdateFiles
+import com.xayah.feature.main.processing.UpdateFilesWithFilter
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 
 @ExperimentalCoroutinesApi
@@ -46,14 +48,21 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 @ExperimentalAnimationApi
 @ExperimentalMaterial3Api
 @Composable
-fun PageMediumRestoreProcessingSetup(localNavController: NavHostController, viewModel: RestoreViewModelImpl) {
+fun PageMediumRestoreProcessingSetup(localNavController: NavHostController, viewModel: RestoreViewModelImpl, mediaName: String = "") {
     val mediumSize by viewModel.mediumSize.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
 
     LaunchedEffect(null) {
+        Log.d("Navigation", "PageMediumRestoreProcessingSetup 启动，mediaName: $mediaName")
         viewModel.launchOnIO {
-            viewModel.emitIntent(UpdateFiles)
             viewModel.emitIntent(SetCloudEntity(""))
+            if (mediaName.isNotEmpty()) {
+                Log.d("Navigation", "使用媒体名筛选: $mediaName")
+                viewModel.emitIntent(UpdateFilesWithFilter(mediaName, localNavController))
+            } else {
+                Log.d("Navigation", "加载所有媒体")
+                viewModel.emitIntent(UpdateFiles)
+            }
         }
     }
 

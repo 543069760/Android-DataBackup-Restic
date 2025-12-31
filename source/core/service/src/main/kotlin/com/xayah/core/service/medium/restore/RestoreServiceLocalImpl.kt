@@ -1,6 +1,7 @@
 package com.xayah.core.service.medium.restore
 
 import android.util.Log
+import android.content.Intent
 import com.xayah.core.data.repository.MediaRepository
 import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.database.dao.MediaDao
@@ -23,6 +24,8 @@ import java.io.File
 @AndroidEntryPoint
 internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreService() {
     override val mTAG: String = "RestoreServiceLocalImpl"
+
+    private var mTargetMediaName: String = ""
 
     @Inject
     override lateinit var mRootService: RemoteRootService
@@ -51,6 +54,12 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
         )
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        mTargetMediaName = intent?.getStringExtra("TARGET_MEDIA_NAME") ?: ""
+        Log.d(mTAG, "接收到目标媒体名: $mTargetMediaName")
+        return super.onStartCommand(intent, flags, startId)
+    }
+
     override suspend fun getMedium(): List<MediaEntity> {
         // 检查是否为 Restic 恢复场景
         val restoreDir = File("${mRootDir}/restore")
@@ -63,7 +72,17 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
         }
 
         Log.d(mTAG, "查询参数: cloud=, backupDir=$backupDir")
-        return mMediaRepo.queryActivated(OpType.RESTORE, "", backupDir)
+        val allMedia = mMediaRepo.queryActivated(OpType.RESTORE, "", backupDir)
+
+        // 使用传递的媒体名进行筛选
+        val media = if (mTargetMediaName.isNotEmpty()) {
+            allMedia.filter { it.name == mTargetMediaName }
+        } else {
+            allMedia
+        }
+
+        Log.d(mTAG, "筛选后查询到 ${media.size} 个媒体")
+        return media
     }
 
     override suspend fun restore(m: MediaEntity, t: TaskDetailMediaEntity, srcDir: String) {

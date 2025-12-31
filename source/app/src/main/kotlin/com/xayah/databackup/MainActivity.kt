@@ -148,8 +148,18 @@ class MainActivity : AppCompatActivity() {
                         composable(MainRoutes.MediumBackupProcessingGraph.route) {
                             MediumBackupProcessingGraph()
                         }
-                        composable(MainRoutes.MediumRestoreProcessingGraph.route) {
-                            MediumRestoreProcessingGraph()
+                        composable(
+                            route = MainRoutes.MediumRestoreProcessingGraph.route,
+                            arguments = listOf(
+                                navArgument(MainRoutes.ARG_ACCOUNT_NAME) { type = NavType.StringType },
+                                navArgument(MainRoutes.ARG_ACCOUNT_REMOTE) { type = NavType.StringType },
+                                navArgument(MainRoutes.ARG_MEDIA_NAME) { type = NavType.StringType }
+                            )
+                        ) { backStackEntry ->
+                            val cloudName = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME) ?: ""
+                            val backupDir = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_REMOTE) ?: ""
+                            val mediaName = backStackEntry.arguments?.getString(MainRoutes.ARG_MEDIA_NAME) ?: ""
+                            MediumRestoreProcessingGraph(mediaName = mediaName)
                         }
                         composable(MainRoutes.CacheManagement.route) {
                             PageCacheManagement()
