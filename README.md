@@ -127,7 +127,6 @@ Raw data → tar+zstd compression → Restic block-level deduplication → Local
 - **APK Backups**: Now use Restic deduplication
 - **App Data Backups**: Now use Restic deduplication
 - **File Backups**: Now use Restic deduplication
-- **Cloud Sync**: Native Restic support
 
 #### Precision Restore Features
 - **App-level precision**: Restore specific applications
