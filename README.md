@@ -1,260 +1,230 @@
-<div align="center">  
+<div align="center">    
 
-<span style="font-weight: bold"> <a href="./README_en.md"> English </a> | <a href="./README_zh-CN.md"> 中文 </a> </span>  
+<span style="font-weight: bold"> <a href="./README.md"> English </a> | <a href="./README_zh-CN.md"> 中文 </a> </span>    
 
-<img src="./fastlane/metadata/android/en-US/images/icon.png" alt="logo" width="128px" />  
+<img src="./fastlane/metadata/android/en-US/images/icon.png" alt="logo" width="128px" />    
 
-<h1 align="center">DataBackup Revived</h1>  
+<h1 align="center">DataBackup Revived</h1>    
 
 Free and open-source data backup application
 
-</div>  
+</div>    
 
 ## Overview
+
 <a href="https://hellogithub.com/repository/3e9dc382d4764688856238a83616de5b" target="_blank"><img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=3e9dc382d4764688856238a83616de5b&claim_uid=POXv2xVC71JHihc&theme=neutral" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" /></a>
 
 :star: Forked from [XayahSuSuSu](https://github.com/XayahSuSuSu/Android-DataBackup).
 
 ## Features
-* :deciduous_tree: **Requires root access. Supports [Magisk](https://github.com/topjohnwu/Magisk), [KernelSU](https://github.com/tiann/KernelSU), and [APatch](https://github.com/bmax121/APatch)**  
-* :cyclone: **Multi-user support**  
-* :cloud: **Supports multiple cloud storage protocols**  
-* :sunglasses: **100% data integrity guarantee**  
-* :zap: **Fast**  
-* :sunny: **Simple and easy to use**  
-* :sparkles: **Multi-version backup support**  
-* :rose: **...**
+
+* :deciduous_tree: **Requires root access. Supports [Magisk](https://github.com/topjohnwu/Magisk), [KernelSU](https://github.com/tiann/KernelSU), and [APatch](https://github.com/bmax121/APatch)**
+* :cyclone: **Multi-user support**
+* :cloud: **Supports multiple cloud storage protocols**
+* :sunglasses: **100% data integrity guarantee**
+* :zap: **Fast**
+* :sunny: **Simple and easy to use**
+* :sparkles: **Multi-version backup support**
+* :rose: **Restic-based block-level deduplication for all local backups**
+* :rocket: **libsu integration for enhanced root operations**
 
 ## Version Comparison
 
 ### Cloud Storage Protocol Support
 
-| Feature | Legacy (DataBackup) | New (DataBackup Revived 3.0.0) |  
-|---------|------------------|----------------------------------|  
-| **S3 Protocol** | ❌ Not supported | ✅ Supports optional HTTP/HTTPS |  
-| **FTP Protocol** | ✅ Supported | ✅ Supported |  
-| **SFTP Protocol** | ✅ Supported | ✅ Supported |  
-| **WebDAV Protocol** | ✅ Supported | ✅ Supported |  
-| **SMB/CIFS Protocol** | ✅ Multi-version support | ✅ Multi-version support |  
-| **Local Storage** | ✅ Supported | ✅ Supported |
+| Feature | Legacy (DataBackup) | New (DataBackup Revived 3.0.0) |    
+|---------|------------------|----------------------------------|    
+| **S3 Protocol** | ❌ Not supported | ✅ Supports optional HTTP/HTTPS |    
+| **FTP Protocol** | ✅ Supported | ✅ Supported |    
+| **SFTP Protocol** | ✅ Supported | ✅ Supported |    
+| **WebDAV Protocol** | ✅ Supported | ✅ Supported |    
+| **SMB/CIFS Protocol** | ✅ Multi-version support | ✅ Multi-version support |    
+| **Local Storage** | ✅ Supported | ✅ **Restic-based deduplication** |  
 
-### Multi-Version Backup Capabilities
+### Backup Architecture Evolution
 
-| Feature | Legacy | New |
-|---------|-------|-------|
-| **Multiple versions per app** | ❌ Not supported | ✅ Supported |
-| **Backup timestamp** | ❌ None | ✅ Precise to the second |
-| **Historical backup list** | ❌ Not supported | ✅ Shows all historical versions |
-| **Backup directory structure** | `package_name/user_userID` | `package_name/user_userID@timestamp` |
-| **Version selection during restore** | ❌ Not supported | ✅ Choose any historical version |
-| **Failed backup cleanup** | ❌ Not supported | ✅ Automatically cleans up failed backups |
-| **Backward compatibility** | N/A | ✅ Compatible with legacy backup format |
+| Feature | Legacy | New (Completed) |  
+|---------|-------|-------|  
+| **Local Backup Engine** | tar+zstd compression only | **Restic block-level deduplication** |  
+| **Root Access** | Custom implementation | **libsu integration** |  
+| **Storage Efficiency** | Linear growth | **60–90% space savings** |  
+| **Data Encryption** | None | **AES-256 encryption** |  
+| **Incremental Backup** | Not supported | **Native support** |  
+| **Version Management** | File overwrite | **Snapshot-based versioning** |  
+| **APK Backup** | Compression only | **Restic deduplication** |  
+| **File Backup** | Compression only | **Restic deduplication** |  
 
 ### Technical Changes
 
-| Item | Legacy | New |
-|------|-------|----------------------------------|
-| **Application package name** | `com.xayah.databackup.*` | `com.xayah.databackup.revived.*` |
-| **Version number** | 2.x.x | **3.0.0** (brand new version) |
+| Item | Legacy | New |  
+|------|-------|----------------------------------|  
+| **Application package name** | `com.xayah.databackup.*` | `com.xayah.databackup.revived.*` |  
+| **Version number** | 2.x.x | **3.0.0** (complete Restic transition) |  
+| **Root Framework** | Custom root service | **libsu integration** |  
+| **Backup Engine** | Single compression | **Dual-layer: Compression + Restic** |  
 
-## Architecture Milestone (2025-12-19)
+## Architecture Milestone Completed (2025-12-31)
 
-> 🎯 **From traditional compressed backup → Restic block-level deduplication: Full end-to-end chain from snapshot restore to app restore**
+> 🎯 **Complete Restic Transition: All local backups now use block-level deduplication with libsu integration**
 
-### Core Architecture Transformation
+### 🏗️ Complete Dual-Layer Backup Architecture
 
-The legacy local backup used a single `tar+zstd` compression strategy. **DataBackup Revived 3.0.0** introduces a **dual-layer backup architecture**: while preserving the compression layer, it adds a **Restic block-level deduplication layer**, significantly improving storage efficiency and data security (see `AbstractBackupService.kt:337–387`).
+#### Final Backup Architecture
 
-### 🏗️ Dual-Layer Backup Architecture
-
-#### Legacy Backup Architecture (Deprecated)
-```
-Raw data → tar+zstd compression → Local storage
-```
-
-#### New Dual-Layer Backup Architecture
-```
 Raw data → tar+zstd compression → Restic block-level deduplication → Local storage [+ Cloud storage]
-```
 
-- **Layer 1: Compression Layer (unchanged)**
-  - Function: Compresses app data into `.tar.zst` format
-  - Implementation: `PackagesBackupUtil.backupApk()` and `backupData()` (`BackupServiceLocalImpl.kt:56–104`)
-  - Output: `apk.tar.zst`, `data.tar.zst`, `user.tar.zst`, etc.
+---
 
-- **Layer 2: Restic Deduplication Layer (new)**
+#### APK Backup Logic
+
+- **Layer 1: Compression Layer**
+  - Function: Compresses APK files into `.tar.zst` format
+  - Output: `apk.tar.zst`
+
+- **Layer 2: Restic Deduplication Layer**
   - Function: Block-level deduplication, AES-256 encryption, snapshot management
-  - Implementation: `ResticRepository.backupFile()` (`ResticRepository.kt:89–121`)
-  - Tag format: `userId-packageName-timestamp-dataType` (`AbstractBackupService.kt:354–361`)
+  - Tag format: `userId-packageName-timestamp-apk`
 
-### 🔄 Complete Backup Workflow Transformation
+#### App Data Backup Logic
 
-| Component | Legacy Implementation | New Architecture |
-|----------|----------------------|------------------|
-| **Backup Service** | `BackupServiceLocalImpl` (compression only) | `BackupServiceLocalImpl` (compression + Restic deduplication) |
-| **Data Flow** | Single compression pipeline | Dual-layer processing pipeline |
-| **Storage** | Only local `.tar.zst` files | Local snapshot repository + compressed files |
-| **Metadata** | Basic file info | Snapshot ID + structured tag index |
+- **Layer 1: Compression Layer**
+  - Function: Compresses app private data into `.tar.zst` format
+  - Output: `data.tar.zst`, `user.tar.zst`, etc.
 
-**New Backup Execution Flow** (`BackupServiceLocalImpl.kt:82–100`):
-```kotlin
-// 1. Compression phase (unchanged)  
-mPackagesBackupUtil.backupApk() / backupData()  
-  
-// 2. Restic deduplication phase (new)  
-val compressedFile = findCompressedFile(dstDir, type)  
-val resticSuccess = backupWithRestic(packageName, compressedFile, dataType)
-```
+- **Layer 2: Restic Deduplication Layer**
+  - Function: Block-level deduplication, encryption, and versioning
+  - Tag format: `userId-packageName-timestamp-data`
 
-### 📦 Snapshot Management & Tagging System
+#### File Backup Logic
 
-- **Tag Structure Design**  
-  Format: `userId-packageName-timestamp-dataType`  
-  Example: `user_0-com.android.chrome-1704067200000-apk`
+- **Layer 1: Compression Layer**
+  - Function: Packages user-selected media or general files into an uncompressed `.tar` archive to maximize deduplication efficiency
+  - Output: `media.tar` and accompanying `media_restore_config.json` (stores original paths and metadata)
 
-- **Snapshot Data Model** (`ResticRepository.kt:477–484`):
-  ```kotlin
-  @Serializable  
-  data class ResticSnapshot(  
-      val id: String,           // Snapshot identifier  
-      val time: String,         // ISO timestamp  
-      val hostname: String,     // Device hostname  
-      val paths: List<String>,  // Backup paths  
-      val tags: List<String>    // Structured tags  
-  )
-  ```
+- **Layer 2: Restic Deduplication Layer**
+  - Function: Applies block-level deduplication, AES-256 encryption, and snapshot tracking to both the archive and its config file
+  - Tag format: `userId-media-timestamp-file`
 
-- **Snapshot Grouping Logic** (`ResticRestoreViewModel.kt:71–96`):
-  ```kotlin
-  val groupedBackups = apps  
-      .groupBy { "${it.userId}-${it.packageName}-${it.timestamp}" }  
-      .values  
-      .map { backups ->  
-          ResticBackupGroup(  
-              packageName = first.packageName,  
-              userId = first.userId,  
-              timestamp = first.timestamp,  
-              backups = backups.sortedBy { it.dataType.type }  
-          )  
-      }
-  ```
+> ✅ **Note**: By avoiding compression in the file backup layer, Restic can more effectively identify and eliminate redundant blocks across different backup runs and devices.
 
-### 🔄 End-to-End Restore Chain Implementation
+---
 
-| Stage | Legacy Restore Flow | New Restic Restore Flow |
-|------|--------------------|------------------------|
-| **1. Browsing** | List selection | Snapshot browsing (`ResticRestoreViewModel.loadBackedUpApps()`) |
-| **2. Restoration** | Direct service restore | Snapshot restoration (`restoreFromResticSnapshots()`) |
-| **3. Sync** | — | Database synchronization (`refreshLocalDatabase()`) |
-| **4. Precision Control** | Batch restore | Per-app restore (`RestoreServiceLocalImpl.kt:54–70`) |
+### 🔄 libsu Integration
 
-### 🎨 User Interface Innovation
+#### Root Access Modernization
+- **Previous**: Custom root service implementation
+- **Current**: **libsu integration** for enhanced stability and compatibility
+- **Benefits**:
+  - Better Magisk/KernelSU/APatch support
+  - Improved error handling
+  - Enhanced security
 
-- **New UI Components**:
-  - Restic Restore List Page: Browse and select snapshot backups
-  - Snapshot Detail Page: Display backup types and progress (`ResticBackupDetailPage.kt:52–84`)
-  - Restore Progress Tracker: Real-time snapshot restore status
+### 📦 Universal Restic Implementation
 
-- **Optimized Interaction Flow**:
-  ```
-  Configure Restic repo → Browse snapshots → Select app version → View details → One-click restore
-  ```
+#### Complete Coverage
+- **APK Backups**: Now use Restic deduplication
+- **App Data Backups**: Now use Restic deduplication
+- **File Backups**: Now use Restic deduplication
+- **Cloud Sync**: Native Restic support
 
-### 📊 Technical Metrics Comparison
+#### Precision Restore Features
+- **App-level precision**: Restore specific applications
+- **File-level precision**: Restore specific files with filtering
+- **Version selection**: Choose any historical version
 
-| Feature | Legacy Backup | Restic Backup |
-|--------|---------------|---------------|
-| **Storage Efficiency** | Basic compression | Block-level deduplication + compression |
-| **Incremental Backup** | Not supported | Native support |
-| **Data Encryption** | None | AES-256 encryption |
-| **Version Management** | File overwrite | Snapshot-based versioning |
-| **Cloud Sync** | Requires extra implementation | Native support |
-| **Restore Granularity** | Batch restore | Per-app precision |
-| **Storage Footprint** | Linear growth | 60–90% space savings after deduplication |
+### 🎨 Enhanced User Experience
 
-### 🔧 Core Technical Implementation
+#### New UI Components
+- Restic Restore List Page: Browse and select snapshot backups
+- Snapshot Detail Page: Display backup types and progress
+- File Restore Filtering: Precision file selection
+- Restore Progress Tracker: Real-time restore status
 
-- **Restic Command Integration** (`ResticRepository.kt:97–101`):
-  ```kotlin
-  // Backup
-  val args = listOf(resticPath, "backup", "--repo", repoPath, filePath, "--tag", tags.joinToString(","), "--json")
-  // Restore
-  val args = listOf(resticPath, "restore", fullSnapshotId, "--repo", repoPath, "--target", targetPath, "--include", includePath, "--json")
-  ```
+#### Optimized Interaction Flow
+Configure Restic repo → Browse snapshots → Select app/file version → View details → One-click restore
 
-- **Progress Tracking System** (`ResticRepository.kt:283–292`):
-  ```kotlin
-  interface ResticProgressCallback {
-      fun onProgress(filesFinished: Long, filesTotal: Long, bytesWritten: Long, bytesTotal: Long, filesSkipped: Long = 0, bytesSkipped: Long = 0)
-  }
-  ```
+### 📊 Technical Metrics (Final)
+
+| Feature | Legacy Backup | Restic Backup (Universal) |  
+|--------|---------------|---------------------------|  
+| **Storage Efficiency** | Basic compression | **Block-level deduplication + compression** |  
+| **Incremental Backup** | Not supported | **Native support** |  
+| **Data Encryption** | None | **AES-256 encryption** |  
+| **Version Management** | File overwrite | **Snapshot-based versioning** |  
+| **Cloud Sync** | Requires extra implementation | **Native support** |  
+| **Restore Granularity** | Batch restore | **Per-app and per-file precision** |  
+| **Storage Footprint** | Linear growth | **60–90% space savings** |  
+| **Root Access** | Custom implementation | **libsu integration** |  
 
 ### 🛡️ Backward Compatibility
 
-- **Compatibility Strategy**:
-  - Gradual upgrade: Automatically falls back to legacy backup if Restic repo is uninitialized
-  - Data format preserved: Compressed file format unchanged, ensuring existing backups remain readable
-  - API compatibility: Existing restore workflows fully compatible
+- **Legacy Backups**: Fully supported with automatic fallback
+- **Migration Path**: Seamless upgrade from compression-only to Restic
+- **API Compatibility**: Existing restore workflows preserved
 
-- **Fallback Mechanism** (`AbstractBackupService.kt:346–350`):
-  ```kotlin
-  if (!resticRepo.checkRepository(repoPath, password)) {
-      log { "Restic repository not initialized, skipping backup" }
-      return false  // Fall back to compression-only mode
-  }
-  ```
+### 🎉 Milestone Achievement
 
-### 🎉 Milestone Significance
+This complete transition achieves:
 
-This architectural upgrade achieves:
+- **Storage Revolution**: Universal 60–90% space savings across all backup types
+- **Security Upgrade**: AES-256 encryption and immutable snapshots for all data
+- **Precision Control**: Per-app and per-file restore capabilities
+- **Modern Root Integration**: libsu for enhanced compatibility
+- **Complete Architecture**: Universal dual-layer processing for all backup types
 
-- **Storage Revolution**: From linear storage to deduplicated storage, saving 60–90% space  
-- **Security Upgrade**: Introduces AES-256 encryption and immutable snapshots  
-- **User Experience Enhancement**: Per-app restore precision  
-- **Architectural Optimization**: Dual-layer design balancing efficiency and compatibility  
-- **Complete End-to-End Chain**: From snapshot browsing to app-level restoration  
-
-> **This marks DataBackup Revived’s transformation from a traditional backup tool into a modern data management platform, laying a solid foundation for future deep cloud integration and intelligent backup strategies.**
+> **DataBackup Revived is now a complete modern data management platform with universal Restic-based deduplication and libsu integration.**
 
 ## Screenshots – Restic
-<div align="center">  
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233244_345_20.png" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233246_347_20.png" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233248_349_20.png" width="275px">  
-</div> 
+
+<div align="center">    
+    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233244_345_20.png" width="275px">
+    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233246_347_20.png" width="275px">
+    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233248_349_20.png" width="275px">    
+</div>    
 
 ## Screenshots – S3
-<div align="center">  
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233930_19_20.jpg" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233931_20_20.jpg" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233931_21_20.jpg" width="275px">  
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233932_22_20.jpg" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233933_23_20.jpg" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112234045_24_20.jpg" width="275px">  
-</div>  
+
+<div align="center">    
+    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233930_19_20.jpg" width="275px">
+    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233931_20_20.jpg" width="275px">
+    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233931_21_20.jpg" width="275px">    
+    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233932_22_20.jpg" width="275px">
+    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233933_23_20.jpg" width="275px">
+    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112234045_24_20.jpg" width="275px">    
+</div>    
 
 ## Screenshots
-<div align="center">  
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/01.jpg" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/02.jpg" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/03.jpg" width="275px">  
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/04.jpg" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/05.jpg" width="275px"><img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/06.jpg" width="275px">  
-</div>  
+
+<div align="center">    
+    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/01.jpg" width="275px">
+    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/02.jpg" width="275px">
+    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/03.jpg" width="275px">    
+    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/04.jpg" width="275px">
+    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/05.jpg" width="275px">
+    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/06.jpg" width="275px">    
+</div>    
 
 ## Download
+
 Get the APK from [Releases](https://github.com/543069760/Android-DataBackup-S3/releases).
 
 ## Translation
-[<img src="https://hosted.weblate.org/widget/databackup/main/open-graph.png"  
-alt="Translation">](https://hosted.weblate.org/engage/databackup/)
+
+[<img src="https://hosted.weblate.org/widget/databackup/main/open-graph.png" alt="Translation">](https://hosted.weblate.org/engage/databackup/)
 
 ## Contributors
+
 Thanks to all these amazing people!
 
 [[Contributors](https://contrib.rocks/image?repo=543069760/Android-DataBackup-S3)](https://github.com/543069760/Android-DataBackup-S3/graphs/contributors)
 
 ## Support
+
 If you like this app and want to help make it better, feel free to sponsor me!
 
-[<img src="./docs/static/img/pp_h_rgb.svg"  
-alt="PayPal"  
-height="60">](https://paypal.me/XayahSuSuSu)
-
-[<img src="./docs/static/img/afdian.svg"  
-alt="Afdian"  
-height="60">](https://afdian.net/a/XayahSuSuSu)
+[<img src="./docs/static/img/pp_h_rgb.svg" alt="PayPal" height="60">](https://paypal.me/XayahSuSuSu)  
+[<img src="./docs/static/img/afdian.svg" alt="Afdian" height="60">](https://afdian.net/a/XayahSuSuSu)
 
 ## License
+
 [GNU General Public License v3.0](./LICENSE)
