@@ -40,4 +40,6 @@
     <string name="delete_and_reinitialize">删除并重新初始化</string>
     <string name="cancel">取消</string>
     <string name="restic_not_detected">没有检测到Restic</string>
+    <string name="restic_compression_level">Restic压缩等级</string>
+    <string name="restic_compression_level_desc">OFF-无压缩，FASTEST-最快压缩，AUTO-自动选择，BETTER-更好压缩，MAX-最大压缩</string>
 </resources>

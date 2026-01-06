@@ -214,12 +214,12 @@ fun PageSettings() {
                 ) {
                     navController.navigateSingle(MainRoutes.ResticPassword.route)
                 }
-                Switchable(
-                    key = KeyResticEnableCompression,
-                    defValue = true,
+                Clickable(
                     title = stringResource(id = R.string.restic_enable_compression),
-                    checkedText = stringResource(id = R.string.restic_enable_compression_desc),
-                )
+                    value = stringResource(id = R.string.restic_compression_level_desc),
+                ) {
+                    navController.navigateSingle(MainRoutes.BackupSettings.route)
+                }
             }
 
             // --- 高级设置 ---

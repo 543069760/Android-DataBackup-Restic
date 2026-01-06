@@ -6,9 +6,11 @@ import com.topjohnwu.superuser.Shell
 import com.xayah.core.model.DataType
 import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.model.restic.ResticBackupFiles
+import com.xayah.core.datastore.readResticCompressionLevel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
@@ -190,11 +192,16 @@ class ResticRepository @Inject constructor(
     }
 
     suspend fun backupFile(repoPath: String, password: String, filePath: String, tags: List<String>): Pair<Int, String> {
-        val result = executeRestic(
+        // 读取压缩级别配置
+        val compressionLevel = context.readResticCompressionLevel().first() ?: "auto"
+
+        val args = mutableListOf(
             "backup", "--repo", "\"$repoPath\"", "\"$filePath\"",
             "--tag", "\"${tags.joinToString(",")}\"", "--json",
-            env = mapOf("RESTIC_PASSWORD" to password)
+            "--compression", compressionLevel  // 添加压缩参数
         )
+
+        val result = executeRestic(*args.toTypedArray(), env = mapOf("RESTIC_PASSWORD" to password))
         return Pair(result.code, result.out.joinToString("\n"))
     }
 

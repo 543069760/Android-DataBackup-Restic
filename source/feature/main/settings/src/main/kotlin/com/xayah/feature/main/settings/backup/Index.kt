@@ -25,11 +25,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xayah.core.datastore.KeyBackupConfigs
 import com.xayah.core.datastore.KeyBackupItself
 import com.xayah.core.datastore.KeyCheckKeystore
-import com.xayah.core.datastore.KeyCompressionTest
 import com.xayah.core.datastore.KeyFollowSymlinks
-import com.xayah.core.datastore.readCompressionLevel
+import com.xayah.core.datastore.readResticCompressionLevel
 import com.xayah.core.datastore.readKillAppOption
-import com.xayah.core.datastore.saveCompressionLevel
+import com.xayah.core.datastore.saveResticCompressionLevel
 import com.xayah.core.datastore.saveKillAppOption
 import com.xayah.core.model.KillAppOption
 import com.xayah.core.model.util.indexOf
@@ -44,7 +43,7 @@ import com.xayah.core.ui.token.SizeTokens
 import com.xayah.feature.main.settings.R
 import com.xayah.feature.main.settings.SettingsScaffold
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
+import kotlin.math.roundToInt  // 添加这行
 
 @SuppressLint("StringFormatInvalid")
 @ExperimentalLayoutApi
@@ -69,16 +68,25 @@ fun PageBackupSettings() {
         ) {
             Column {
                 val scope = rememberCoroutineScope()
-                val level by context.readCompressionLevel().collectAsStateWithLifecycle(initialValue = 1)
+
+                // Restic压缩级别滑块（0-4对应5个级别）
+                val compressionLevel by context.readResticCompressionLevel().collectAsStateWithLifecycle(initialValue = "auto")
+                val compressionLevels = listOf("off", "fastest", "auto", "better", "max")
+                val currentLevelIndex by remember(compressionLevel) {
+                    mutableIntStateOf(compressionLevels.indexOf(compressionLevel))
+                }
+
                 Slideable(
-                    title = stringResource(id = R.string.compression_level),
-                    value = level.toFloat(),
-                    valueRange = 1F..22F,
-                    steps = 20,
-                    desc = remember(level) { "${context.getString(R.string.args_current_level, level)}\n${context.getString(R.string.compression_level_desc)}" }
+                    title = stringResource(id = R.string.restic_compression_level),
+                    value = currentLevelIndex.toFloat(),
+                    valueRange = 0F..4F,
+                    steps = 3,
+                    desc = remember(currentLevelIndex) {
+                        "${context.getString(R.string.args_current_level, compressionLevels[currentLevelIndex].uppercase())}\n${context.getString(R.string.restic_compression_level_desc)}"
+                    }
                 ) {
                     scope.launch {
-                        context.saveCompressionLevel(it.roundToInt())
+                        context.saveResticCompressionLevel(compressionLevels[it.roundToInt()])
                     }
                 }
 
@@ -122,12 +130,6 @@ fun PageBackupSettings() {
                     defValue = true,
                     title = stringResource(id = R.string.backup_configs),
                     checkedText = stringResource(id = R.string.backup_configs_desc),
-                )
-                Switchable(
-                    key = KeyCompressionTest,
-                    defValue = true,
-                    title = stringResource(id = R.string.compression_test),
-                    checkedText = stringResource(id = R.string.compression_test_desc),
                 )
                 /**
                  * Switchable(

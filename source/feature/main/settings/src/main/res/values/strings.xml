@@ -41,4 +41,6 @@
     <string name="delete_and_reinitialize">Delete and Reinitialize</string>
     <string name="cancel">Cancel</string>
     <string name="restic_not_detected">No Restic detected</string>
+    <string name="restic_compression_level">Restic compression level</string>
+    <string name="restic_compression_level_desc">OFF - No compression, FASTEST - Fastest compression, AUTO - Automatic selection, BETTER - Better compression, MAX - Maximum compression</string>
 </resources>
