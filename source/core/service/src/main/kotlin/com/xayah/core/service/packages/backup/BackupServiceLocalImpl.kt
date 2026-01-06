@@ -79,7 +79,7 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
             return
         }
 
-        // 新增：在压缩完成后使用 Restic 进行块备份
+        // 新增：在tar完成后使用 Restic 进行块备份
         if (result.isSuccess && t.get(type).state != OperationState.SKIP) {
             Log.d("ResticFlow", "About to call backupWithRestic for ${p.packageName} $type")
             // 查找压缩文件
@@ -95,7 +95,7 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
                     log { "Restic backup failed for ${p.packageName} $type" }
                 }
             } else {
-                log { "COMPRESSED_FILE_NOT_FOUND: No compressed file found for $type at ${dstDir}/${type.type}.tar.zst" }
+                log { "COMPRESSED_FILE_NOT_FOUND: No compressed file found for $type at ${dstDir}/${type.type}.tar" }
             }
         }
 
@@ -103,15 +103,15 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
         t.update(processingIndex = t.processingIndex + 1)
     }
 
-    // 辅助方法：查找压缩文件
+    // 辅助方法：查找APK backup文件
     private fun findCompressedFile(dstDir: String, dataType: DataType): File? {
         val file = when (dataType) {
-            DataType.PACKAGE_APK -> File("$dstDir/${DataType.PACKAGE_APK.type}.tar.zst")
-            DataType.PACKAGE_USER -> File("$dstDir/${DataType.PACKAGE_USER.type}.tar.zst")
-            DataType.PACKAGE_USER_DE -> File("$dstDir/${DataType.PACKAGE_USER_DE.type}.tar.zst")
-            DataType.PACKAGE_DATA -> File("$dstDir/${DataType.PACKAGE_DATA.type}.tar.zst")
-            DataType.PACKAGE_OBB -> File("$dstDir/${DataType.PACKAGE_OBB.type}.tar.zst")
-            DataType.PACKAGE_MEDIA -> File("$dstDir/${DataType.PACKAGE_MEDIA.type}.tar.zst")
+            DataType.PACKAGE_APK -> File("$dstDir/${DataType.PACKAGE_APK.type}.tar")
+            DataType.PACKAGE_USER -> File("$dstDir/${DataType.PACKAGE_USER.type}.tar")
+            DataType.PACKAGE_USER_DE -> File("$dstDir/${DataType.PACKAGE_USER_DE.type}.tar")
+            DataType.PACKAGE_DATA -> File("$dstDir/${DataType.PACKAGE_DATA.type}.tar")
+            DataType.PACKAGE_OBB -> File("$dstDir/${DataType.PACKAGE_OBB.type}.tar")
+            DataType.PACKAGE_MEDIA -> File("$dstDir/${DataType.PACKAGE_MEDIA.type}.tar")
             DataType.PACKAGE_CONFIG -> File("$dstDir/package_restore_config.json")
             else -> null
         }

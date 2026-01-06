@@ -16,6 +16,7 @@ import com.xayah.core.model.OperationState
 import com.xayah.core.model.ProcessingInfoType
 import com.xayah.core.model.ProcessingType
 import com.xayah.core.model.TaskType
+import com.xayah.core.model.CompressionType
 import com.xayah.core.model.database.Info
 import com.xayah.core.model.database.PackageEntity
 import com.xayah.core.model.database.ProcessingInfoEntity
@@ -285,7 +286,7 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                             val id = restoreEntity?.id ?: 0
                             restoreEntity = p.copy(
                                 id = id,
-                                indexInfo = p.indexInfo.copy(opType = OpType.RESTORE, cloud = mTaskEntity.cloud, backupDir = mTaskEntity.backupDir),
+                                indexInfo = p.indexInfo.copy(opType = OpType.RESTORE, cloud = mTaskEntity.cloud, backupDir = mTaskEntity.backupDir, compressionType = CompressionType.TAR),
                                 extraInfo = p.extraInfo.copy(activated = false)
                             )
 

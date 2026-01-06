@@ -234,7 +234,7 @@ class PackagesBackupUtil @Inject constructor(
         val dataType = DataType.PACKAGE_APK
         val packageName = p.packageName
         val userId = p.userId
-        val ct = p.indexInfo.compressionType
+        val ct = CompressionType.TAR
         val dst = packageRepository.getArchiveDst(dstDir = dstDir, dataType = dataType, ct = ct)
         var isSuccess: Boolean
         val out = mutableListOf<String>()
@@ -303,7 +303,7 @@ class PackagesBackupUtil @Inject constructor(
 
         val packageName = p.packageName
         val userId = p.userId
-        val ct = p.indexInfo.compressionType
+        val ct = CompressionType.TAR
         val dst = packageRepository.getArchiveDst(dstDir = dstDir, dataType = dataType, ct = ct)
         var isSuccess: Boolean
         val out = mutableListOf<String>()
@@ -446,7 +446,7 @@ class PackagesBackupUtil @Inject constructor(
         dstDir: String,
         isCanceled: (() -> Boolean)? = null  // 新增参数
     ) = run {
-        val ct = p.indexInfo.compressionType
+        val ct = CompressionType.TAR
         val src = packageRepository.getArchiveDst(dstDir = srcDir, dataType = dataType, ct = ct)
         t.updateInfo(dataType = dataType, state = OperationState.UPLOADING)
 

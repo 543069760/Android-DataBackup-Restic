@@ -15,6 +15,7 @@ import com.xayah.core.model.SelectionType
 import com.xayah.core.model.database.PackageEntity
 import com.xayah.core.model.database.TaskDetailPackageEntity
 import com.xayah.core.model.util.formatSize
+import com.xayah.core.model.CompressionType
 import com.xayah.core.network.client.CloudClient
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.LogUtil
@@ -161,7 +162,7 @@ class PackagesRestoreUtil @Inject constructor(
 
         val dataType = DataType.PACKAGE_APK
         val packageName = p.packageName
-        val ct = p.indexInfo.compressionType
+        val ct = CompressionType.TAR
         val src = packageRepository.getArchiveDst(dstDir = srcDir, dataType = dataType, ct = ct)
         var isSuccess = true
         val out = mutableListOf<String>()
@@ -250,7 +251,7 @@ class PackagesRestoreUtil @Inject constructor(
         log { "Restoring ${dataType.type}..." }
 
         val packageName = p.packageName
-        val ct = p.indexInfo.compressionType
+        val ct = CompressionType.TAR
         val src = packageRepository.getArchiveDst(dstDir = srcDir, dataType = dataType, ct = ct)
         val dstDir = packageRepository.getDataSrcDir(dataType, userId)
         val dst = packageRepository.getDataSrc(dstDir, packageName)
@@ -423,7 +424,7 @@ class PackagesRestoreUtil @Inject constructor(
         dstDir: String,
         onDownloaded: suspend (p: PackageEntity, t: TaskDetailPackageEntity, dataType: DataType, path: String) -> Unit
     ) = run {
-        val ct = p.indexInfo.compressionType
+        val ct = CompressionType.TAR
         val src = packageRepository.getArchiveDst(dstDir = srcDir, dataType = dataType, ct = ct)
 
         if (p.getDataSelected(dataType).not()) {

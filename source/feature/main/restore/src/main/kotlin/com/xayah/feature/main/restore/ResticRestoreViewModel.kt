@@ -296,7 +296,7 @@ class ResticRestoreViewModel @Inject constructor(
                 val snapshotSubPath = "$backupBaseDir/apps/${backup.packageName}/user_${backup.userId}"
                 val includePath = when (backup.dataType) {
                     DataType.PACKAGE_CONFIG -> "package_restore_config.json"
-                    else -> "${backup.dataType.type}.tar.zst"
+                    else -> "${backup.dataType.type}.tar"
                 }
                 val fullTargetPath = "${targetPath}apps/${backup.packageName}/user_${backup.userId}/"
                 Log.d("ResticRestore", "恢复 ${backup.dataType.type} 到目标: $targetPath")
