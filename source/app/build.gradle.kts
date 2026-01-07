@@ -1,6 +1,5 @@
 import com.android.build.gradle.internal.api.BaseVariantOutputImpl
 
-
 plugins {
     alias(libs.plugins.application.common)
     alias(libs.plugins.application.hilt)
@@ -29,6 +28,19 @@ tasks.register("downloadResticBinaries") {
 }
 
 android {
+    // 动态获取 Actions 传入的版本信息
+    val cmdVersionCode = if (project.hasProperty("versionCode")) {
+        project.property("versionCode").toString().toInt()
+    } else {
+        libs.versions.versionCode.get().toInt()
+    }
+
+    val cmdVersionName = if (project.hasProperty("versionName")) {
+        project.property("versionName").toString()
+    } else {
+        libs.versions.versionName.get()
+    }
+
     namespace = "com.xayah.databackup"  // 修改:改回原来的包名
     compileSdk = libs.versions.compileSdk.get().toInt()
 
@@ -36,8 +48,10 @@ android {
         applicationId = "com.xayah.databackup.revived"  // 保持:新的应用包名
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = libs.versions.versionCode.get().toInt()
-        versionName = libs.versions.versionName.get()
+
+        // 使用动态版本号
+        versionCode = cmdVersionCode
+        versionName = cmdVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -52,22 +66,19 @@ android {
     productFlavors {
         create("arm64-v8a") {
             dimension = "abi"
-            versionCode = 4 + (android.defaultConfig.versionCode ?: 0)
+            // 移除偏移逻辑，统一使用基础版本号
             ndk.abiFilters.add("arm64-v8a")
         }
         create("armeabi-v7a") {
             dimension = "abi"
-            versionCode = 3 + (android.defaultConfig.versionCode ?: 0)
             ndk.abiFilters.add("armeabi-v7a")
         }
         create("x86_64") {
             dimension = "abi"
-            versionCode = 2 + (android.defaultConfig.versionCode ?: 0)
             ndk.abiFilters.add("x86_64")
         }
         create("x86") {
             dimension = "abi"
-            versionCode = 1 + (android.defaultConfig.versionCode ?: 0)
             ndk.abiFilters.add("x86")
         }
         create("foss") {
@@ -81,8 +92,9 @@ android {
         create("alpha") {
             dimension = "feature"
             applicationIdSuffix = ".alpha"
-            versionCode = libs.versions.versionCodeAlpha.get().toInt()
-            versionName = libs.versions.versionCodeAlpha.get()
+            // 确保 Alpha 变体也遵循动态版本号
+            versionCode = cmdVersionCode
+            versionName = cmdVersionName
         }
     }
 

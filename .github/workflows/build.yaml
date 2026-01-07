@@ -1,4 +1,4 @@
-name: Build
+name: Buildon
 
 on:
   workflow_dispatch:
@@ -10,11 +10,11 @@ on:
       Premium:
         description: 'Premium'
         required: true
-        default: 'false'
+        default: 'true'
       Foss:
         description: 'Foss'
         required: true
-        default: 'false'
+        default: 'true'
       release_type:
         description: 'Release Type'
         required: true
@@ -27,26 +27,20 @@ on:
         description: 'Version Name (e.g., 2.0.13-S3)'
         required: false
         default: ''
-      version_code:
-        description: 'Version Code (e.g., 3501200)'
-        required: false
-        default: ''
 
 jobs:
   build:
     name: "Build APKs"
     runs-on: ubuntu-latest
-    
     permissions:
       contents: write
-
     timeout-minutes: 60
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: feature/restic-integration  # 指定使用 s3 分支
+          ref: feature/restic-integration
+          fetch-depth: 0 # 获取完整提交历史以统计 commit 数量
 
       - name: Validate gradle wrapper
         uses: gradle/wrapper-validation-action@v1
@@ -60,26 +54,34 @@ jobs:
       - name: Setup gradle
         uses: gradle/gradle-build-action@v2
 
-      - name: Change to source directory
-        run: cd source
-
-      - name: Setup gradlew
-        run: chmod +x gradlew
+      - name: Calculate Dynamic Version
+        id: calc_version
+        run: |
+          # 核心逻辑：基础 30000 + Commit 总数
+          COMMITS=$(git rev-list --count HEAD)
+          BASE_CODE=30000
+          DYNAMIC_CODE=$((BASE_CODE + COMMITS))
+          echo "code=$DYNAMIC_CODE" >> $GITHUB_OUTPUT
+          
+          # 确定版本名称
+          if [ -n "${{ github.event.inputs.version_name }}" ]; then
+            VERSION_NAME="${{ github.event.inputs.version_name }}"
+          else
+            VERSION_NAME=$(grep "versionName" gradle/libs.versions.toml | cut -d'"' -f2)
+          fi
+          echo "name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          
+          echo "Final Version Code: $DYNAMIC_CODE"
+          echo "Final Version Name: $VERSION_NAME"
         working-directory: source
 
-      - name: Check build-logic
-        run: ./gradlew check -p build-logic
-        working-directory: source
-
-      - name: Build with gradle (Skip signing)
+      - name: Build with gradle (Dynamic Version Injection)
         id: gradle
         env:
           BUILD_ALPHA: ${{ github.event.inputs.Alpha }}
           BUILD_PREMIUM: ${{ github.event.inputs.Premium }}
           BUILD_FOSS: ${{ github.event.inputs.Foss }}
         run: |
-          echo "Building without signing - using debug variants"
-          
           TASKS=""
           if [ "${BUILD_ALPHA}" = 'true' ]; then
             TASKS="$TASKS assembleArm64-v8aAlphaDebug assembleArmeabi-v7aAlphaDebug assembleX86AlphaDebug assembleX86_64AlphaDebug"
@@ -90,77 +92,54 @@ jobs:
           if [ "${BUILD_FOSS}" = 'true' ]; then
             TASKS="$TASKS assembleArm64-v8aFossDebug assembleArmeabi-v7aFossDebug assembleX86FossDebug assembleX86_64FossDebug"
           fi
+          
           if [ -z "${TASKS}" ]; then
             TASKS="assembleDebug"
           fi
           
-          echo "Running tasks: $TASKS"
-          ./gradlew $TASKS --daemon --parallel
+          chmod +x gradlew
+          # 注入版本参数，对应 build.gradle.kts 中的 project.hasProperty 逻辑
+          ./gradlew $TASKS \
+            -PversionCode=${{ steps.calc_version.outputs.code }} \
+            -PversionName="${{ steps.calc_version.outputs.name }}" \
+            --daemon --parallel
         working-directory: source
 
       - name: Move APKs to root
         run: |
-          # 在 source 目录创建 APKs 目录并移动文件
           mkdir -p ../build-output
           find . -name "*.apk" -exec mv {} ../build-output/ \;
-          echo "APK files in root build-output:"
-          ls -la ../build-output/
+          echo "Collected APKs:"
+          ls -R ../build-output/
         working-directory: source
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
-          name: APKs
+          name: APKs-v${{ steps.calc_version.outputs.name }}-b${{ steps.calc_version.outputs.code }}
           path: build-output/*.apk
-
-      - name: Get version name
-        id: version
-        run: |
-          if [ -n "${{ github.event.inputs.version_name }}" ]; then
-            VERSION="${{ github.event.inputs.version_name }}"
-          else
-            VERSION=$(grep "versionName" gradle/libs.versions.toml | cut -d'"' -f2)
-          fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          
-          if [ -n "${{ github.event.inputs.version_code }}" ]; then
-            CODE="${{ github.event.inputs.version_code }}"
-          else
-            CODE=$(grep "versionCode" gradle/libs.versions.toml | cut -d'"' -f2)
-          fi
-          echo "code=$CODE" >> $GITHUB_OUTPUT
-        working-directory: source
 
       - name: Create Release
         if: github.event.inputs.release_type != ''
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: v${{ steps.version.outputs.version }}
+          tag_name: v${{ steps.calc_version.outputs.name }}.${{ steps.calc_version.outputs.code }}
+          name: v${{ steps.calc_version.outputs.name }} (Build ${{ steps.calc_version.outputs.code }})
           prerelease: ${{ github.event.inputs.release_type == 'pre-release' }}
           files: build-output/*.apk
           body: |
-            ## What's New in v${{ steps.version.outputs.version }}
+            ## Release Info
+            - **Version:** `${{ steps.calc_version.outputs.name }}`
+            - **Build Code:** `${{ steps.calc_version.outputs.code }}` (Base 30000 + Commits)
+            - **Branch:** `feature/restic-integration`
             
-            ### Version Info
-            - Version Name: ${{ steps.version.outputs.version }}
-            - Version Code: ${{ steps.version.outputs.code }}
-            
-            ### Features
-            - Build type: ${{ github.event.inputs.release_type }}
+            ### Included Variants
             - Alpha: ${{ github.event.inputs.Alpha }}
             - Premium: ${{ github.event.inputs.Premium }}
             - Foss: ${{ github.event.inputs.Foss }}
-            - Branch: s3 (S3-specific features)
             
             ### Note
-            ⚠️ This is a DEBUG build without signing, for testing purposes only.
-            
-            ### Download
-            Choose the APK file matching your device architecture:
-            - arm64-v8a (recommended for most modern devices)
-            - armeabi-v7a (for older 32-bit ARM devices)
-            - x86_64 (for x86 64-bit devices)
-            - x86 (for x86 32-bit devices)
+            ⚠️ This is a **DEBUG** build without formal signing, created for testing purposes.
+            All ABIs in this build share the same Version Code.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
