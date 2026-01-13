@@ -20,6 +20,7 @@ dependencies {
     implementation(project(":core:rootservice"))
     implementation(project(":feature:setup"))
     implementation(project(":core:restic"))
+    implementation(project(":core:rclone"))
 
     // Compose Navigation
     implementation(libs.androidx.navigation.compose)

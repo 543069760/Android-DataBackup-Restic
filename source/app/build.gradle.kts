@@ -154,6 +154,7 @@ dependencies {
     implementation(project(":core:rootservice"))
     implementation(project(":core:network"))
     implementation(project(":core:restic"))
+    implementation(project(":core:rclone"))
 
     // Feature
     implementation(project(":feature:crash"))

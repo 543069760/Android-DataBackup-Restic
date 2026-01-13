@@ -191,6 +191,17 @@ class ResticRepository @Inject constructor(
         }
     }
 
+    /**
+     * 使用 REST 后端初始化仓库
+     */
+    suspend fun initRepositoryWithResticBackend(
+        resticServerUrl: String = "http://localhost:38080/",
+        password: String
+    ): Result<String> {
+        val repoPath = "rest:$resticServerUrl"
+        return initRepository(repoPath, password)
+    }
+
     suspend fun backupFile(repoPath: String, password: String, filePath: String, tags: List<String>): Pair<Int, String> {
         // 读取压缩级别配置
         val compressionLevel = context.readResticCompressionLevel().first() ?: "auto"
@@ -203,6 +214,19 @@ class ResticRepository @Inject constructor(
 
         val result = executeRestic(*args.toTypedArray(), env = mapOf("RESTIC_PASSWORD" to password))
         return Pair(result.code, result.out.joinToString("\n"))
+    }
+
+    /**
+     * 使用 REST 后端备份文件
+     */
+    suspend fun backupFileWithResticBackend(
+        resticServerUrl: String = "http://localhost:38080/",
+        password: String,
+        filePath: String,
+        tags: List<String>
+    ): Pair<Int, String> {
+        val repoPath = "rest:$resticServerUrl"
+        return backupFile(repoPath, password, filePath, tags)
     }
 
     suspend fun listSnapshots(repoPath: String, password: String): List<ResticSnapshot> {

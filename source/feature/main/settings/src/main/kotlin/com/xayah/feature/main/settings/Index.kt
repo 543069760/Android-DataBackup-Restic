@@ -57,6 +57,7 @@ import com.xayah.core.util.getActivity
 import com.xayah.core.util.navigateSingle
 import com.xayah.core.util.readMappedLanguage
 import com.xayah.feature.main.settings.restic.ResticViewModel
+import com.xayah.feature.main.settings.rclone.RcloneViewModel
 import com.xayah.feature.setup.MainActivity as SetupActivity
 import kotlinx.coroutines.launch
 
@@ -67,11 +68,15 @@ fun PageSettings() {
     val navController = LocalNavController.current!!
     val viewModel = hiltViewModel<IndexViewModel>()
     val resticViewModel = hiltViewModel<ResticViewModel>()
+    val rcloneViewModel = hiltViewModel<RcloneViewModel>()
     val directoryState by viewModel.directoryState.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     val scope = rememberCoroutineScope()
 
     // 状态收集
+    val rcloneVersion by rcloneViewModel.rcloneVersionState.collectAsStateWithLifecycle()
+    val rcloneDownloadState by rcloneViewModel.downloadState.collectAsStateWithLifecycle()
+    val rcloneServerState by rcloneViewModel.serverState.collectAsStateWithLifecycle()
     val resticVersion by resticViewModel.resticVersionState.collectAsStateWithLifecycle()
     val resticInitialized by resticViewModel.resticInitializedState.collectAsStateWithLifecycle(initialValue = false)
     val snapshotCount by resticViewModel.resticSnapshotCountState.collectAsStateWithLifecycle(initialValue = 0)
@@ -80,6 +85,7 @@ fun PageSettings() {
     val downloadState by resticViewModel.downloadState.collectAsStateWithLifecycle()
 
     var showDownloadDialog by remember { mutableStateOf(false) }
+    var showRcloneDownloadDialog by remember { mutableStateOf(false) }
 
     // 逻辑：自动弹出下载对话框（仅当未检测到版本且不在下载中时）
     LaunchedEffect(resticVersion, downloadState) {
@@ -87,6 +93,13 @@ fun PageSettings() {
             showDownloadDialog = true
         }
     }
+
+    LaunchedEffect(rcloneVersion, rcloneDownloadState) {
+        if (rcloneVersion == null && rcloneDownloadState is RcloneViewModel.DownloadState.Idle) {
+            showRcloneDownloadDialog = true
+        }
+    }
+
 
     // 逻辑：首次进入页面检查状态
     LaunchedEffect(Unit) {
@@ -222,6 +235,21 @@ fun PageSettings() {
                 }
             }
 
+            // --- Rclone 配置 ---
+            Title(title = stringResource(id = R.string.rclone_configuration)) {
+                Clickable(
+                    title = stringResource(id = R.string.rclone_version),
+                    value = when {
+                        rcloneDownloadState is RcloneViewModel.DownloadState.Downloading -> "正在下载并检测..."
+                        rcloneVersion != null -> rcloneVersion
+                        else -> stringResource(id = R.string.rclone_not_detected)
+                    }
+                ) {
+                    scope.launch {
+                        rcloneViewModel.checkRcloneStatus()
+                    }
+                }
+            }
             // --- 高级设置 ---
             Title(title = stringResource(id = R.string.advanced)) {
                 Switchable(
@@ -267,6 +295,73 @@ fun PageSettings() {
             }
         )
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RcloneDownloadDialog(
+    viewModel: RcloneViewModel,
+    onDismiss: () -> Unit,
+    onDownloadComplete: () -> Unit
+) {
+    val downloadState by viewModel.downloadState.collectAsStateWithLifecycle()
+    var urlInput by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("下载Rclone二进制文件") },
+        text = {
+            Column {
+                Text("Rclone二进制文件不存在，请输入下载URL:")
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = urlInput,
+                    onValueChange = { urlInput = it },
+                    label = { Text("下载URL") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                when (val state = downloadState) {
+                    is RcloneViewModel.DownloadState.Downloading -> {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Text("正在下载...")
+                    }
+                    is RcloneViewModel.DownloadState.Error -> {
+                        Text("下载失败: ${state.message}", color = MaterialTheme.colorScheme.error)
+                    }
+                    is RcloneViewModel.DownloadState.Success -> {
+                        Text("下载成功!", color = MaterialTheme.colorScheme.primary)
+                    }
+                    else -> {}
+                }
+            }
+        },
+        confirmButton = {
+            val state = downloadState
+            if (state is RcloneViewModel.DownloadState.Success) {
+                Button(onClick = onDownloadComplete) { Text("完成") }
+            } else {
+                Button(
+                    onClick = {
+                        viewModel.setDownloadUrl(urlInput)
+                        scope.launch {
+                            viewModel.downloadRcloneBinary(urlInput)
+                        }
+                    },
+                    enabled = urlInput.isNotBlank() && state !is RcloneViewModel.DownloadState.Downloading
+                ) {
+                    Text(if (state is RcloneViewModel.DownloadState.Downloading) "下载中..." else "下载")
+                }
+            }
+        },
+        dismissButton = {
+            if (downloadState !is RcloneViewModel.DownloadState.Downloading) {
+                TextButton(onClick = onDismiss) { Text("取消") }
+            }
+        }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

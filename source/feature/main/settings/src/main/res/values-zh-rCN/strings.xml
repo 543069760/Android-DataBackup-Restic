@@ -42,4 +42,9 @@
     <string name="restic_not_detected">没有检测到Restic</string>
     <string name="restic_compression_level">Restic压缩等级</string>
     <string name="restic_compression_level_desc">OFF-无压缩，FASTEST-最快压缩，AUTO-自动选择，BETTER-更好压缩，MAX-最大压缩</string>
+
+    <!-- rclone 配置字符串 -->
+    <string name="rclone_configuration">Rclone配置</string>
+    <string name="rclone_version">Rclone版本</string>
+    <string name="rclone_not_detected">没有检测到Rclone</string>
 </resources>

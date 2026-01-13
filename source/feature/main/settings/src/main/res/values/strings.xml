@@ -43,4 +43,9 @@
     <string name="restic_not_detected">No Restic detected</string>
     <string name="restic_compression_level">Restic compression level</string>
     <string name="restic_compression_level_desc">OFF - No compression, FASTEST - Fastest compression, AUTO - Automatic selection, BETTER - Better compression, MAX - Maximum compression</string>
+    <!-- rclone 配置字符串 -->
+    <string name="rclone_configuration">Rclone Configuration</string>
+    <string name="rclone_version">Rclone Version</string>
+    <string name="rclone_not_detected">No Rclone detected</string>
+
 </resources>

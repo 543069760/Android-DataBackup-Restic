@@ -1,0 +1,120 @@
+kotlin version: 2.0.21
+error message: org.jetbrains.kotlin.backend.common.BackendException: Backend Internal error: Exception during IR lowering
+File being compiled: D:/Android-DataBackup-S3-New/source/core/rclone/src/main/kotlin/com/xayah/core/rclone/RcloneLogger.kt
+The root cause java.lang.RuntimeException was thrown at: org.jetbrains.kotlin.backend.jvm.codegen.FunctionCodegen.generate(FunctionCodegen.kt:47)
+	at org.jetbrains.kotlin.backend.common.CodegenUtil.reportBackendException(CodegenUtil.kt:253)
+	at org.jetbrains.kotlin.backend.common.CodegenUtil.reportBackendException$default(CodegenUtil.kt:236)
+	at org.jetbrains.kotlin.backend.common.phaser.PerformByIrFilePhase.invokeSequential(performByIrFile.kt:65)
+	at org.jetbrains.kotlin.backend.common.phaser.PerformByIrFilePhase.invoke(performByIrFile.kt:52)
+	at org.jetbrains.kotlin.backend.common.phaser.PerformByIrFilePhase.invoke(performByIrFile.kt:38)
+	at org.jetbrains.kotlin.backend.common.phaser.NamedCompilerPhase.phaseBody(CompilerPhase.kt:166)
+	at org.jetbrains.kotlin.backend.common.phaser.AbstractNamedCompilerPhase.invoke(CompilerPhase.kt:113)
+	at org.jetbrains.kotlin.backend.common.phaser.CompositePhase.invoke(PhaseBuilders.kt:27)
+	at org.jetbrains.kotlin.backend.common.phaser.CompositePhase.invoke(PhaseBuilders.kt:14)
+	at org.jetbrains.kotlin.backend.common.phaser.NamedCompilerPhase.phaseBody(CompilerPhase.kt:166)
+	at org.jetbrains.kotlin.backend.common.phaser.AbstractNamedCompilerPhase.invoke(CompilerPhase.kt:113)
+	at org.jetbrains.kotlin.backend.common.phaser.CompilerPhaseKt.invokeToplevel(CompilerPhase.kt:62)
+	at org.jetbrains.kotlin.backend.jvm.JvmIrCodegenFactory.invokeCodegen(JvmIrCodegenFactory.kt:371)
+	at org.jetbrains.kotlin.codegen.CodegenFactory.generateModule(CodegenFactory.kt:47)
+	at org.jetbrains.kotlin.codegen.KotlinCodegenFacade.compileCorrectFiles(KotlinCodegenFacade.java:45)
+	at org.jetbrains.kotlin.kapt3.AbstractKapt3Extension.contextForStubGeneration(Kapt3Extension.kt:253)
+	at org.jetbrains.kotlin.kapt3.AbstractKapt3Extension.analysisCompleted(Kapt3Extension.kt:149)
+	at org.jetbrains.kotlin.kapt3.ClasspathBasedKapt3Extension.analysisCompleted(Kapt3Extension.kt:79)
+	at org.jetbrains.kotlin.cli.jvm.compiler.TopDownAnalyzerFacadeForJVM.analyzeFilesWithJavaIntegration$invokeExtensionsOnAnalysisComplete(TopDownAnalyzerFacadeForJVM.kt:104)
+	at org.jetbrains.kotlin.cli.jvm.compiler.TopDownAnalyzerFacadeForJVM.analyzeFilesWithJavaIntegration(TopDownAnalyzerFacadeForJVM.kt:114)
+	at org.jetbrains.kotlin.cli.jvm.compiler.TopDownAnalyzerFacadeForJVM.analyzeFilesWithJavaIntegration$default(TopDownAnalyzerFacadeForJVM.kt:75)
+	at org.jetbrains.kotlin.cli.jvm.compiler.KotlinToJVMBytecodeCompiler.analyze$lambda$12(KotlinToJVMBytecodeCompiler.kt:373)
+	at org.jetbrains.kotlin.cli.common.messages.AnalyzerWithCompilerReport.analyzeAndReport(AnalyzerWithCompilerReport.kt:112)
+	at org.jetbrains.kotlin.cli.jvm.compiler.KotlinToJVMBytecodeCompiler.analyze(KotlinToJVMBytecodeCompiler.kt:364)
+	at org.jetbrains.kotlin.cli.jvm.compiler.KotlinToJVMBytecodeCompiler.runFrontendAndGenerateIrUsingClassicFrontend(KotlinToJVMBytecodeCompiler.kt:195)
+	at org.jetbrains.kotlin.cli.jvm.compiler.KotlinToJVMBytecodeCompiler.compileModules$cli(KotlinToJVMBytecodeCompiler.kt:106)
+	at org.jetbrains.kotlin.cli.jvm.K2JVMCompiler.doExecute(K2JVMCompiler.kt:170)
+	at org.jetbrains.kotlin.cli.jvm.K2JVMCompiler.doExecute(K2JVMCompiler.kt:43)
+	at org.jetbrains.kotlin.cli.common.CLICompiler.execImpl(CLICompiler.kt:103)
+	at org.jetbrains.kotlin.cli.common.CLICompiler.execImpl(CLICompiler.kt:49)
+	at org.jetbrains.kotlin.cli.common.CLITool.exec(CLITool.kt:101)
+	at org.jetbrains.kotlin.incremental.IncrementalJvmCompilerRunner.runCompiler(IncrementalJvmCompilerRunner.kt:464)
+	at org.jetbrains.kotlin.incremental.IncrementalJvmCompilerRunner.runCompiler(IncrementalJvmCompilerRunner.kt:73)
+	at org.jetbrains.kotlin.incremental.IncrementalCompilerRunner.doCompile(IncrementalCompilerRunner.kt:506)
+	at org.jetbrains.kotlin.incremental.IncrementalCompilerRunner.compileImpl(IncrementalCompilerRunner.kt:423)
+	at org.jetbrains.kotlin.incremental.IncrementalCompilerRunner.compileNonIncrementally(IncrementalCompilerRunner.kt:301)
+	at org.jetbrains.kotlin.incremental.IncrementalCompilerRunner.compile(IncrementalCompilerRunner.kt:129)
+	at org.jetbrains.kotlin.daemon.CompileServiceImplBase.execIncrementalCompiler(CompileServiceImpl.kt:675)
+	at org.jetbrains.kotlin.daemon.CompileServiceImplBase.access$execIncrementalCompiler(CompileServiceImpl.kt:92)
+	at org.jetbrains.kotlin.daemon.CompileServiceImpl.compile(CompileServiceImpl.kt:1660)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.rmi/sun.rmi.server.UnicastServerRef.dispatch(UnicastServerRef.java:360)
+	at java.rmi/sun.rmi.transport.Transport$1.run(Transport.java:200)
+	at java.rmi/sun.rmi.transport.Transport$1.run(Transport.java:197)
+	at java.base/java.security.AccessController.doPrivileged(AccessController.java:714)
+	at java.rmi/sun.rmi.transport.Transport.serviceCall(Transport.java:196)
+	at java.rmi/sun.rmi.transport.tcp.TCPTransport.handleMessages(TCPTransport.java:598)
+	at java.rmi/sun.rmi.transport.tcp.TCPTransport$ConnectionHandler.run0(TCPTransport.java:844)
+	at java.rmi/sun.rmi.transport.tcp.TCPTransport$ConnectionHandler.lambda$run$0(TCPTransport.java:721)
+	at java.base/java.security.AccessController.doPrivileged(AccessController.java:400)
+	at java.rmi/sun.rmi.transport.tcp.TCPTransport$ConnectionHandler.run(TCPTransport.java:720)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+Caused by: java.lang.RuntimeException: Exception while generating code for:
+FUN FUNCTION_FOR_DEFAULT_PARAMETER name:v$default visibility:public modality:FINAL <> ($this:com.xayah.core.rclone.RcloneLogger.kt, message:kotlin.String, throwable:kotlin.Throwable?, $mask0:kotlin.Int, $handler:kotlin.Any?) returnType:kotlin.Unit
+  VALUE_PARAMETER MOVED_DISPATCH_RECEIVER name:$this index:0 type:com.xayah.core.rclone.RcloneLogger.kt
+  VALUE_PARAMETER name:message index:1 type:kotlin.String
+  VALUE_PARAMETER name:throwable index:2 type:kotlin.Throwable? [assignable]
+    EXPRESSION_BODY
+      ERROR_EXPR 'Default Stub' type=kotlin.Throwable?
+  VALUE_PARAMETER MASK_FOR_DEFAULT_FUNCTION name:$mask0 index:3 type:kotlin.Int
+  VALUE_PARAMETER METHOD_HANDLER_IN_DEFAULT_FUNCTION name:$handler index:4 type:kotlin.Any?
+  BLOCK_BODY
+    WHEN type=kotlin.Unit origin=null
+      BRANCH
+        if: CALL 'public final fun not (): kotlin.Boolean [operator] declared in kotlin.Boolean' type=kotlin.Boolean origin=EXCLEQ
+          $this: CALL 'public final fun EQEQ (arg0: kotlin.Any?, arg1: kotlin.Any?): kotlin.Boolean declared in kotlin.internal.ir' type=kotlin.Boolean origin=EXCLEQ
+            arg0: CALL 'public final fun and (other: kotlin.Int): kotlin.Int [infix] declared in kotlin.Int' type=kotlin.Int origin=null
+              $this: GET_VAR '$mask0: kotlin.Int declared in com.xayah.core.rclone.RcloneLogger.kt.v$default' type=kotlin.Int origin=null
+              other: CONST Int type=kotlin.Int value=2
+            arg1: CONST Int type=kotlin.Int value=0
+        then: SET_VAR 'throwable: kotlin.Throwable? [assignable] declared in com.xayah.core.rclone.RcloneLogger.kt.v$default' type=kotlin.Unit origin=EQ
+          ERROR_EXPR 'KtConstantExpression' type=kotlin.Nothing
+    RETURN type=kotlin.Nothing from='public final fun v$default ($this: com.xayah.core.rclone.RcloneLogger.kt, message: kotlin.String, throwable: kotlin.Throwable?, $mask0: kotlin.Int, $handler: kotlin.Any?): kotlin.Unit declared in com.xayah.core.rclone.RcloneLogger.kt'
+      CALL 'public final fun v (message: kotlin.String, throwable: kotlin.Throwable?): kotlin.Unit declared in com.xayah.core.rclone.RcloneLogger.kt' type=kotlin.Unit origin=DEFAULT_STUB_CALL_TO_IMPLEMENTATION
+        $this: GET_VAR '$this: com.xayah.core.rclone.RcloneLogger.kt declared in com.xayah.core.rclone.RcloneLogger.kt.v$default' type=com.xayah.core.rclone.RcloneLogger.kt origin=null
+        message: GET_VAR 'message: kotlin.String declared in com.xayah.core.rclone.RcloneLogger.kt.v$default' type=kotlin.String origin=null
+        throwable: GET_VAR 'throwable: kotlin.Throwable? [assignable] declared in com.xayah.core.rclone.RcloneLogger.kt.v$default' type=kotlin.Throwable? origin=null
+
+	at org.jetbrains.kotlin.backend.jvm.codegen.FunctionCodegen.generate(FunctionCodegen.kt:47)
+	at org.jetbrains.kotlin.backend.jvm.codegen.FunctionCodegen.generate$default(FunctionCodegen.kt:40)
+	at org.jetbrains.kotlin.backend.jvm.codegen.ClassCodegen.generateMethodNode(ClassCodegen.kt:406)
+	at org.jetbrains.kotlin.backend.jvm.codegen.ClassCodegen.generateMethod(ClassCodegen.kt:423)
+	at org.jetbrains.kotlin.backend.jvm.codegen.ClassCodegen.generate(ClassCodegen.kt:168)
+	at org.jetbrains.kotlin.backend.jvm.FileCodegen.lower(JvmPhases.kt:39)
+	at org.jetbrains.kotlin.backend.common.phaser.PhaseFactoriesKt.createFilePhase$lambda$4(PhaseFactories.kt:71)
+	at org.jetbrains.kotlin.backend.common.phaser.PhaseBuildersKt$createSimpleNamedCompilerPhase$1.phaseBody(PhaseBuilders.kt:69)
+	at org.jetbrains.kotlin.backend.common.phaser.SimpleNamedCompilerPhase.phaseBody(CompilerPhase.kt:226)
+	at org.jetbrains.kotlin.backend.common.phaser.AbstractNamedCompilerPhase.invoke(CompilerPhase.kt:113)
+	at org.jetbrains.kotlin.backend.common.phaser.PerformByIrFilePhase.invokeSequential(performByIrFile.kt:62)
+	... 52 more
+Caused by: java.lang.IllegalArgumentException: Invalid class name (must not contain . ; [ < > or :): com/xayah/core/rclone/RcloneLogger.kt
+	at org.jetbrains.org.objectweb.asm.util.CheckSignatureAdapter.checkClassName(CheckSignatureAdapter.java:343)
+	at org.jetbrains.org.objectweb.asm.util.CheckSignatureAdapter.visitClassType(CheckSignatureAdapter.java:285)
+	at org.jetbrains.kotlin.codegen.signature.BothSignatureWriter.writeClassBegin(BothSignatureWriter.java:78)
+	at org.jetbrains.kotlin.codegen.signature.JvmSignatureWriter.writeAsmType(JvmSignatureWriter.java:45)
+	at org.jetbrains.kotlin.codegen.signature.BothSignatureWriter.writeAsmType(BothSignatureWriter.java:72)
+	at org.jetbrains.kotlin.backend.jvm.mapping.IrTypeMapper.writeGenericType(IrTypeMapper.kt:159)
+	at org.jetbrains.kotlin.backend.jvm.mapping.IrTypeMapper.writeGenericType(IrTypeMapper.kt:42)
+	at org.jetbrains.kotlin.types.AbstractTypeMapper.mapClassType(AbstractTypeMapper.kt:198)
+	at org.jetbrains.kotlin.types.AbstractTypeMapper.mapType(AbstractTypeMapper.kt:89)
+	at org.jetbrains.kotlin.types.AbstractTypeMapper.mapType(AbstractTypeMapper.kt:53)
+	at org.jetbrains.kotlin.backend.jvm.mapping.IrTypeMapper.mapType(IrTypeMapper.kt:149)
+	at org.jetbrains.kotlin.backend.jvm.codegen.ClassCodegen$typeMapper$1.mapType(ClassCodegen.kt:99)
+	at org.jetbrains.kotlin.backend.jvm.mapping.MethodSignatureMapper.writeParameterType(MethodSignatureMapper.kt:392)
+	at org.jetbrains.kotlin.backend.jvm.mapping.MethodSignatureMapper.writeParameter(MethodSignatureMapper.kt:377)
+	at org.jetbrains.kotlin.backend.jvm.mapping.MethodSignatureMapper.mapSignature(MethodSignatureMapper.kt:260)
+	at org.jetbrains.kotlin.backend.jvm.mapping.MethodSignatureMapper.mapSignature$default(MethodSignatureMapper.kt:220)
+	at org.jetbrains.kotlin.backend.jvm.mapping.MethodSignatureMapper.mapSignatureWithGeneric(MethodSignatureMapper.kt:218)
+	at org.jetbrains.kotlin.backend.jvm.codegen.FunctionCodegen.doGenerate(FunctionCodegen.kt:51)
+	at org.jetbrains.kotlin.backend.jvm.codegen.FunctionCodegen.generate(FunctionCodegen.kt:44)
+	... 62 more
+
+
