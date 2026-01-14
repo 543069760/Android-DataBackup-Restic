@@ -246,7 +246,12 @@ fun PageSettings() {
                     }
                 ) {
                     scope.launch {
-                        rcloneViewModel.checkRcloneStatus()
+                        // 如果没有检测到 Rclone，触发下载对话框
+                        if (rcloneVersion == null) {
+                            showRcloneDownloadDialog = true
+                        } else {
+                            rcloneViewModel.checkRcloneStatus()
+                        }
                     }
                 }
             }
@@ -291,6 +296,19 @@ fun PageSettings() {
                 // 修复点：在 UI 层确保下载完成后强制刷新状态
                 scope.launch {
                     resticViewModel.checkResticStatus()
+                }
+            }
+        )
+    }
+    // 添加 Rclone 下载对话框
+    if (showRcloneDownloadDialog) {
+        RcloneDownloadDialog(
+            viewModel = rcloneViewModel,
+            onDismiss = { showRcloneDownloadDialog = false },
+            onDownloadComplete = {
+                showRcloneDownloadDialog = false
+                scope.launch {
+                    rcloneViewModel.checkRcloneStatus()
                 }
             }
         )

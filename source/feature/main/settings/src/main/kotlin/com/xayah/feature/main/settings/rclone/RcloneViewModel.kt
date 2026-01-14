@@ -74,14 +74,18 @@ class RcloneViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            // 首先执行状态检查，确保拿到版本号（如果有的话）
             checkRcloneStatus()
 
             val version = _rcloneVersionState.value
+
             if (version == null) {
+                // 确实没有版本，根据标记判断是否需要弹出下载
                 if (rcloneNative.isDownloadNeeded(context)) {
                     _downloadState.value = DownloadState.Idle
                 }
             } else {
+                // 已有版本的情况下，设为 None 保持静默
                 _downloadState.value = DownloadState.None
             }
         }
@@ -149,15 +153,15 @@ class RcloneViewModel @Inject constructor(
     }
 
     /**
-     * 启动 Restic 服务器
+     * 启动 Rclone 服务器
      */
-    suspend fun startResticServer(remote: String, path: String = "") {
+    suspend fun startRcloneServer(remote: String, path: String = "") {
         _serverState.value = ServerState.Starting
         withContext(Dispatchers.IO) {
             try {
-                val result = rcloneRepo.startResticServer(remote, path)
+                val result = rcloneRepo.startRcloneServer(remote, path) // 更新方法名
                 if (result.isSuccess) {
-                    delay(1000) // 等待服务器启动
+                    delay(1000)
                     checkServerStatus()
                 } else {
                     _serverState.value = ServerState.Error("启动失败")
@@ -170,13 +174,13 @@ class RcloneViewModel @Inject constructor(
     }
 
     /**
-     * 停止 Restic 服务器
+     * 停止 Rclone 服务器
      */
-    suspend fun stopResticServer() {
+    suspend fun stopRcloneServer() {
         _serverState.value = ServerState.Stopping
         withContext(Dispatchers.IO) {
             try {
-                val result = rcloneRepo.stopResticServer()
+                val result = rcloneRepo.stopRcloneServer() // 更新方法名
                 if (result.isSuccess) {
                     _serverState.value = ServerState.Stopped
                 } else {

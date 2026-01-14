@@ -63,7 +63,10 @@ class RcloneRepository @Inject constructor(
     /**
      * 启动 Restic 服务器
      */
-    suspend fun startResticServer(
+    /**
+     * 启动 Rclone 服务器
+     */
+    suspend fun startRcloneServer(
         remote: String,
         path: String = "",
         addr: String = "127.0.0.1:38080",
@@ -89,9 +92,9 @@ class RcloneRepository @Inject constructor(
     }
 
     /**
-     * 停止 Restic 服务器
+     * 停止 Rclone 服务器
      */
-    suspend fun stopResticServer(): Shell.Result {
+    suspend fun stopRcloneServer(): Shell.Result {
         logger.logResticServerStop()
 
         return try {
@@ -132,7 +135,6 @@ class RcloneRepository @Inject constructor(
             Shell.cmd("echo 'Error stopping server: ${e.message}'").exec()
         }
     }
-
     /**
      * 检查服务器状态
      */
