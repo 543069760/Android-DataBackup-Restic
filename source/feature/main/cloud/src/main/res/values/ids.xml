@@ -59,4 +59,5 @@
     <item name="protocol_desc" type="string"/>
     <item name="network_type_public" type="string"/>
     <item name="network_type_private" type="string"/>
+    <string name="generate_rclone_config">Generate Rclone Config</string>
 </resources>

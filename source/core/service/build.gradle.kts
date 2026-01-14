@@ -20,6 +20,7 @@ dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:network"))
     implementation(project(":core:restic"))
+    implementation(project(":core:rclone"))
     compileOnly(project(":core:hiddenapi"))
 
 
@@ -28,4 +29,5 @@ dependencies {
 
     // Preferences DataStore
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.libsu.core)
 }

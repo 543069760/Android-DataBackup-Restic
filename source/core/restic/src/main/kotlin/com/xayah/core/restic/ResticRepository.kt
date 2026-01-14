@@ -177,7 +177,7 @@ class ResticRepository @Inject constructor(
                 val output = if (result.isSuccess) {
                     result.out.joinToString("\n")
                 } else {
-                    result.err.joinToString("\n")
+                    result.out.joinToString("\n")
                 }
 
                 if (result.isSuccess) {
@@ -195,7 +195,7 @@ class ResticRepository @Inject constructor(
      * 使用 REST 后端初始化仓库
      */
     suspend fun initRepositoryWithResticBackend(
-        resticServerUrl: String = "http://localhost:38080/",
+        resticServerUrl: String = "http://127.0.0.1:38080/",
         password: String
     ): Result<String> {
         val repoPath = "rest:$resticServerUrl"
@@ -220,7 +220,7 @@ class ResticRepository @Inject constructor(
      * 使用 REST 后端备份文件
      */
     suspend fun backupFileWithResticBackend(
-        resticServerUrl: String = "http://localhost:38080/",
+        resticServerUrl: String = "http://127.0.0.1:38080/",
         password: String,
         filePath: String,
         tags: List<String>

@@ -388,7 +388,7 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
     }
 
     // 添加辅助方法：从路径中提取用户ID
-    private fun extractUserIdFromPath(path: String): String {
+    protected fun extractUserIdFromPath(path: String): String {
         val regex = Regex("/(user_\\d+)/")
         return regex.find(path)?.groupValues?.get(1) ?: "user_0"
     }

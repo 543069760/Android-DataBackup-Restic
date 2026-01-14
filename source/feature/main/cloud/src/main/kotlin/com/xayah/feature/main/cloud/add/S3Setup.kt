@@ -166,6 +166,29 @@ fun PageS3Setup() {
             ) {
                 Text(text = stringResource(id = R.string.test_connection))
             }
+
+            Button(
+                enabled = allFilled && uiState.isProcessing.not(),
+                onClick = {
+                    viewModel.launchOnIO {
+                        viewModel.updateS3Entity(
+                            name = name,
+                            remote = remote,
+                            region = region,
+                            accessKeyId = accessKeyId,
+                            secretAccessKey = secretAccessKey,
+                            bucket = bucket,
+                            endpoint = endpoint,
+                            protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP,
+                            networkType = if (networkTypeIndex == 0) S3NetworkType.PUBLIC else S3NetworkType.PRIVATE
+                        )
+                        viewModel.emitIntent(IndexUiIntent.GenerateRcloneConfig)
+                    }
+                }
+            ) {
+                Text(text = stringResource(id = R.string.generate_rclone_config))
+            }
+
             Button(enabled = allFilled && remote.isNotEmpty() && uiState.isProcessing.not(), onClick = {
                 viewModel.launchOnIO {
                     viewModel.updateS3Entity(

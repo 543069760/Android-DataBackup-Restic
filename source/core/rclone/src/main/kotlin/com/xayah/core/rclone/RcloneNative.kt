@@ -22,10 +22,16 @@ class RcloneNative @Inject constructor(
      * 适配 libsu：确保路径对 Root 可见，并强制刷新权限
      */
     fun getRcloneBinaryPath(context: Context): String {
-        val privateBinaryFile = File(context.filesDir, "rclone")
+        val rcloneDir = File(context.filesDir, "rclone")
+        val privateBinaryFile = File(rcloneDir, "rclone")
         val privateBinaryPath = privateBinaryFile.absolutePath
 
-        // 1. 如果私有目录已存在二进制文件
+        // 1. 确保目录存在
+        if (!rcloneDir.exists()) {
+            rcloneDir.mkdirs()
+        }
+
+        // 2. 如果私有目录已存在二进制文件
         if (privateBinaryFile.exists()) {
             logger.logBinaryPathFound(privateBinaryPath)
             ensureExecutable(privateBinaryFile)
@@ -83,8 +89,7 @@ class RcloneNative @Inject constructor(
 
     fun isDownloadNeeded(context: Context): Boolean {
         val prefs = context.getSharedPreferences(DOWNLOAD_PREFS_NAME, Context.MODE_PRIVATE)
-        // 如果物理文件丢失，也视为需要下载
-        val binaryMissing = !File(context.filesDir, "rclone").exists()
+        val binaryMissing = !File(File(context.filesDir, "rclone"), "rclone").exists()
         return prefs.getBoolean(NEED_DOWNLOAD_KEY, false) || binaryMissing
     }
 
@@ -99,7 +104,7 @@ class RcloneNative @Inject constructor(
      * 只要物理存在即视为有效，执行权限由调用方 (libsu) 尝试修复
      */
     fun isPrivateBinaryValid(context: Context): Boolean {
-        val binaryFile = File(context.filesDir, "rclone")
+        val binaryFile = File(File(context.filesDir, "rclone"), "rclone")
         return binaryFile.exists() && binaryFile.length() > 0
     }
 }

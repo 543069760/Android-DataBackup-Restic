@@ -1,5 +1,6 @@
 package com.xayah.core.util.command
 
+import android.util.Log
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
@@ -74,6 +75,11 @@ object BaseUtil {
 
     suspend fun execute(vararg args: String, shell: Shell? = null, log: Boolean = true): ShellResult = withIOContext {
         val shellResult = ShellResult(code = -1, input = args.toList().trim(), out = listOf())
+        val fullCommand = shellResult.inputString
+
+        Log.d("BaseUtil", "Executing command: $fullCommand")
+
+        val startTime = System.currentTimeMillis()
 
         if (log) {
             log { TAG_SHELL_IN to shellResult.inputString }
@@ -92,10 +98,17 @@ object BaseUtil {
             }
         }
 
+        val duration = System.currentTimeMillis() - startTime
+        Log.d("BaseUtil", "Command completed in ${duration}ms with code: ${shellResult.code}")
+
         if (log) {
             if (shellResult.outString.trim().isNotEmpty())
                 log { TAG_SHELL_OUT to shellResult.outString }
             log { TAG_SHELL_CODE to shellResult.code.toString() }
+        }
+
+        if (!shellResult.isSuccess) {
+            Log.e("BaseUtil", "Command failed: $fullCommand")
         }
 
         shellResult

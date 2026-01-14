@@ -12,12 +12,20 @@ import com.xayah.core.util.LogUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.model.ShellResult
 import com.xayah.core.database.dao.UploadIdDao
+import com.xayah.core.model.CloudType
+import com.xayah.core.util.GsonUtil
+import com.xayah.core.model.database.S3Extra
+import com.xayah.core.model.database.FTPExtra
+import com.xayah.core.model.database.SMBExtra
+import com.xayah.core.model.database.SFTPExtra
+import com.xayah.core.model.database.WebDAVExtra
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import java.io.PrintWriter
 import java.io.StringWriter
 import javax.inject.Inject
+import java.io.File
 
 class CloudRepository @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -168,6 +176,102 @@ class CloudRepository @Inject constructor(
         log { "withClient: Block completed, disconnecting client" }
         client.disconnect()
         log { "withClient: Client disconnected" }
+    }
+
+    suspend fun generateRcloneConfig(cloudEntity: CloudEntity): String {
+        return when (cloudEntity.type) {
+            CloudType.S3 -> generateS3Config(cloudEntity)
+            CloudType.FTP -> generateFTPConfig(cloudEntity)
+            CloudType.SMB -> generateSMBConfig(cloudEntity)
+            CloudType.SFTP -> generateSFTPConfig(cloudEntity)
+            CloudType.WEBDAV -> generateWebDAVConfig(cloudEntity)
+        }
+    }
+
+    private fun generateS3Config(cloudEntity: CloudEntity): String {
+        val extra: S3Extra = GsonUtil().fromJson(cloudEntity.extra, S3Extra::class.java) ?: return ""
+        return buildString {
+            appendLine("[${cloudEntity.name}]")
+            appendLine("type = s3")
+            appendLine("provider = AWS")
+            appendLine("access_key_id = ${cloudEntity.user}")
+            appendLine("secret_access_key = ${cloudEntity.pass}")
+            appendLine("region = ${extra.region}")
+            if (extra.endpoint.isNotEmpty()) {
+                appendLine("endpoint = ${extra.endpoint}")
+            }
+            appendLine("acl = private")
+        }
+    }
+
+    private fun generateFTPConfig(cloudEntity: CloudEntity): String {
+        val extra: FTPExtra = GsonUtil().fromJson(cloudEntity.extra, FTPExtra::class.java) ?: return ""
+        return buildString {
+            appendLine("[${cloudEntity.name}]")
+            appendLine("type = ftp")
+            appendLine("host = ${cloudEntity.host}")
+            appendLine("user = ${cloudEntity.user}")
+            appendLine("pass = ${cloudEntity.pass}")
+            appendLine("port = ${extra.port}")
+        }
+    }
+
+    private fun generateSMBConfig(cloudEntity: CloudEntity): String {
+        val extra: SMBExtra = GsonUtil().fromJson(cloudEntity.extra, SMBExtra::class.java) ?: return ""
+        return buildString {
+            appendLine("[${cloudEntity.name}]")
+            appendLine("type = smb")
+            appendLine("host = ${cloudEntity.host}")
+            appendLine("user = ${cloudEntity.user}")
+            appendLine("pass = ${cloudEntity.pass}")
+            appendLine("port = ${extra.port}")
+            appendLine("domain = ${extra.domain}")
+            appendLine("share = ${extra.share}")
+        }
+    }
+
+    private fun generateSFTPConfig(cloudEntity: CloudEntity): String {
+        val extra: SFTPExtra = GsonUtil().fromJson(cloudEntity.extra, SFTPExtra::class.java) ?: return ""
+        return buildString {
+            appendLine("[${cloudEntity.name}]")
+            appendLine("type = sftp")
+            appendLine("host = ${cloudEntity.host}")
+            appendLine("user = ${cloudEntity.user}")
+            appendLine("pass = ${cloudEntity.pass}")
+            appendLine("port = ${extra.port}")
+            if (extra.privateKey.isNotEmpty()) {
+                appendLine("key_file = ${extra.privateKey}")
+            }
+        }
+    }
+
+    private fun generateWebDAVConfig(cloudEntity: CloudEntity): String {
+        val extra: WebDAVExtra = GsonUtil().fromJson(cloudEntity.extra, WebDAVExtra::class.java) ?: return ""
+        return buildString {
+            appendLine("[${cloudEntity.name}]")
+            appendLine("type = webdav")
+            appendLine("url = ${cloudEntity.host}")
+            appendLine("user = ${cloudEntity.user}")
+            appendLine("pass = ${cloudEntity.pass}")
+            appendLine("vendor = other")
+            if (extra.insecure) {
+                appendLine("insecure_tls = true")
+            }
+        }
+    }
+
+    suspend fun writeRcloneConfig(cloudEntity: CloudEntity): Boolean {
+        return runCatching {
+            val configContent = generateRcloneConfig(cloudEntity)
+            val configFile = File(context.filesDir, "rclone/rclone.conf")
+
+            // 确保目录存在
+            configFile.parentFile?.mkdirs()
+
+            // 写入配置文件
+            configFile.writeText(configContent)
+            true
+        }.getOrElse { false }
     }
 
     // 3. 保留原有方法:处理多个激活的客户端

@@ -1,5 +1,6 @@
 package com.xayah.core.service.util
 
+import android.util.Log
 import android.content.Context
 import android.content.pm.PackageManager
 import com.xayah.core.model.util.formatToStorageSizePerSecond
@@ -31,6 +32,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.io.File
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
 
@@ -174,7 +176,9 @@ class PackagesBackupUtil @Inject constructor(
 
             else -> {}
         }
+        Log.d(TAG, "About to update task info in database")
         taskDao.upsert(this)
+        Log.d(TAG, "Task info updated successfully")
     }
 
     private fun TaskDetailPackageEntity.getLog(
@@ -256,21 +260,35 @@ class PackagesBackupUtil @Inject constructor(
                     t.updateInfo(dataType = dataType, state = OperationState.SKIP)
                     out.add(log { "Data has not changed." })
                 } else {
+                    Log.d(TAG, "About to start TAR compression for APK")
+                    Log.d(TAG, "Source directory: $srcDir")
+                    Log.d(TAG, "Target file: $dst")
+                    Log.d(TAG, "APK files to compress: ./*.apk")
                     Tar.compressInCur(
                         cur = srcDir,
                         src = "./*.apk",
                         dst = dst,
-                        extra = ct.getCompressPara(context.readCompressionLevel().first())
+                        extra = tarCt.getCompressPara(context.readCompressionLevel().first())
                     ).also { result ->
+                        Log.d(TAG, "TAR compression completed with code: ${result.code}")
                         isSuccess = result.isSuccess
                         out.addAll(result.out)
-
+                        if (result.isSuccess) {
+                            Log.d(
+                                TAG,
+                                "TAR compression successful, output size: ${File(dst).length()} bytes"
+                            )
+                        } else {
+                            Log.e(TAG, "TAR compression failed: ${result.out.joinToString("\n")}")
+                        }
+                        Log.d(TAG, "About to process TAR compression result")
                         // 压缩完成后立即检查取消标志
                         if (isCanceled?.invoke() == true) {
-                            log { "Backup canceled after compression" }
+                            Log.d(TAG, "Backup canceled after TAR compression")
                             isSuccess = false
-                            out.add("Backup canceled by user")
-                            return@run ShellResult(code = -1, input = listOf(), out = out)
+                            out.add("Backup canceled")
+                        } else {
+                            Log.d(TAG, "Continuing with post-compression processing")
                         }
                     }
                 }
@@ -283,8 +301,8 @@ class PackagesBackupUtil @Inject constructor(
                 state = if (isSuccess) OperationState.DONE else OperationState.ERROR,
                 log = out.toLineString()
             )
+            return ShellResult(code = if (isSuccess) 0 else -1, input = listOf(), out = out)
         }
-
         ShellResult(code = if (isSuccess) 0 else -1, input = listOf(), out = out)
     }
 
@@ -373,7 +391,7 @@ class PackagesBackupUtil @Inject constructor(
                     srcDir = srcDir,
                     src = packageName,
                     dst = dst,
-                    extra = ct.getCompressPara(context.readCompressionLevel().first())
+                    extra = tarCt.getCompressPara(context.readCompressionLevel().first())
                 ).also { result ->
                     isSuccess = result.isSuccess
                     out.addAll(result.out)
@@ -386,9 +404,12 @@ class PackagesBackupUtil @Inject constructor(
                         return@run ShellResult(code = -1, input = listOf(), out = out)
                     }
                 }
+                Log.d(TAG, "About to test archive")
                 commonBackupUtil.testArchive(src = dst, ct = ct).also { result ->
+                    Log.d(TAG, "Test archive completed with code: ${result.code}")
                     isSuccess = isSuccess && result.isSuccess
                     out.addAll(result.out)
+                    Log.d(TAG, "About to update task state")
                     if (result.isSuccess) {
                         p.setDataBytes(dataType, sizeBytes)
                         p.setDisplayBytes(dataType, rootService.calculateSize(dst))
@@ -402,7 +423,7 @@ class PackagesBackupUtil @Inject constructor(
                 log = out.toLineString()
             )
         }
-
+        Log.d(TAG, "APK backup method completed")
         ShellResult(code = if (isSuccess) 0 else -1, input = listOf(), out = out)
     }
 

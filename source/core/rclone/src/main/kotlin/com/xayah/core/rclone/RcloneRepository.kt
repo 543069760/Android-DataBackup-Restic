@@ -35,17 +35,26 @@ class RcloneRepository @Inject constructor(
         val defaultEnv = mutableMapOf(
             "HOME" to context.filesDir.absolutePath,
             "XDG_CONFIG_HOME" to File(context.filesDir, "rclone").absolutePath,
-            "RCLONE_CONFIG" to File(File(context.filesDir, "rclone"), "rclone.conf").absolutePath
+            "RCLONE_CONFIG" to File(File(context.filesDir, "rclone"), "rclone.conf").absolutePath,
+            "GODEBUG" to "netdns=cgo"
         )
         defaultEnv.putAll(env)
 
-        // 构建带环境变量的命令
-        val envExports = defaultEnv.map { "export ${it.key}=\"${it.value}\"" }
-        val command = envExports.joinToString(" && ") + " && $rclonePath ${args.joinToString(" ")}"
+        val envPrefix = defaultEnv.map { "${it.key}=\"${it.value}\"" }.joinToString(" ")
 
-        Log.d(TAG, "Executing Root Command: $command")
+        // Join args properly.
+        // Note: If args contain spaces (like the remote path), ensure they are quoted before passing here.
+        val fullCommand = "$envPrefix $rclonePath ${args.joinToString(" ")}"
 
-        val result = Shell.cmd(command).exec()
+        Log.d(TAG, "Executing Root Command: $fullCommand")
+        val result = Shell.cmd(fullCommand).exec()
+
+        // 添加详细错误日志
+        if (!result.isSuccess) {
+            Log.e(TAG, "Command failed with exit code: ${result.code}")
+            Log.e(TAG, "Standard output: ${result.out.joinToString("\n")}")
+        }
+
         logger.logCommandResult(result.code, result.out.joinToString("\n"))
         result
     }
@@ -61,9 +70,6 @@ class RcloneRepository @Inject constructor(
     }
 
     /**
-     * 启动 Restic 服务器
-     */
-    /**
      * 启动 Rclone 服务器
      */
     suspend fun startRcloneServer(
@@ -74,13 +80,15 @@ class RcloneRepository @Inject constructor(
     ): Shell.Result {
         logger.logResticServerStart(remote, addr)
 
-        val args = mutableListOf("serve", "restic")
-
-        if (verbose) args.add("-v")
-        args.addAll(listOf("--addr", addr))
-        args.add("$remote:$path")
-
-        val result = executeRclone(*args.toTypedArray())
+        // DO NOT include rclonePath here, executeRclone adds it automatically
+        val result = executeRclone(
+            "serve",
+            "restic",
+            "$remote:$path",
+            "--addr", addr,
+            "--bind", "0.0.0.0",
+            "-vv"
+        )
 
         if (result.isSuccess) {
             logger.logResticServerStarted(addr)

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 通用操作按钮 -->
+    <string name="processing">处理中</string>
+    <string name="connection_established">连接已建立</string>
+    <string name="test_connection">测试连接</string>
+    <string name="delete">删除</string>
+    <string name="_continue">继续</string>
+    <string name="confirm">确认</string>
+    <string name="not_selected">未选择</string>
+
+    <!-- 服务器配置字段 -->
+    <string name="server">服务器</string>
+    <string name="url">地址</string>
+    <string name="username">用户名</string>
+    <string name="password">密码</string>
+    <string name="public_key">公钥</string>
+    <string name="private_key">私钥</string>
+    <string name="port">端口</string>
+    <string name="domain">域</string>
+    <string name="shared_dir">共享目录</string>
+    <string name="allow_empty">允许为空</string>
+
+    <!-- 账户管理 -->
+    <string name="cloud">云存储</string>
+    <string name="account">账户</string>
+    <string name="name">名称</string>
+    <string name="add_account">添加账户</string>
+    <string name="delete_account">删除账户</string>
+    <string name="delete_account_desc">删除此云存储账户</string>
+    <string name="provider">供应商</string>
+
+    <!-- 高级设置 -->
+    <string name="advanced">高级</string>
+    <string name="remote_path">远程路径</string>
+    <string name="remote_path_desc">备份读取或保存的路径</string>
+    <string name="insecure_server_connection">不安全的服务器连接</string>
+    <string name="insecure_server_connection_desc">跳过SSL证书验证</string>
+    <string name="no_root_directory">无根目录</string>
+
+    <!-- S3 配置 -->
+    <string name="s3_setup">S3配置</string>
+    <string name="region">区域</string>
+    <string name="access_key_id">访问密钥ID</string>
+    <string name="secret_access_key">秘密访问密钥</string>
+    <string name="bucket">存储桶</string>
+    <string name="endpoint">端点</string>
+    <string name="protocol">协议</string>
+    <string name="protocol_desc">选择连接协议</string>
+    <string name="network_type_public">公网(公有云)</string>
+    <string name="network_type_private">内网(自建S3)</string>
+
+    <!-- 其他协议配置 -->
+    <string name="ftp_setup">FTP配置</string>
+    <string name="webdav_setup">WebDAV配置</string>
+    <string name="smb_setup">SMB配置</string>
+    <string name="sftp_setup">SFTP配置</string>
+
+    <!-- Rclone 配置生成 -->
+    <string name="generate_rclone_config">生成Rclone配置</string>
+</resources>

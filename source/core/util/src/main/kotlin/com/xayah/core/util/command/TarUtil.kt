@@ -1,5 +1,6 @@
 package com.xayah.core.util.command
 
+import android.util.Log
 import com.xayah.core.common.util.toSpaceString
 import com.xayah.core.common.util.trim
 import com.xayah.core.util.SymbolUtil
@@ -9,34 +10,26 @@ object Tar {
     private suspend fun execute(vararg args: String): ShellResult = BaseUtil.execute("tar", *args)
 
     suspend fun compressInCur(cur: String, src: String, dst: String, extra: String): ShellResult {
+        Log.d("Tar-Wrapper", "Starting compressInCur: cur=$cur, src=$src, dst=$dst, extra=$extra")
+
         // Move to $cur path.
         BaseUtil.execute("cd", cur)
+        Log.d("Tar-Wrapper", "Changed to directory: $cur")
 
         // Compress
         val result = if (extra.isEmpty()) {
-            // tar --totals -cpf - $src > "$dst"
-            execute(
-                "--totals",
-                "-cpf",
-                "- $src",
-                ">",
-                "${SymbolUtil.QUOTE}$dst${SymbolUtil.QUOTE}",
-            )
+            Log.d("Tar-Wrapper", "Executing tar without compression")
+            execute("--totals", "-cpf", "- $src", ">", "${SymbolUtil.QUOTE}$dst${SymbolUtil.QUOTE}")
         } else {
-            // tar --totals -cpf - $src | $extra > "$dst"
-            execute(
-                "--totals",
-                "-cpf",
-                "- $src",
-                "|",
-                extra,
-                ">",
-                "${SymbolUtil.QUOTE}$dst${SymbolUtil.QUOTE}",
-            )
+            Log.d("Tar-Wrapper", "Executing tar with compression: $extra")
+            execute("--totals", "-cpf", "- $src", "|", extra, ">", "${SymbolUtil.QUOTE}$dst${SymbolUtil.QUOTE}")
         }
+
+        Log.d("Tar-Wrapper", "Tar command completed with code: ${result.code}")
 
         // Move back
         BaseUtil.execute("cd", "/")
+        Log.d("Tar-Wrapper", "Returned to root directory")
 
         return result
     }

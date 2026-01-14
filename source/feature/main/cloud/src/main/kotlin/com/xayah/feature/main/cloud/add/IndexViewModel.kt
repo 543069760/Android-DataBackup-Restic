@@ -40,6 +40,8 @@ data class IndexUiState(
 sealed class IndexUiIntent : UiIntent {
     data object Initialize : IndexUiIntent()
 
+    data object GenerateRcloneConfig : IndexUiIntent()
+
     data class UpdateEntity(
         val name: String,
         val remote: String,
@@ -189,12 +191,49 @@ class IndexViewModel @Inject constructor(
 
             is IndexUiIntent.CreateAccount -> {
                 cloudRepo.upsert(state.cloudEntity!!)
+
+                // 生成 Rclone 配置文件
+                val configSuccess = cloudRepo.writeRcloneConfig(state.cloudEntity!!)
+                if (!configSuccess) {
+                    emitEffectOnIO(
+                        IndexUiEffect.ShowSnackbar(
+                            type = SnackbarType.Error,
+                            message = "Failed to generate Rclone configuration"
+                        )
+                    )
+                }
+
                 withMainContext {
                     intent.navController.popBackStack()
                     if (state.currentName.isEmpty()) {
                         intent.navController.popBackStack()
                     }
                 }
+            }
+
+            // 在这里添加新的处理逻辑
+            is IndexUiIntent.GenerateRcloneConfig -> {
+                emitState(uiState.value.copy(isProcessing = true))
+
+                val configSuccess = cloudRepo.writeRcloneConfig(uiState.value.cloudEntity!!)
+
+                if (configSuccess) {
+                    emitEffectOnIO(
+                        IndexUiEffect.ShowSnackbar(
+                            type = SnackbarType.Success,
+                            message = "Rclone configuration generated successfully"
+                        )
+                    )
+                } else {
+                    emitEffectOnIO(
+                        IndexUiEffect.ShowSnackbar(
+                            type = SnackbarType.Error,
+                            message = "Failed to generate Rclone configuration"
+                        )
+                    )
+                }
+
+                emitState(uiState.value.copy(isProcessing = false))
             }
 
             is IndexUiIntent.UpdateEntity -> {
