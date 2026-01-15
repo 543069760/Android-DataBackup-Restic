@@ -18,6 +18,7 @@ dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:util"))
     implementation(project(":core:rootservice"))
+    implementation(project(":core:database"))
     implementation(project(":feature:setup"))
     implementation(project(":core:restic"))
     implementation(project(":core:rclone"))

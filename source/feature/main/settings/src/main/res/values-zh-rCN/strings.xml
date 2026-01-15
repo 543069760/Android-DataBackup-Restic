@@ -47,4 +47,10 @@
     <string name="rclone_configuration">Rclone配置</string>
     <string name="rclone_version">Rclone版本</string>
     <string name="rclone_not_detected">没有检测到Rclone</string>
+    <string name="rclone_port">Rclone 端口</string>
+    <string name="rclone_port_desc">设置 Rclone REST API 服务监听端口</string>
+    <string name="rclone_server_control">Rclone 服务控制</string>
+    <string name="rclone_server_control_desc">开启或关闭 Rclone REST API 服务</string>
+    <string name="rclone_server_enabled">服务已开启</string>
+    <string name="rclone_server_disabled">服务已关闭</string>
 </resources>

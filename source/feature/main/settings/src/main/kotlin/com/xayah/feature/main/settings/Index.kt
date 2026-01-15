@@ -42,6 +42,10 @@ import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.xayah.core.datastore.readRclonePort
+import com.xayah.core.datastore.readRcloneServerEnabled
+import com.xayah.core.datastore.saveRclonePort
+import com.xayah.core.datastore.saveRcloneServerEnabled
 import com.xayah.core.datastore.KeyAutoScreenOff
 import com.xayah.core.datastore.KeyMonet
 import com.xayah.core.datastore.KeyResticEnableCompression
@@ -86,6 +90,8 @@ fun PageSettings() {
 
     var showDownloadDialog by remember { mutableStateOf(false) }
     var showRcloneDownloadDialog by remember { mutableStateOf(false) }
+    var showPortDialog by remember { mutableStateOf(false) }
+    var portInput by remember { mutableStateOf("") }
 
     // 逻辑：自动弹出下载对话框（仅当未检测到版本且不在下载中时）
     LaunchedEffect(resticVersion, downloadState) {
@@ -246,7 +252,6 @@ fun PageSettings() {
                     }
                 ) {
                     scope.launch {
-                        // 如果没有检测到 Rclone，触发下载对话框
                         if (rcloneVersion == null) {
                             showRcloneDownloadDialog = true
                         } else {
@@ -254,6 +259,40 @@ fun PageSettings() {
                         }
                     }
                 }
+
+                // 端口配置项
+                val rclonePort by context.readRclonePort().collectAsStateWithLifecycle(initialValue = "38080")
+                Clickable(
+                    title = stringResource(id = R.string.rclone_port),
+                    value = rclonePort,
+                    desc = stringResource(id = R.string.rclone_port_desc)
+                ) {
+                    showPortDialog = true
+                }
+
+                // 服务开关
+                val rcloneServerEnabled by context.readRcloneServerEnabled().collectAsStateWithLifecycle(initialValue = false)
+                Switchable(
+                    enabled = rcloneVersion != null,
+                    checked = rcloneServerEnabled,
+                    title = stringResource(id = R.string.rclone_server_control),
+                    checkedText = stringResource(id = R.string.rclone_server_enabled),
+                    notCheckedText = stringResource(id = R.string.rclone_server_disabled),
+                    desc = stringResource(id = R.string.rclone_server_control_desc),
+                    onCheckedChange = { enabled ->
+                        scope.launch {
+                            if (enabled) {
+                                 val success = rcloneViewModel.startRcloneServerWithCheck()
+                                 if (success) {
+                                     context.saveRcloneServerEnabled(true)
+                                 }
+                            } else {
+                                 rcloneViewModel.stopRcloneServer()
+                                 context.saveRcloneServerEnabled(false)
+                            }
+                        }
+                    }
+                )
             }
             // --- 高级设置 ---
             Title(title = stringResource(id = R.string.advanced)) {
@@ -285,6 +324,46 @@ fun PageSettings() {
             }
             InnerBottomSpacer(innerPadding = paddingValues)
         }
+    }
+
+    if (showPortDialog) {
+        val currentPort by context.readRclonePort().collectAsStateWithLifecycle(initialValue = "38080")
+
+        LaunchedEffect(currentPort) {
+            portInput = currentPort
+        }
+
+        AlertDialog(
+            onDismissRequest = { showPortDialog = false },
+            title = { Text(stringResource(id = R.string.rclone_port)) },
+            text = {
+                OutlinedTextField(
+                    value = portInput,
+                    onValueChange = { portInput = it },
+                    label = { Text(stringResource(id = R.string.rclone_port)) },
+                    placeholder = { Text("38080") }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            if (portInput.isNotBlank() && portInput.toIntOrNull() in 1024..65535) {
+                                context.saveRclonePort(portInput.trim())
+                                showPortDialog = false
+                            }
+                        }
+                    }
+                ) {
+                    Text(stringResource(id = android.R.string.ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPortDialog = false }) {
+                    Text(stringResource(id = android.R.string.cancel))
+                }
+            }
+        )
     }
 
     if (showDownloadDialog) {

@@ -11,6 +11,9 @@ import com.xayah.core.ui.viewmodel.BaseViewModel
 import com.xayah.core.ui.viewmodel.IndexUiEffect
 import com.xayah.core.ui.viewmodel.UiIntent
 import com.xayah.core.ui.viewmodel.UiState
+import com.xayah.core.datastore.readRclonePort
+import com.xayah.core.database.dao.CloudDao
+import com.topjohnwu.superuser.Shell
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +23,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
+import java.io.File
 import javax.inject.Inject
 
 data object RcloneUiState : UiState
@@ -31,7 +36,8 @@ class RcloneViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val rcloneRepo: RcloneRepository,
     private val rootService: RemoteRootService,
-    private val rcloneNative: RcloneNative
+    private val rcloneNative: RcloneNative,
+    private val cloudDao: CloudDao
 ) : BaseViewModel<RcloneUiState, RcloneUiIntent, IndexUiEffect>(RcloneUiState) {
 
     companion object {
@@ -141,7 +147,8 @@ class RcloneViewModel @Inject constructor(
                 val isRunning = rcloneRepo.checkServerStatus()
                 if (isRunning) {
                     val addr = rcloneRepo.getServerAddress()
-                    _serverState.value = ServerState.Running(addr ?: "localhost:8080")
+                    val port = context.readRclonePort().first()
+                    _serverState.value = ServerState.Running(addr ?: "localhost:$port")
                 } else {
                     _serverState.value = ServerState.Stopped
                 }
@@ -159,7 +166,17 @@ class RcloneViewModel @Inject constructor(
         _serverState.value = ServerState.Starting
         withContext(Dispatchers.IO) {
             try {
-                val result = rcloneRepo.startRcloneServer(remote, path) // 更新方法名
+                // 添加端口可用性检测
+                val port = context.readRclonePort().first()
+                val isPortAvailable = checkPortAvailable(port)
+
+                if (!isPortAvailable) {
+                    _serverState.value = ServerState.Error("端口 $port 已被占用")
+                    emitEffect(IndexUiEffect.ShowSnackbar("端口 $port 已被占用"))
+                    return@withContext
+                }
+
+                val result = rcloneRepo.startRcloneServer(remote, path)
                 if (result.isSuccess) {
                     delay(1000)
                     checkServerStatus()
@@ -190,6 +207,82 @@ class RcloneViewModel @Inject constructor(
                 Log.e(TAG, "停止服务器异常", e)
                 _serverState.value = ServerState.Error(e.message ?: "停止失败")
             }
+        }
+    }
+
+    /**
+     * 启动 Rclone 服务器（带端口检测）
+     */
+    suspend fun startRcloneServerWithCheck(): Boolean {
+        return try {
+            Log.d(TAG, "开始启动 Rclone 服务器")
+
+            // 1. 停止现有服务
+            Log.d(TAG, "停止现有服务")
+            stopRcloneServer()
+
+            // 2. 获取云配置
+            Log.d(TAG, "获取云配置")
+            val cloudEntities = cloudDao.queryActivated()
+            if (cloudEntities.isEmpty()) {
+                Log.e(TAG, "没有找到激活的云配置")
+                emitEffect(IndexUiEffect.ShowSnackbar("请先配置云存储账户"))
+                return false
+            }
+            val selectedRemote = cloudEntities.first().name
+            Log.d(TAG, "使用远程配置: $selectedRemote")
+
+            // 3. 检查配置文件（移动到这里）
+            val configFile = File(context.filesDir, "rclone/rclone.conf")
+            if (!configFile.exists()) {
+                emitEffect(IndexUiEffect.ShowSnackbar("rclone.conf 配置文件不存在"))
+                return false
+            }
+            Log.d(TAG, "配置文件内容: ${configFile.readText()}")
+
+            // 4. 检测端口可用性
+            Log.d(TAG, "检测端口可用性")
+            val port = context.readRclonePort().first()
+            val isPortAvailable = checkPortAvailable(port)
+            Log.d(TAG, "端口 $port 可用性: $isPortAvailable")
+
+            if (!isPortAvailable) {
+                emitEffect(IndexUiEffect.ShowSnackbar("端口 $port 已被占用"))
+                return false
+            }
+
+            // 5. 启动服务
+            Log.d(TAG, "启动 Rclone 服务")
+            val result = rcloneRepo.startRcloneServer(
+                remote = selectedRemote,
+                path = ""
+            )
+            Log.d(TAG, "启动结果: ${result.isSuccess}")
+
+            if (result.isSuccess) {
+                emitEffect(IndexUiEffect.ShowSnackbar("Rclone 服务启动成功"))
+                true
+            } else {
+                emitEffect(IndexUiEffect.ShowSnackbar("Rclone 服务启动失败"))
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "启动服务异常", e)
+            emitEffect(IndexUiEffect.ShowSnackbar("启动失败: ${e.message}"))
+            false
+        }
+    }
+
+    /**
+     * 检测端口是否可用
+     */
+    private suspend fun checkPortAvailable(port: String): Boolean {
+        return try {
+            val portNum = port.toInt()
+            val result = Shell.cmd("netstat -tlnp | grep :$port").exec()
+            !result.isSuccess || result.out.isEmpty()
+        } catch (e: Exception) {
+            false
         }
     }
 

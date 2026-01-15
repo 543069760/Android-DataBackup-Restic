@@ -26,8 +26,11 @@ import com.xayah.core.service.util.PackagesBackupUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.rclone.RcloneRepository
 import com.xayah.core.restic.ResticRepository
+import com.xayah.core.datastore.readRclonePort
+import com.topjohnwu.superuser.Shell
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -119,7 +122,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                 val userId = extractUserIdFromPath(compressedFile.absolutePath)
                 val backupType = type.type
                 val resticResult = resticRepo.backupFileWithResticBackend(
-                    resticServerUrl = "http://127.0.0.1:38080/",
+                    resticServerUrl = getResticServerUrl(),
                     password = getResticPassword(),
                     filePath = compressedFile.absolutePath,
                     tags = listOf("$userId-$packageName-$mBackupTimestamp-$backupType")
@@ -148,16 +151,10 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
         t.update(processingIndex = t.processingIndex + 1)
     }
 
-    private suspend fun startRcloneServer(): Boolean {
-        return rcloneRepo.startRcloneServer(
-            remote = mCloudEntity.name,   // 修正：使用配置名称"COS"
-            path = "",                     // 修正：移除额外目录层
-            addr = "127.0.0.1:38080"
-        ).isSuccess
-    }
-
-    private suspend fun stopRcloneServer() {
-        rcloneRepo.stopRcloneServer()
+    // 添加辅助方法获取动态端口
+    private suspend fun getResticServerUrl(): String {
+        val port = mContext.readRclonePort().first()
+        return "http://127.0.0.1:$port/"
     }
 
     private suspend fun backupWithResticBackend(
@@ -165,7 +162,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
         compressedFile: File,
         dataType: DataType
     ): Boolean {
-        val repoPath = "rest:http://localhost:38080/"
+        val repoPath = "rest:${getResticServerUrl()}"
         val password = getResticPassword()
 
         if (!resticRepo.checkRepository(repoPath, password)) {
@@ -179,7 +176,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
         val tags = listOf(tag)
 
         val result = resticRepo.backupFileWithResticBackend(
-            resticServerUrl = "http://localhost:38080/",
+            resticServerUrl = getResticServerUrl(),
             password = password,
             filePath = compressedFile.absolutePath,
             tags = tags

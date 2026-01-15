@@ -3,8 +3,10 @@ package com.xayah.core.rclone
 import android.content.Context
 import android.util.Log
 import com.topjohnwu.superuser.Shell
+import com.xayah.core.datastore.readRclonePort
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
@@ -26,36 +28,53 @@ class RcloneRepository @Inject constructor(
     }
 
     /**
-     * 核心执行方法：使用 libsu 执行 Root 命令
+     * 核心执行方法：增加耗时统计与详细流日志
      */
     private suspend fun executeRclone(
         vararg args: String,
-        env: Map<String, String> = emptyMap()
+        isServer: Boolean = false
     ): Shell.Result = withContext(Dispatchers.IO) {
-        val defaultEnv = mutableMapOf(
-            "HOME" to context.filesDir.absolutePath,
-            "XDG_CONFIG_HOME" to File(context.filesDir, "rclone").absolutePath,
-            "RCLONE_CONFIG" to File(File(context.filesDir, "rclone"), "rclone.conf").absolutePath,
-            "GODEBUG" to "netdns=cgo"
-        )
-        defaultEnv.putAll(env)
+        val startTime = System.currentTimeMillis()
+        val filesDir = context.filesDir.absolutePath
+        val rcloneDir = File(filesDir, "rclone").absolutePath
 
-        val envPrefix = defaultEnv.map { "${it.key}=\"${it.value}\"" }.joinToString(" ")
+        val mainCommand = "$rclonePath ${args.joinToString(" ")}"
 
-        // Join args properly.
-        // Note: If args contain spaces (like the remote path), ensure they are quoted before passing here.
-        val fullCommand = "$envPrefix $rclonePath ${args.joinToString(" ")}"
-
-        Log.d(TAG, "Executing Root Command: $fullCommand")
-        val result = Shell.cmd(fullCommand).exec()
-
-        // 添加详细错误日志
-        if (!result.isSuccess) {
-            Log.e(TAG, "Command failed with exit code: ${result.code}")
-            Log.e(TAG, "Standard output: ${result.out.joinToString("\n")}")
+        // 后台执行逻辑逻辑
+        val finalExecLine = if (isServer) {
+            "nohup $mainCommand > /dev/null 2>&1 &"
+        } else {
+            mainCommand
         }
 
-        logger.logCommandResult(result.code, result.out.joinToString("\n"))
+        val fullScript = """
+            export HOME="$filesDir"
+            export XDG_CONFIG_HOME="$rcloneDir"
+            export RCLONE_CONFIG="$rcloneDir/rclone.conf"
+            export GODEBUG="netdns=cgo"
+            $finalExecLine
+        """.trimIndent()
+
+        Log.d(TAG, "┌────── Rclone Command Execution ──────")
+        Log.d(TAG, "│ IsServer: $isServer")
+        Log.d(TAG, "│ Script:\n$fullScript")
+
+        val result = Shell.cmd(fullScript).exec()
+        val duration = System.currentTimeMillis() - startTime
+
+        Log.d(TAG, "│ Result Code: ${result.code} (Time: ${duration}ms)")
+
+        if (result.out.isNotEmpty()) {
+            Log.d(TAG, "│ Stdout: ${result.out.joinToString("\n│         ")}")
+        }
+
+        if (!result.isSuccess || result.err.isNotEmpty()) {
+            // 即使成功，如果有 err 信息也记录（可能是警告）
+            val logPriority = if (result.isSuccess) Log.WARN else Log.ERROR
+            Log.println(logPriority, TAG, "│ Stderr: ${result.err.joinToString("\n│         ")}")
+        }
+        Log.d(TAG, "└──────────────────────────────────────")
+
         result
     }
 
@@ -70,30 +89,37 @@ class RcloneRepository @Inject constructor(
     }
 
     /**
-     * 启动 Rclone 服务器
+     * 启动 Rclone 服务器：增加环境预检日志
      */
-    suspend fun startRcloneServer(
-        remote: String,
-        path: String = "",
-        addr: String = "127.0.0.1:38080",
-        verbose: Boolean = true
-    ): Shell.Result {
-        logger.logResticServerStart(remote, addr)
+    suspend fun startRcloneServer(remote: String, path: String = ""): Shell.Result {
+        Log.i(TAG, ">>> Attempting to start Rclone Server...")
 
-        // DO NOT include rclonePath here, executeRclone adds it automatically
+        val port = context.readRclonePort().first()
+        val addr = "127.0.0.1:$port"
+        val logFile = File(context.cacheDir, "rclone_exec.log").absolutePath
+
+        // 预检：检查配置文件是否存在
+        val configPath = File(File(context.filesDir, "rclone"), "rclone.conf")
+        Log.d(TAG, "Config Check: path=${configPath.absolutePath}, exists=${configPath.exists()}")
+
         val result = executeRclone(
-            "serve",
-            "restic",
-            "$remote:$path",
+            "serve", "restic", "\"$remote:$path\"",
             "--addr", addr,
+            "--log-file", "\"$logFile\"",
+            "--log-level", "DEBUG",
             "--bind", "0.0.0.0",
-            "-vv"
+            "-vv",
+            isServer = true
         )
 
         if (result.isSuccess) {
             logger.logResticServerStarted(addr)
+            // 额外检查：启动后瞬间尝试 pgrep 确认进程是否真的在
+            kotlinx.coroutines.delay(500) // 给系统一点点 fork 的时间
+            val check = Shell.cmd("pgrep -f \"$SERVER_PROCESS_NAME\"").exec()
+            Log.i(TAG, "Post-start check: Process active = ${check.out.isNotEmpty()}")
         } else {
-            logger.logCommandFailed(Exception("Failed to start rclone restic server"))
+            Log.e(TAG, "Server start failed directly from Shell.")
         }
 
         return result
@@ -143,6 +169,7 @@ class RcloneRepository @Inject constructor(
             Shell.cmd("echo 'Error stopping server: ${e.message}'").exec()
         }
     }
+
     /**
      * 检查服务器状态
      */
@@ -155,7 +182,9 @@ class RcloneRepository @Inject constructor(
      * 获取服务器监听地址
      */
     suspend fun getServerAddress(): String? {
-        val result = Shell.cmd("netstat -tlnp | grep :38080").exec()
+        // 从 DataStore 读取端口配置
+        val port = context.readRclonePort().first()
+        val result = Shell.cmd("netstat -tlnp | grep :$port").exec()
         return if (result.isSuccess) {
             result.out.firstOrNull()?.trim()
         } else null

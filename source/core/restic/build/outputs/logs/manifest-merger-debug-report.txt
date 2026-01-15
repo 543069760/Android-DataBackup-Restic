@@ -1,0 +1,16 @@
+-- Merging decision tree log ---
+manifest
+ADDED from D:\Android-DataBackup-S3-New\source\core\restic\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest16272650004248398516.xml:2:13-83
+INJECTED from D:\Android-DataBackup-S3-New\source\core\restic\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest16272650004248398516.xml:2:13-83
+	package
+		INJECTED from D:\Android-DataBackup-S3-New\source\core\restic\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest16272650004248398516.xml
+	xmlns:android
+		ADDED from D:\Android-DataBackup-S3-New\source\core\restic\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest16272650004248398516.xml:2:23-81
+uses-sdk
+INJECTED from D:\Android-DataBackup-S3-New\source\core\restic\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest16272650004248398516.xml reason: use-sdk injection requested
+INJECTED from D:\Android-DataBackup-S3-New\source\core\restic\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest16272650004248398516.xml
+INJECTED from D:\Android-DataBackup-S3-New\source\core\restic\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest16272650004248398516.xml
+	android:targetSdkVersion
+		INJECTED from D:\Android-DataBackup-S3-New\source\core\restic\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest16272650004248398516.xml
+	android:minSdkVersion
+		INJECTED from D:\Android-DataBackup-S3-New\source\core\restic\build\intermediates\tmp\ProcessLibraryManifest\debug\tempAndroidManifest16272650004248398516.xml

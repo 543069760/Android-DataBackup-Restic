@@ -47,5 +47,11 @@
     <string name="rclone_configuration">Rclone Configuration</string>
     <string name="rclone_version">Rclone Version</string>
     <string name="rclone_not_detected">No Rclone detected</string>
+    <string name="rclone_port">Rclone Port</string>
+    <string name="rclone_port_desc">Set Rclone REST API service listening port</string>
+    <string name="rclone_server_control">Rclone Server Control</string>
+    <string name="rclone_server_control_desc">Enable or disable Rclone REST API service</string>
+    <string name="rclone_server_enabled">Service Enabled</string>
+    <string name="rclone_server_disabled">Service Disabled</string>
 
 </resources>
