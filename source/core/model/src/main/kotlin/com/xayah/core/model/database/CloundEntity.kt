@@ -6,6 +6,7 @@ import com.xayah.core.model.CloudType
 import com.xayah.core.model.SFTPAuthMode
 import com.xayah.core.model.SmbAuthMode
 import com.xayah.core.model.SmbVersion
+import kotlinx.serialization.Serializable
 
 data class FTPExtra(
     val port: Int,
@@ -29,6 +30,7 @@ data class WebDAVExtra(
     val insecure: Boolean,
 )
 
+@Serializable
 data class S3Extra(
     val region: String,           // 如 "ap-shanghai"
     val accessKeyId: String,      // 您示例中的 accessKey
