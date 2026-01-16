@@ -94,7 +94,7 @@ class ResticFilesRestoreViewModel @Inject constructor(
 
                 // 为当前 backup 创建专用的进度回调
                 val progressCallback = object : ResticRepository.ResticProgressCallback {
-                    override fun onProgress(
+                    override fun onRestoreProgress(
                         filesFinished: Long,
                         filesTotal: Long,
                         bytesWritten: Long,
@@ -102,6 +102,7 @@ class ResticFilesRestoreViewModel @Inject constructor(
                         filesSkipped: Long,
                         bytesSkipped: Long
                     ) {
+                        // 恢复进度处理
                         val progress = if (bytesTotal > 0) {
                             bytesWritten.toFloat() / bytesTotal
                         } else 0f
@@ -116,7 +117,7 @@ class ResticFilesRestoreViewModel @Inject constructor(
                         lastTime = currentTime
                         lastBytes = bytesWritten
 
-                        Log.d("ResticFilesRestore", "进度更新: $progress, 速度: $speed, 文件: $filesFinished/$filesTotal")
+                        // 速度计算和状态更新
                         _resticProgress.value = ResticProgressState(
                             filesFinished = filesFinished,
                             filesTotal = filesTotal,
@@ -129,6 +130,16 @@ class ResticFilesRestoreViewModel @Inject constructor(
                             currentDataTypeIndex = index,
                             totalDataTypes = sortedBackups.size
                         )
+                    }
+
+                    override fun onBackupProgress(
+                        percentDone: Float,
+                        bytesDone: Long,
+                        bytesTotal: Long,
+                        filesDone: Long,
+                        filesTotal: Long
+                    ) {
+                        // 备份进度（文件恢复时不使用）
                     }
                 }
 

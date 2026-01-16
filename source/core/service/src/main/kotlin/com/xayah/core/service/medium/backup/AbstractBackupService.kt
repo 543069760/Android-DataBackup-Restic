@@ -153,7 +153,7 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
             Log.d("ResticFlow", "Restic标签: $tag")
             Log.d("ResticFlow", "执行restic backup命令...")
 
-            val result = resticRepo.backupFile(repoPath, password, filePath, tags)
+            val result = resticRepo.backupWithResticToLocal(repoPath, password, filePath, tags)
 
             Log.d("ResticFlow", "Restic命令退出码: ${result.first}")
             Log.d("ResticFlow", "Restic命令输出: ${result.second}")

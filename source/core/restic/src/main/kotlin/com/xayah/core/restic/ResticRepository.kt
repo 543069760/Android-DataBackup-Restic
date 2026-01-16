@@ -7,6 +7,8 @@ import com.xayah.core.model.DataType
 import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.model.restic.ResticBackupFiles
 import com.xayah.core.datastore.readResticCompressionLevel
+import com.xayah.core.model.database.S3Extra
+import com.xayah.core.model.database.S3Protocol
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -99,7 +101,7 @@ class ResticRepository @Inject constructor(
                 // 处理进度回调
                 result.out.forEach { line ->
                     parseRestoreProgress(line)?.let { p ->
-                        progressCallback?.onProgress(
+                        progressCallback?.onRestoreProgress(
                             p.files_finished ?: 0, p.files_total ?: 0,
                             p.bytes_written ?: 0, p.bytes_total ?: 0,
                             p.files_skipped ?: 0, p.bytes_skipped ?: 0
@@ -191,20 +193,6 @@ class ResticRepository @Inject constructor(
         }
     }
 
-    suspend fun backupFile(repoPath: String, password: String, filePath: String, tags: List<String>): Pair<Int, String> {
-        // 读取压缩级别配置
-        val compressionLevel = context.readResticCompressionLevel().first() ?: "auto"
-
-        val args = mutableListOf(
-            "backup", "--repo", "\"$repoPath\"", "\"$filePath\"",
-            "--tag", "\"${tags.joinToString(",")}\"", "--json",
-            "--compression", compressionLevel  // 添加压缩参数
-        )
-
-        val result = executeRestic(*args.toTypedArray(), env = mapOf("RESTIC_PASSWORD" to password))
-        return Pair(result.code, result.out.joinToString("\n"))
-    }
-
     suspend fun listSnapshots(repoPath: String, password: String): List<ResticSnapshot> {
         val result = executeRestic("snapshots", "--repo", "\"$repoPath\"", "--json", env = mapOf("RESTIC_PASSWORD" to password))
         return if (result.isSuccess) {
@@ -294,12 +282,202 @@ class ResticRepository @Inject constructor(
         return apps
     }
 
+    /**
+     * 使用 Restic 备份到本地仓库
+     * @param repoPath 本地仓库路径
+     * @param password 仓库密码
+     * @param filePath 要备份的文件路径
+     * @param tags 备份标签
+     * @param progressCallback 进度回调
+     * @return Pair<Int, String> 退出码和 JSON 输出
+     */
+    suspend fun backupWithResticToLocal(
+        repoPath: String,
+        password: String,
+        filePath: String,
+        tags: List<String>,
+        progressCallback: ResticProgressCallback? = null
+    ): Pair<Int, String> {
+        // 读取压缩级别配置
+        val compressionLevel = context.readResticCompressionLevel().first() ?: "auto"
+
+        val args = mutableListOf(
+            "backup", "--repo", "\"$repoPath\"", "\"$filePath\"",
+            "--tag", "\"${tags.joinToString(",")}\"", "--json",
+            "--compression", compressionLevel
+        )
+
+        val result = executeRestic(*args.toTypedArray(), env = mapOf("RESTIC_PASSWORD" to password))
+
+        // 解析进度信息
+        result.out.forEach { line ->
+            parseBackupProgress(line)?.let { p ->
+                progressCallback?.onBackupProgress(
+                    p.percent_done ?: 0f,
+                    p.bytes_done ?: 0,
+                    p.total_bytes ?: 0,
+                    p.files_done ?: 0,
+                    p.total_files ?: 0
+                )
+            }
+        }
+
+        return Pair(result.code, result.out.joinToString("\n"))
+    }
+
+    /**
+     * 构建通用的 S3 Restic URL
+     * 支持 AWS S3 和所有 S3 兼容存储（MinIO、Ceph、阿里云OSS等）
+     */
+    private fun buildS3ResticUrl(extra: S3Extra, remotePath: String): String {
+        val baseUrl = if (extra.endpoint.isNotEmpty()) {
+            // 使用自定义 endpoint（MinIO、Ceph、阿里云OSS等）
+            val scheme = when (extra.protocol) {
+                S3Protocol.HTTP -> "http"
+                S3Protocol.HTTPS -> "https"
+            }
+            "s3:$scheme://${extra.endpoint}"
+        } else {
+            // AWS S3 使用标准格式
+            "s3:s3.${extra.region}.amazonaws.com"
+        }
+
+        // 添加 bucket 和远程路径
+        return "$baseUrl/${extra.bucket}/$remotePath"
+    }
+
+    /**
+     * 初始化 S3 仓库
+     * @param extra S3 配置信息
+     * @param remotePath 远程路径
+     * @param password 仓库密码
+     * @return Result<String> 成功时包含输出信息，失败时包含异常
+     */
+    suspend fun initS3Repository(
+        extra: S3Extra,
+        remotePath: String,
+        password: String
+    ): Result<String> {
+        val repoUrl = buildS3ResticUrl(extra, remotePath)
+
+        // 设置环境变量
+        val env = mutableMapOf(
+            "AWS_ACCESS_KEY_ID" to extra.accessKeyId,
+            "AWS_SECRET_ACCESS_KEY" to extra.secretAccessKey,
+            "RESTIC_PASSWORD" to password
+        )
+
+        // 对于非 AWS 的 S3 兼容存储，可能需要额外设置
+        if (extra.endpoint.isNotEmpty()) {
+            // 设置自定义 region（如果 endpoint 不是 AWS）
+            if (extra.region.isNotEmpty()) {
+                env["AWS_DEFAULT_REGION"] = extra.region
+            }
+        }
+
+        return initRepository(repoUrl, password)
+    }
+
+    /**
+     * 使用 S3 后端备份文件
+     * @param extra S3 配置信息
+     * @param remotePath 远程路径
+     * @param filePath 要备份的文件路径
+     * @param tags 备份标签
+     * @param password 仓库密码
+     * @param progressCallback 进度回调
+     * @return Pair<Int, String> 退出码和 JSON 输出
+     */
+    suspend fun backupFileToS3(
+        extra: S3Extra,
+        remotePath: String,
+        filePath: String,
+        tags: List<String>,
+        password: String,
+        progressCallback: ResticProgressCallback? = null
+    ): Pair<Int, String> {
+        val repoUrl = buildS3ResticUrl(extra, remotePath)
+
+        val env = mutableMapOf(
+            "AWS_ACCESS_KEY_ID" to extra.accessKeyId,
+            "AWS_SECRET_ACCESS_KEY" to extra.secretAccessKey,
+            "RESTIC_PASSWORD" to password
+        )
+
+        // S3 特定选项
+        val options = mutableListOf<String>()
+        if (extra.endpoint.isNotEmpty() && extra.region.isNotEmpty()) {
+            options.add("-o")
+            options.add("s3.region=${extra.region}")
+        }
+
+        val compressionLevel = context.readResticCompressionLevel().first() ?: "auto"
+
+        val args = mutableListOf(
+            "backup", "--repo", "\"$repoUrl\"", "\"$filePath\"",
+            "--tag", "\"${tags.joinToString(",")}\"", "--json",
+            "--compression", compressionLevel
+        )
+        args.addAll(options)
+
+        val result = executeRestic(*args.toTypedArray(), env = env)
+
+        // 解析进度
+        result.out.forEach { line ->
+            parseBackupProgress(line)?.let { p ->
+                progressCallback?.onBackupProgress(
+                    p.percent_done ?: 0f,
+                    p.bytes_done ?: 0,
+                    p.total_bytes ?: 0,
+                    p.files_done ?: 0,
+                    p.total_files ?: 0
+                )
+            }
+        }
+
+        return Pair(result.code, result.out.joinToString("\n"))
+    }
+
+    /**
+     * 解析备份进度信息
+     */
+    private fun parseBackupProgress(line: String): ResticBackupProgress? {
+        return try {
+            if (line.contains("message_type") && line.contains("status")) {
+                json.decodeFromString<ResticBackupProgress>(line)
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Restic 备份进度数据类
+     */
+    @Serializable
+    data class ResticBackupProgress(
+        val message_type: String,
+        val percent_done: Float? = null,
+        val bytes_done: Long? = null,
+        val total_bytes: Long? = null,
+        val files_done: Long? = null,
+        val total_files: Long? = null,
+        val seconds_elapsed: Long? = null,
+        val seconds_remaining: Long? = null,
+        val error_count: Long? = null,
+        val current_files: List<String>? = null
+    )
+
     private fun parseRestoreProgress(line: String): ResticRestoreProgress? {
         return try { if (line.contains("message_type")) json.decodeFromString<ResticRestoreProgress>(line) else null } catch (e: Exception) { null }
     }
 
     interface ResticProgressCallback {
-        fun onProgress(filesFinished: Long, filesTotal: Long, bytesWritten: Long, bytesTotal: Long, filesSkipped: Long, bytesSkipped: Long)
+        // 恢复进度（现有）
+        fun onRestoreProgress(filesFinished: Long, filesTotal: Long, bytesWritten: Long, bytesTotal: Long, filesSkipped: Long, bytesSkipped: Long)
+
+        // 备份进度（新增）
+        fun onBackupProgress(percentDone: Float, bytesDone: Long, bytesTotal: Long, filesDone: Long, filesTotal: Long)
     }
 }
 

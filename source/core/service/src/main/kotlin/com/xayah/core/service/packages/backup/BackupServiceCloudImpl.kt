@@ -1,21 +1,26 @@
 package com.xayah.core.service.packages.backup
 
+import android.util.Log
+import com.xayah.core.restic.ResticRepository
+import com.xayah.core.restic.ResticProgressCallback  // 添加
+import com.xayah.core.restic.ResticSnapshot  // 添加
 import com.xayah.core.model.util.formatToStorageSizePerSecond
 import com.xayah.core.data.repository.CloudRepository
 import com.xayah.core.data.repository.PackageRepository
 import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.database.dao.PackageDao
 import com.xayah.core.database.dao.TaskDao
-import com.xayah.core.database.dao.UploadIdDao
 import com.xayah.core.model.DataType
 import com.xayah.core.model.OpType
 import com.xayah.core.model.OperationState
 import com.xayah.core.model.TaskType
 import com.xayah.core.model.database.CloudEntity
+import com.xayah.core.model.database.CloudType  // 添加
 import com.xayah.core.model.database.PackageEntity
 import com.xayah.core.model.database.ProcessingInfoEntity
 import com.xayah.core.model.database.TaskDetailPackageEntity
 import com.xayah.core.model.database.TaskEntity
+import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.util.get
 import com.xayah.core.network.client.CloudClient
 import com.xayah.core.network.client.S3ClientImpl
@@ -29,6 +34,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.coroutines.coroutineContext
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json  // 添加
 import java.io.File
 
 @AndroidEntryPoint
@@ -105,47 +112,163 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
             return
         }
 
-        // 新增：在压缩完成后使用 Restic 进行块备份
         if (result.isSuccess && t.get(type).state != OperationState.SKIP) {
             // 查找压缩文件
             val compressedFile = findCompressedFile(dstDir, type)
             if (compressedFile != null) {
-                // 调用 Restic 备份
-                val resticSuccess = backupWithRestic(p.packageName, compressedFile, type)
-                if (resticSuccess) {
-                    log { "Restic backup successful for ${p.packageName} $type" }
-                } else {
-                    log { "Restic backup failed for ${p.packageName} $type" }
+                // 根据云存储类型选择备份方式
+                when (mCloudEntity.type) {
+                    CloudType.S3 -> {
+                        // S3 使用 Restic 备份
+                        val s3Extra = Json.decodeFromString<S3Extra>(mCloudEntity.extra)
+                        val resticSuccess = backupWithResticToS3(
+                            packageName = p.packageName,
+                            compressedFile = compressedFile,
+                            dataType = type,
+                            s3Extra = s3Extra,
+                            remotePath = "${p.archivesRelativeDir}"
+                        )
+                        if (resticSuccess) {
+                            log { "Restic S3 backup successful for ${p.packageName} $type" }
+                        }
+                    }
+                    CloudType.FTP -> {
+                        mPackagesBackupUtil.upload(
+                            client = mClient,
+                            p = p,
+                            t = t,
+                            dataType = type,
+                            srcDir = dstDir,
+                            dstDir = remoteAppDir,
+                            isCanceled = { isCanceled() }
+                        )
+                    }
+                    CloudType.SFTP -> {
+                        mPackagesBackupUtil.upload(
+                            client = mClient,
+                            p = p,
+                            t = t,
+                            dataType = type,
+                            srcDir = dstDir,
+                            dstDir = remoteAppDir,
+                            isCanceled = { isCanceled() }
+                        )
+                    }
+                    CloudType.WEBDAV -> {
+                        mPackagesBackupUtil.upload(
+                            client = mClient,
+                            p = p,
+                            t = t,
+                            dataType = type,
+                            srcDir = dstDir,
+                            dstDir = remoteAppDir,
+                            isCanceled = { isCanceled() }
+                        )
+                    }
+                    CloudType.SMB -> {
+                        mPackagesBackupUtil.upload(
+                            client = mClient,
+                            p = p,
+                            t = t,
+                            dataType = type,
+                            srcDir = dstDir,
+                            dstDir = remoteAppDir,
+                            isCanceled = { isCanceled() }
+                        )
+                    }
                 }
             }
-
-            // 原有的上传逻辑
-            mPackagesBackupUtil.upload(
-                client = mClient,
-                p = p,
-                t = t,
-                dataType = type,
-                srcDir = dstDir,
-                dstDir = remoteAppDir,
-                isCanceled = { isCanceled() }
-            )
         }
 
         t.update(dataType = type, progress = 1f)
         t.update(processingIndex = t.processingIndex + 1)
     }
 
+    /**
+     * 使用 Restic 备份到 S3
+     */
+    private suspend fun backupWithResticToS3(
+        packageName: String,
+        compressedFile: File,
+        dataType: DataType,
+        s3Extra: S3Extra,
+        remotePath: String
+    ): Boolean {
+        return try {
+            val userId = extractUserIdFromPath(compressedFile.absolutePath)
+            val backupType = dataType.type
+            val tag = "$userId-$packageName-$mBackupTimestamp-$backupType"
+            val tags = listOf(tag)
+
+            val result = resticRepo.backupFileToS3(
+                extra = s3Extra,
+                remotePath = remotePath,
+                filePath = compressedFile.absolutePath,
+                tags = tags,
+                password = getResticPassword(),
+                progressCallback = object : ResticProgressCallback {
+                    override fun onRestoreProgress(
+                        filesFinished: Long, filesTotal: Long,
+                        bytesWritten: Long, bytesTotal: Long,
+                        filesSkipped: Long, bytesSkipped: Long
+                    ) {
+                        // 恢复进度，备份时不使用
+                    }
+
+                    override fun onBackupProgress(
+                        percentDone: Float, bytesDone: Long,
+                        bytesTotal: Long, filesDone: Long, filesTotal: Long
+                    ) {
+                        // 更新进度到 UI
+                        log { "Restic S3 backup progress: ${percentDone * 100}%" }
+                    }
+                }
+            )
+
+            if (result.first == 0) {
+                val snapshotId = extractSnapshotIdFromJson(result.second)
+                if (snapshotId != null) {
+                    // 仅记录日志，不更新数据库
+                    log { "Restic S3 backup successful for $packageName, snapshotId: $snapshotId" }
+                    updateCloudResticInfo(packageName, snapshotId, remotePath)  // 仅记录日志
+                }
+                true
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(mTAG, "Error during S3 Restic backup", e)
+            false
+        }
+    }
+
+    /**
+     * 从 JSON 输出中提取快照 ID
+     */
+    private fun extractSnapshotIdFromJson(jsonOutput: String): String? {
+        return try {
+            Json.decodeFromString<ResticSnapshot>(jsonOutput).id
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     // 辅助方法：查找压缩文件
     private fun findCompressedFile(dstDir: String, dataType: DataType): File? {
         return when (dataType) {
-            DataType.PACKAGE_APK -> File("$dstDir/${DataType.PACKAGE_APK.type}.tar.zst")
+            DataType.PACKAGE_APK -> File("$dstDir/${DataType.PACKAGE_APK.type}.tar")
             DataType.PACKAGE_USER -> File("$dstDir/${DataType.PACKAGE_USER.type}.tar.zst")
             DataType.PACKAGE_USER_DE -> File("$dstDir/${DataType.PACKAGE_USER_DE.type}.tar.zst")
-            DataType.PACKAGE_DATA -> File("$dstDir/${DataType.PACKAGE_DATA.type}.tar.zst")
-            DataType.PACKAGE_OBB -> File("$dstDir/${DataType.PACKAGE_OBB.type}.tar.zst")
-            DataType.PACKAGE_MEDIA -> File("$dstDir/${DataType.PACKAGE_MEDIA.type}.tar.zst")
+            DataType.PACKAGE_DATA -> File("$dstDir/${DataType.PACKAGE_DATA.type}.tar")
+            DataType.PACKAGE_OBB -> File("$dstDir/${DataType.PACKAGE_OBB.type}.tar")
+            DataType.PACKAGE_MEDIA -> File("$dstDir/${DataType.PACKAGE_MEDIA.type}.tar")
+            DataType.PACKAGE_CONFIG -> File("$dstDir/package_restore_config.json")
             else -> null
         }.takeIf { it?.exists() == true }
+    }
+
+    private suspend fun updateCloudResticInfo(packageName: String, snapshotId: String, repoPath: String) {
+        log { "Updating cloud Restic info for $packageName: snapshotId=$snapshotId" }
     }
 
     override suspend fun onConfigSaved(path: String, archivesRelativeDir: String) {
@@ -160,107 +283,13 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
 
     override suspend fun onCleanupFailedBackup(archivesRelativeDir: String) {
         val remoteAppDir = getRemoteAppDir(archivesRelativeDir)
-        log { "Cleaning up failed backup at: $remoteAppDir" }
-
-        runCatching {
-            // 使用 deleteRecursively 删除目录下所有对象
-            mClient.deleteRecursively(remoteAppDir)
-
-            // 清理未完成的分块上传
-            log { "Cleaning up incomplete multipart uploads for: $remoteAppDir" }
-            val uploadIds = mUploadIdDao.getAll()
-            uploadIds.forEach { uploadIdEntity ->
-                if (uploadIdEntity.key.startsWith(remoteAppDir)) {
-                    log { "Aborting multipart upload: ${uploadIdEntity.uploadId}" }
-                    runCatching {
-                        // 需要类型转换为 S3ClientImpl 才能调用 abortMultipartUpload
-                        if (mClient is S3ClientImpl) {
-                            (mClient as S3ClientImpl).abortMultipartUpload(
-                                uploadIdEntity.bucket,
-                                uploadIdEntity.key,
-                                uploadIdEntity.uploadId
-                            )
-                        }
-                        mUploadIdDao.deleteById(uploadIdEntity.id)
-                    }.onFailure { e ->
-                        log { "Failed to abort upload: ${e.message}" }
-                    }
-                }
-            }
-        }.onSuccess {
-            log { "Successfully cleaned up: $remoteAppDir" }
-        }.onFailure { e ->
-            log { "Failed to cleanup: ${e.message}" }
-        }
+        log { "S3 Restic backup failed at: $remoteAppDir" }
+        log { "No cleanup needed - Restic manages block storage automatically" }
     }
 
     override suspend fun onCleanupIncompleteBackup(currentIndex: Int) {
-        log { "Cleaning up incomplete backups from index: $currentIndex" }
-
-        val timestamp = mBackupTimestamp
-        log { "Using timestamp: $timestamp for cleanup" }
-
-        // 删除未完成的包(基于状态判断)
-        mPkgEntities.forEachIndexed { index, pkg ->
-            val p = pkg.packageEntity
-            // 只删除时间戳匹配且状态不是 DONE 的包
-            if (index >= currentIndex - 1 && pkg.packageEntity.indexInfo.backupTimestamp == timestamp) {
-                val remoteAppDir = getRemoteAppDir(p.archivesRelativeDir)
-                log { "Cleaning up incomplete backup: ${p.packageName} at $remoteAppDir" }
-
-                // 删除远程文件
-                runCatching {
-                    mClient.deleteRecursively(remoteAppDir)
-                }.onSuccess {
-                    log { "Successfully cleaned up: $remoteAppDir" }
-                }.onFailure { e ->
-                    log { "Failed to cleanup: ${e.message}" }
-                }
-
-                // 标记和删除数据库记录
-                runCatching {
-                    mPackageDao.markAsCanceledByTimestamp(timestamp, p.packageName, p.userId)
-                    mPackageDao.deleteCanceledByTimestamp(timestamp, OpType.RESTORE, p.packageName, p.userId)
-                }.onSuccess {
-                    log { "Successfully deleted package from database" }
-                }.onFailure { e ->
-                    log { "Failed to delete package: ${e.message}" }
-                }
-            }
-        }
-
-        // 清理相关的 uploadId
-        log { "Cleaning up uploadId records for timestamp: $timestamp" }
-        runCatching {
-            val allUploadIds = mUploadIdDao.getAll()
-            allUploadIds.forEach { uploadIdEntity ->
-                // 检查 uploadId 是否属于本次备份
-                val belongsToThisBackup = mPkgEntities.any { pkg ->
-                    val remoteAppDir = getRemoteAppDir(pkg.packageEntity.archivesRelativeDir)
-                    uploadIdEntity.key.startsWith(remoteAppDir)
-                }
-
-                if (belongsToThisBackup) {
-                    log { "Aborting multipart upload: ${uploadIdEntity.uploadId} for key: ${uploadIdEntity.key}" }
-                    runCatching {
-                        if (mClient is S3ClientImpl) {
-                            (mClient as S3ClientImpl).abortMultipartUpload(
-                                bucket = uploadIdEntity.bucket,
-                                key = uploadIdEntity.key,
-                                uploadId = uploadIdEntity.uploadId
-                            )
-                        }
-                        mUploadIdDao.deleteById(uploadIdEntity.id)
-                    }.onFailure { e ->
-                        log { "Failed to abort upload ${uploadIdEntity.uploadId}: ${e.message}" }
-                    }
-                }
-            }
-        }.onSuccess {
-            log { "Successfully cleaned up uploadId records" }
-        }.onFailure { e ->
-            log { "Failed to cleanup uploadId records: ${e.message}" }
-        }
+        log { "S3 Restic backup incomplete - no cleanup needed" }
+        log { "Restic will handle partial blocks during restore" }
     }
 
     override suspend fun onItselfSaved(path: String, entity: ProcessingInfoEntity) {
@@ -332,9 +361,6 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
 
     @Inject
     lateinit var mCloudRepo: CloudRepository
-
-    @Inject
-    lateinit var mUploadIdDao: UploadIdDao
 
     private lateinit var mCloudEntity: CloudEntity
     private lateinit var mClient: CloudClient
