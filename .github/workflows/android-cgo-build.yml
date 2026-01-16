@@ -1,0 +1,91 @@
+name: Restic Android CGO Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      restic_version:
+        description: '版本号 (例如: 0.18.1 或 master)'
+        required: true
+        default: '0.18.1'
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            goarch: arm64
+            ndk_target: aarch64-linux-android
+            goarm: ''       # unused for arm64
+          - arch: armv7
+            goarch: arm
+            ndk_target: armv7a-linux-androideabi
+            goarm: '7'      # ensure GOARM=7 for armv7
+
+    steps:
+      - name: Checkout Restic
+        uses: actions/checkout@v4
+        with:
+          repository: restic/restic
+          ref: ${{ github.event.inputs.restic_version == 'master' && 'master' || format('v{0}', github.event.inputs.restic_version) }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Build with CGO
+        env:
+          API: 24
+          GOARM: ${{ matrix.goarm }}
+        run: |
+          set -euo pipefail
+
+          NDK_DIR="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}}"
+          if [ -z "$NDK_DIR" ]; then
+            if [ -d "${HOME}/Android/Sdk/ndk" ]; then
+              NDK_DIR="$(ls -d ${HOME}/Android/Sdk/ndk/* 2>/dev/null | sort -V | tail -n1 || true)"
+            fi
+          fi
+
+          if [ -z "$NDK_DIR" ]; then
+            echo "Android NDK not found. Please install NDK on the runner or set ANDROID_NDK_HOME / ANDROID_NDK_LATEST_HOME / ANDROID_NDK_ROOT."
+            exit 1
+          fi
+
+          TOOLCHAIN="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
+          if [ ! -d "$TOOLCHAIN" ]; then
+            echo "Toolchain not found at $TOOLCHAIN"
+            exit 1
+          fi
+
+          export API
+          export TOOLCHAIN
+
+          export CC="$TOOLCHAIN/bin/${{ matrix.ndk_target }}${API}-clang"
+          export CXX="$TOOLCHAIN/bin/${{ matrix.ndk_target }}${API}-clang++"
+          export AR="$TOOLCHAIN/bin/llvm-ar"
+          export AS="$TOOLCHAIN/bin/llvm-as"
+
+          export CGO_ENABLED=1
+          export GOOS=android
+          export GOARCH=${{ matrix.goarch }}
+          # GOARM 已通过 env 传入（为空则不会影响 arm64）
+          if [ -n "${GOARM:-}" ]; then
+            echo "Using GOARM=$GOARM"
+          fi
+
+          echo "GOOS=$GOOS GOARCH=$GOARCH GOARM=${GOARM:-}<empty> CC=$CC"
+
+          go build -v \
+            -ldflags "-s -w -X main.version=${{ github.event.inputs.restic_version }}" \
+            -tags "selfupdate,disable_grpc_modules" \
+            -o restic-android-${{ matrix.arch }} \
+            ./cmd/restic
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: restic-android-${{ matrix.arch }}
+          path: restic-android-${{ matrix.arch }}
