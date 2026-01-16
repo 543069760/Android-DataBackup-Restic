@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.library.hilt)
     alias(libs.plugins.library.protobuf)
     alias(libs.plugins.refine)
+    alias(libs.plugins.kotlin.serialization)  // 添加这行
 }
 
 android {
@@ -22,6 +23,8 @@ dependencies {
     implementation(project(":core:restic"))
     compileOnly(project(":core:hiddenapi"))
 
+    // JSON Serialization - 添加这个依赖
+    implementation(libs.kotlinx.serialization.json)
 
     // Gson
     implementation(libs.gson)

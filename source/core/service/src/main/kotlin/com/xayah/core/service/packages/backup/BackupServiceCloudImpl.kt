@@ -2,7 +2,7 @@ package com.xayah.core.service.packages.backup
 
 import android.util.Log
 import com.xayah.core.restic.ResticRepository
-import com.xayah.core.restic.ResticProgressCallback  // 添加
+import com.xayah.core.restic.ResticRepository.ResticProgressCallback   // 添加
 import com.xayah.core.restic.ResticSnapshot  // 添加
 import com.xayah.core.model.util.formatToStorageSizePerSecond
 import com.xayah.core.data.repository.CloudRepository
@@ -15,7 +15,7 @@ import com.xayah.core.model.OpType
 import com.xayah.core.model.OperationState
 import com.xayah.core.model.TaskType
 import com.xayah.core.model.database.CloudEntity
-import com.xayah.core.model.database.CloudType  // 添加
+import com.xayah.core.model.CloudType  // 添加
 import com.xayah.core.model.database.PackageEntity
 import com.xayah.core.model.database.ProcessingInfoEntity
 import com.xayah.core.model.database.TaskDetailPackageEntity
@@ -120,7 +120,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                 when (mCloudEntity.type) {
                     CloudType.S3 -> {
                         // S3 使用 Restic 备份
-                        val s3Extra = Json.decodeFromString<S3Extra>(mCloudEntity.extra)
+                        val s3Extra = json.decodeFromString<S3Extra>(mCloudEntity.extra)
                         val resticSuccess = backupWithResticToS3(
                             packageName = p.packageName,
                             compressedFile = compressedFile,
@@ -183,6 +183,8 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
         t.update(dataType = type, progress = 1f)
         t.update(processingIndex = t.processingIndex + 1)
     }
+
+    private val json = Json { ignoreUnknownKeys = true }
 
     /**
      * 使用 Restic 备份到 S3
@@ -247,7 +249,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
      */
     private fun extractSnapshotIdFromJson(jsonOutput: String): String? {
         return try {
-            Json.decodeFromString<ResticSnapshot>(jsonOutput).id
+            json.decodeFromString<ResticSnapshot>(jsonOutput).id
         } catch (e: Exception) {
             null
         }
