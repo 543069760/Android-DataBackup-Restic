@@ -63,51 +63,32 @@ Free and open-source data backup application
 | **Root Framework** | Custom root service | **libsu integration** |  
 | **Backup Engine** | Single compression | **Dual-layer: Compression + Restic** |  
 
-## Architecture Milestone Completed (2025-12-31)
+## Architecture Milestone Completed (2026-01-17)
 
-> 🎯 **Complete Restic Transition: All local backups now use block-level deduplication with libsu integration**
+> 🎯 **Complete Restic Transition & S3 Integration: All local backups now use block-level deduplication with libsu integration. S3 configuration is now preliminarily integrated with Restic repository initialization, enabling normal backup operations.**
 
-> ⚠️ **Special Note: As of December 31, 2025, Restic snapshot backups are limited to local storage only and cover APKs, application data, and user files.**
+> ⚠️ **Special Note: As of January 17, 2026, Restic snapshot backups are available for local storage and S3-compatible services, covering APKs, application data, and user files.**
 
 ### 🏗️ Complete Dual-Layer Backup Architecture
 
 #### Final Backup Architecture
 
-Raw data → tar+zstd compression → Restic block-level deduplication → Local storage
+Raw data → tar (zstd for app data) compression → Restic block-level deduplication → Local/S3 storage
 
 ---
 
-#### APK Backup Logic
+#### APP Backup Logic
 
 - **Layer 1: Compression Layer**
-  - Function: Compresses APK files into `.tar.zst` format
-  - Output: `apk.tar.zst`
+  - Function: Packages APK files into an **uncompressed** `.tar` archive to maximize deduplication efficiency
+  - Output: `apk.tar（OBB\DATA\USER\USER_DE\MEDIA)'`
 
 - **Layer 2: Restic Deduplication Layer**
   - Function: Block-level deduplication, AES-256 encryption, snapshot management
-  - Tag format: `userId-packageName-timestamp-apk`
+  - Tag format: `userId-packageName-timestamp-apk（OBB\DATA\USER\USER_DE\MEDIA)`
 
-#### App Data Backup Logic
 
-- **Layer 1: Compression Layer**
-  - Function: Compresses app private data into `.tar.zst` format
-  - Output: `data.tar.zst`, `user.tar.zst`, etc.
-
-- **Layer 2: Restic Deduplication Layer**
-  - Function: Block-level deduplication, encryption, and versioning
-  - Tag format: `userId-packageName-timestamp-data`
-
-#### File Backup Logic
-
-- **Layer 1: Compression Layer**
-  - Function: Packages user-selected media or general files into an uncompressed `.tar` archive to maximize deduplication efficiency
-  - Output: `media.tar` and accompanying `media_restore_config.json` (stores original paths and metadata)
-
-- **Layer 2: Restic Deduplication Layer**
-  - Function: Applies block-level deduplication, AES-256 encryption, and snapshot tracking to both the archive and its config file
-  - Tag format: `userId-media-timestamp-file`
-
-> ✅ **Note**: By avoiding compression in the file backup layer, Restic can more effectively identify and eliminate redundant blocks across different backup runs and devices.
+> ✅ **Note**: By avoiding compression in the APK and file backup layers, Restic can more effectively identify and eliminate redundant blocks across different backup runs and devices.
 
 ---
 
@@ -172,8 +153,18 @@ This complete transition achieves:
 - **Precision Control**: Per-app and per-file restore capabilities
 - **Modern Root Integration**: libsu for enhanced compatibility
 - **Complete Architecture**: Universal dual-layer processing for all backup types
+- **Cloud Expansion**: Initial S3 integration for remote Restic repositories
 
-> **DataBackup Revived is now a complete modern data management platform with universal Restic-based deduplication and libsu integration.**
+### 📋 TODO Items
+
+- [ ] **S3 Repository Initialization Check**: Implement a check for existing S3 repository initialization *before* attempting to initialize a new one. Perform a probe using the provided password first to determine if an existing repository exists.
+- [ ] **S3 Repository Handling Logic**: Based on the probe result, decide whether to use the existing repository or delete it and initialize a new one.
+- [ ] **S3 Account Saving Conditions**: Ensure the S3 account saving page only reports an error and saves the configuration *after* the full initialization process (including Restic) is completely successful. Otherwise, if the process exits prematurely, the credentials should not be saved.
+- [ ] **S3 Cloud Restoration Logic**: Design and implement the logic for the S3 cloud restoration page. This feature requires further planning and design.
+- [ ] **Restic HTTP Protocol Linkage**: Currently, Restic's HTTP/HTTPS protocol setting is not linked to the protocol selected on the settings page. This needs to be corrected for consistency.
+- [ ] **Network Environment Selection Refactor**: The "Public Network / Internal Network" selection option is currently non-functional (mainly due to old concurrent usage patterns). Refactor this into a more detailed S3 provider type selection (e.g., AWS S3, MINIO, Tencent COS, Alibaba OSS, etc.).
+
+> **DataBackup Revived is now a complete modern data management platform with universal Restic-based deduplication, libsu integration, and initial S3 support.**
 
 ## Screenshots – Restic
 
