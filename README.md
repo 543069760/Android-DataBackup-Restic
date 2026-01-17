@@ -52,7 +52,8 @@ Free and open-source data backup application
 | **Incremental Backup** | Not supported | **Native support** |  
 | **Version Management** | File overwrite | **Snapshot-based versioning** |  
 | **APK Backup** | Compression only | **Restic deduplication** |  
-| **File Backup** | Compression only | **Restic deduplication** |  
+| **App Data Backups** | Compression only | **Restic deduplication** |  
+| **File Backups** | Compression only | **Restic deduplication (Local only)** |  
 
 ### Technical Changes
 
@@ -65,9 +66,9 @@ Free and open-source data backup application
 
 ## Architecture Milestone Completed (2026-01-17)
 
-> 🎯 **Complete Restic Transition & S3 Integration: All local backups now use block-level deduplication with libsu integration. S3 configuration is now preliminarily integrated with Restic repository initialization, enabling normal backup operations.**
+> 🎯 **Complete Restic Transition & S3 Integration: All local backups now use block-level deduplication with libsu integration. S3 configuration is now preliminarily integrated with Restic repository initialization, enabling normal backup operations for APKs and App Data.**
 
-> ⚠️ **Special Note: As of January 17, 2026, Restic snapshot backups are available for local storage and S3-compatible services, covering APKs, application data, and user files.**
+> ⚠️ **Special Note: As of January 17, 2026, Restic snapshot backups are available for local storage and S3-compatible services (for APKs and App Data only), covering APKs, application data, and user files. File backup to S3 is not yet implemented.**
 
 ### 🏗️ Complete Dual-Layer Backup Architecture
 
@@ -81,7 +82,7 @@ Raw data → tar (zstd for app data) compression → Restic block-level deduplic
 
 - **Layer 1: Compression Layer**
   - Function: Packages APK files into an **uncompressed** `.tar` archive to maximize deduplication efficiency
-  - Output: `apk.tar（OBB\DATA\USER\USER_DE\MEDIA)'`
+  - Output: `apk.tar（OBB\DATA\USER\USER_DE\MEDIA)`
 
 - **Layer 2: Restic Deduplication Layer**
   - Function: Block-level deduplication, AES-256 encryption, snapshot management
@@ -107,7 +108,7 @@ Raw data → tar (zstd for app data) compression → Restic block-level deduplic
 #### Complete Coverage
 - **APK Backups**: Now use Restic deduplication
 - **App Data Backups**: Now use Restic deduplication
-- **File Backups**: Now use Restic deduplication
+- **File Backups**: Now use Restic deduplication (Local only, S3 pending)
 
 #### Precision Restore Features
 - **App-level precision**: Restore specific applications
@@ -130,10 +131,10 @@ Configure Restic repo → Browse snapshots → Select app/file version → View 
 | Feature | Legacy Backup | Restic Backup (Universal) |  
 |--------|---------------|---------------------------|  
 | **Storage Efficiency** | Basic compression | **Block-level deduplication + compression** |  
-| **Incremental Backup** | Not supported | **Native support** |  
+| **Incremental Backup** | Not supported | **Supported** |  
 | **Data Encryption** | None | **AES-256 encryption** |  
 | **Version Management** | File overwrite | **Snapshot-based versioning** |  
-| **Cloud Sync** | Requires extra implementation | **Native support** |  
+| **Cloud Sync** | ❌ | **Supported S3 (AWS\COS\MINIO\OSS) for APK & Data** |  
 | **Restore Granularity** | Batch restore | **Per-app and per-file precision** |  
 | **Storage Footprint** | Linear growth | **60–90% space savings** |  
 | **Root Access** | Custom implementation | **libsu integration** |  
@@ -153,7 +154,7 @@ This complete transition achieves:
 - **Precision Control**: Per-app and per-file restore capabilities
 - **Modern Root Integration**: libsu for enhanced compatibility
 - **Complete Architecture**: Universal dual-layer processing for all backup types
-- **Cloud Expansion**: Initial S3 integration for remote Restic repositories
+- **Cloud Expansion**: Initial S3 integration for remote Restic repositories (APK & Data)
 
 ### 📋 TODO Items
 
@@ -163,6 +164,7 @@ This complete transition achieves:
 - [ ] **S3 Cloud Restoration Logic**: Design and implement the logic for the S3 cloud restoration page. This feature requires further planning and design.
 - [ ] **Restic HTTP Protocol Linkage**: Currently, Restic's HTTP/HTTPS protocol setting is not linked to the protocol selected on the settings page. This needs to be corrected for consistency.
 - [ ] **Network Environment Selection Refactor**: The "Public Network / Internal Network" selection option is currently non-functional (mainly due to old concurrent usage patterns). Refactor this into a more detailed S3 provider type selection (e.g., AWS S3, MINIO, Tencent COS, Alibaba OSS, etc.).
+- [ ] **File Backup S3 Support**: Extend S3 backup capability to include File backups (currently only local storage is supported for File backups using Restic).
 
 > **DataBackup Revived is now a complete modern data management platform with universal Restic-based deduplication, libsu integration, and initial S3 support.**
 
@@ -191,6 +193,8 @@ This complete transition achieves:
     <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/01.jpg" width="275px">
     <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/02.jpg" width="275px">
     <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/03.jpg" width="275px">    
+</div>    
+<div align="center">    
     <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/04.jpg" width="275px">
     <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/05.jpg" width="275px">
     <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/06.jpg" width="275px">    
