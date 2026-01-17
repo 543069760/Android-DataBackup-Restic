@@ -306,7 +306,7 @@ class AppsRepo @Inject constructor(
                 opType = OpType.BACKUP,
                 packageName = info.packageName,
                 userId = userId,
-                compressionType = settings.compressionType,
+                compressionType = CompressionType.TAR,
                 preserveId = DefaultPreserveId,
                 cloud = "",
                 backupDir = "",

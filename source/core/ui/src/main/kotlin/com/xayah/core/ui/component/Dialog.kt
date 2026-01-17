@@ -10,6 +10,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
@@ -195,6 +197,59 @@ class DialogState {
                 },
             )
         }
+    }
+}
+
+/**
+ * 显示带输入验证的确认对话框
+ *
+ * @param title 对话框标题
+ * @param message 对话框消息
+ * @param confirmText 需要用户输入的确认文本
+ * @param hint 输入框提示文本
+ * @return Boolean - 用户输入的文本是否匹配confirmText
+ */
+suspend fun DialogState.confirmWithInput(
+    title: String,
+    message: String,
+    confirmText: String,
+    hint: String
+): Boolean {
+    return open(
+        initialState = "",
+        title = title,
+        icon = null,
+        confirmText = null, // 使用默认值，让AlertDialog内部处理stringResource
+        dismissText = null, // 使用默认值，让AlertDialog内部处理stringResource
+        contentHorizontalPadding = true,
+        block = { uiState ->
+            Column {
+                // 显示消息文本
+                Text(
+                    text = message,
+                    modifier = Modifier.paddingBottom(SizeTokens.Level16)
+                )
+
+                // 输入框
+                OutlinedTextField(
+                    value = uiState.value,
+                    onValueChange = { uiState.value = it },
+                    label = { Text(text = hint) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // 提示信息
+                Text(
+                    text = "请输入: $confirmText",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ThemedColorSchemeKeyTokens.OnSurfaceVariant.value,
+                    modifier = Modifier.paddingTop(SizeTokens.Level8)
+                )
+            }
+        }
+    ).let { (dismissState, userInput) ->
+        dismissState.isConfirm && userInput.trim() == confirmText.trim()
     }
 }
 

@@ -38,6 +38,14 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.database.S3Protocol
 import com.xayah.core.model.database.S3NetworkType  // 新增导入 / New import
@@ -46,6 +54,7 @@ import com.xayah.core.ui.component.Clickable
 import com.xayah.core.ui.component.LocalSlotScope
 import com.xayah.core.ui.component.Title
 import com.xayah.core.ui.component.confirm
+import com.xayah.core.ui.component.confirmWithInput
 import com.xayah.core.ui.component.paddingHorizontal
 import com.xayah.core.ui.component.paddingStart
 import com.xayah.core.ui.component.paddingTop
@@ -67,10 +76,21 @@ fun PageS3Setup() {
     val context = LocalContext.current
     val navController = LocalNavController.current!!
     val viewModel = hiltViewModel<IndexViewModel>()
+    val s3ViewModel = hiltViewModel<S3ResticViewModel>()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val scrollBehavior =
         TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
+    val scope = rememberCoroutineScope()
 
+    var s3Password by rememberSaveable { mutableStateOf("") }
+    var s3PasswordVisible by rememberSaveable { mutableStateOf(false) }
+
+    val s3InitState by s3ViewModel.s3InitializationState.collectAsStateWithLifecycle()
+    val s3PasswordState by s3ViewModel.s3PasswordState.collectAsStateWithLifecycle()
+
+    LaunchedEffect(s3PasswordState) {
+        s3Password = s3PasswordState
+    }
     var name by rememberSaveable { mutableStateOf(uiState.currentName) }
     var remote by rememberSaveable(uiState.cloudEntity) {
         mutableStateOf(
@@ -145,6 +165,29 @@ fun PageS3Setup() {
         snackbarHostState = viewModel.snackbarHostState,
         title = stringResource(id = R.string.s3_setup),
         actions = {
+            // 删除账户按钮 - 左侧红色
+            if (uiState.currentName.isNotEmpty())
+                TextButton(
+                    enabled = uiState.isProcessing.not(),
+                    onClick = {
+                        viewModel.launchOnIO {
+                            if (dialogState.confirmWithInput(
+                                    title = "删除账户",
+                                    message = "此操作不可撤销，请输入确认文本继续",
+                                    confirmText = "确认删除",
+                                    hint = "请输入确认删除"
+                                )) {
+                                viewModel.emitIntent(IndexUiIntent.DeleteAccount(navController = navController))
+                            }
+                        }
+                    }
+                ) {
+                    Text(
+                        text = stringResource(id = R.string.delete_account),
+                        color = ThemedColorSchemeKeyTokens.Error.value
+                    )
+                }
+
             TextButton(
                 enabled = allFilled && uiState.isProcessing.not(),
                 onClick = {
@@ -347,26 +390,108 @@ fun PageS3Setup() {
                     }
                 }
 
-                // 删除账户按钮应该在 Clickable 之外,与它平级
-                if (uiState.currentName.isNotEmpty())
-                    TextButton(
+                Title(
+                    enabled = uiState.isProcessing.not(),
+                    title = stringResource(id = R.string.s3_restic_initialization)
+                ) {
+                    // S3 Restic密码设置
+                    SetupTextField(
                         modifier = Modifier
-                            .paddingStart(SizeTokens.Level12)
-                            .paddingTop(SizeTokens.Level12),
+                            .fillMaxWidth()
+                            .paddingHorizontal(SizeTokens.Level24),
                         enabled = uiState.isProcessing.not(),
+                        value = s3Password,
+                        visualTransformation = if (s3PasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        leadingIcon = ImageVector.vectorResource(id = R.drawable.ic_rounded_key),
+                        trailingIcon = if (s3PasswordVisible) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                        onTrailingIconClick = {
+                            s3PasswordVisible = s3PasswordVisible.not()
+                        },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        onValueChange = {
+                            s3Password = it
+                            s3ViewModel.saveS3Password(it)
+                        },
+                        label = stringResource(id = R.string.s3_restic_password)
+                    )
+
+                    // 初始化状态显示
+                    val initStatus = when (val state = s3InitState) {
+                        is S3ResticViewModel.S3InitializationState.Idle ->
+                            stringResource(id = R.string.s3_restic_not_initialized)
+                        is S3ResticViewModel.S3InitializationState.Initializing ->
+                            stringResource(id = R.string.s3_restic_initializing)
+                        is S3ResticViewModel.S3InitializationState.Success ->
+                            stringResource(id = R.string.s3_restic_initialized_at, state.repoPath)
+                        is S3ResticViewModel.S3InitializationState.Error ->
+                            stringResource(id = R.string.s3_restic_init_failed, state.message)
+                    }
+
+                    val statusColor = when (s3InitState) {
+                        is S3ResticViewModel.S3InitializationState.Success -> MaterialTheme.colorScheme.primary
+                        is S3ResticViewModel.S3InitializationState.Error -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurface
+                    }
+
+                    Clickable(
+                        enabled = uiState.isProcessing.not(),
+                        title = stringResource(id = R.string.s3_restic_init_status),
+                        value = initStatus,
                         onClick = {
-                            viewModel.launchOnIO {
-                                if (dialogState.confirm(title = context.getString(R.string.delete_account), text = context.getString(R.string.delete_account_desc))) {
-                                    viewModel.emitIntent(IndexUiIntent.DeleteAccount(navController = navController))
+                            if (s3InitState is S3ResticViewModel.S3InitializationState.Idle && s3Password.isNotEmpty()) {
+                                scope.launch {
+                                    // 构建S3Extra对象
+                                    val s3Extra = S3Extra(
+                                        region = region,
+                                        accessKeyId = accessKeyId,
+                                        secretAccessKey = secretAccessKey,
+                                        bucket = bucket,
+                                        endpoint = endpoint,
+                                        protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP,
+                                        networkType = if (networkTypeIndex == 0) S3NetworkType.PUBLIC else S3NetworkType.PRIVATE
+                                    )
+                                    s3ViewModel.initializeS3Repository(s3Extra, remote, s3Password)
                                 }
                             }
                         }
+                    )
+
+                    // 初始化按钮
+                    Button(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .paddingHorizontal(SizeTokens.Level24),
+                        enabled = uiState.isProcessing.not() &&
+                                s3Password.isNotEmpty() &&
+                                s3InitState !is S3ResticViewModel.S3InitializationState.Initializing,
+                        onClick = {
+                            scope.launch {
+                                // 构建完整的S3Extra对象
+                                val s3Extra = S3Extra(
+                                    region = region,
+                                    accessKeyId = accessKeyId,
+                                    secretAccessKey = secretAccessKey,
+                                    bucket = bucket,
+                                    endpoint = endpoint,
+                                    protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP,
+                                    networkType = if (networkTypeIndex == 0) S3NetworkType.PUBLIC else S3NetworkType.PRIVATE
+                                )
+
+                                // 调用初始化方法
+                                s3ViewModel.initializeS3Repository(s3Extra, remote, s3Password)
+                            }
+                        }
                     ) {
-                        Text(
-                            text = stringResource(id = R.string.delete_account),
-                            color = ThemedColorSchemeKeyTokens.Error.value.withState(uiState.isProcessing.not())
-                        )
+                        if (s3InitState is S3ResticViewModel.S3InitializationState.Initializing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                        Text(text = stringResource(id = R.string.s3_restic_initialize))
                     }
+                }  // 添加这个缺失的闭合大括号
             }  // Title 块在这里结束
         }
     }

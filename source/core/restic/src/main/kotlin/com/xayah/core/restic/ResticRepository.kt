@@ -416,7 +416,8 @@ class ResticRepository @Inject constructor(
         val args = mutableListOf(
             "backup", "--repo", "\"$repoUrl\"", "\"$filePath\"",
             "--tag", "\"${tags.joinToString(",")}\"", "--json",
-            "--compression", compressionLevel
+            "--compression", compressionLevel,
+            "-o", "s3.bucket-lookup=dns"
         )
         args.addAll(options)
 

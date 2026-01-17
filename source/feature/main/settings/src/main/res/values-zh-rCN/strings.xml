@@ -42,4 +42,13 @@
     <string name="restic_not_detected">没有检测到Restic</string>
     <string name="restic_compression_level">Restic压缩等级</string>
     <string name="restic_compression_level_desc">OFF-无压缩，FASTEST-最快压缩，AUTO-自动选择，BETTER-更好压缩，MAX-最大压缩</string>
+    <!-- S3 Restic 初始化字符串 -->
+    <string name="s3_restic_initialization">S3 Restic初始化</string>
+    <string name="s3_restic_password">S3 Restic密码</string>
+    <string name="s3_restic_init_status">S3 Restic初始化状态</string>
+    <string name="s3_restic_not_initialized">未初始化</string>
+    <string name="s3_restic_initializing">初始化中...</string>
+    <string name="s3_restic_initialized_at">初始化位置：%s</string>
+    <string name="s3_restic_init_failed">初始化失败：%s</string>
+    <string name="s3_restic_initialize">初始化S3仓库</string>
 </resources>

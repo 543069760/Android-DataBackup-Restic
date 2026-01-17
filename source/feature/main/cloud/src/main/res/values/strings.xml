@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- S3 Restic Initialization Strings -->
+    <string name="s3_restic_initialization">S3 Restic Initialization</string>
+    <string name="s3_restic_password">S3 Restic Password</string>
+    <string name="s3_restic_not_initialized">Not Initialized</string>
+    <string name="s3_restic_initializing">Initializing...</string>
+    <string name="s3_restic_initialized_at">Initialized at: %s</string>
+    <string name="s3_restic_init_failed">Initialization Failed: %s</string>
+    <string name="s3_restic_init_status">Initialization Status</string>
+    <string name="s3_restic_initialize">Initialize</string>
+</resources>

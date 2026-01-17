@@ -10,6 +10,8 @@ import com.xayah.core.data.repository.PackageRepository
 import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.database.dao.PackageDao
 import com.xayah.core.database.dao.TaskDao
+import com.xayah.core.datastore.readS3ResticRepoPath
+import com.xayah.core.datastore.readS3ResticPassword
 import com.xayah.core.model.DataType
 import com.xayah.core.model.OpType
 import com.xayah.core.model.OperationState
@@ -254,13 +256,13 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
             val backupType = dataType.type
             val tag = "$userId-$packageName-$mBackupTimestamp-$backupType"
             val tags = listOf(tag)
-
+            val unifiedRepoPath = mContext.readS3ResticRepoPath() ?: remotePath
             val result = resticRepo.backupFileToS3(
                 extra = s3Extra,
-                remotePath = remotePath,
+                remotePath = unifiedRepoPath,
                 filePath = compressedFile.absolutePath,
                 tags = tags,
-                password = getResticPassword(),
+                password = mContext.readS3ResticPassword() ?: getResticPassword(),
                 progressCallback = object : ResticProgressCallback {
                     override fun onRestoreProgress(
                         filesFinished: Long, filesTotal: Long,
