@@ -10,7 +10,7 @@
 
 </div>
 
-[!CAUTION] 警告：官方上游 Restic 二进制文件**未使用 CGO 或 Android NDK 编译**，**由于缺少系统调用支持和动态链接问题，**无法在 Android 上正常运行（主要是DNS解析）**。
+⚠️⚠️⚠️警告⚠️⚠️⚠️：官方上游 Restic 二进制文件**未使用 CGO 以及 Android NDK 编译**，**由于缺少系统调用支持和动态链接问题，**无法在 Android 上正常运行（主要是DNS解析）**。
 
 您必须使用专为 Android 平台打造的 Restic v0.18.1 版本，该版本已启用 CGO 并使用 Android NDK 进行交叉编译。
 

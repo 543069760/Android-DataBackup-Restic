@@ -10,8 +10,7 @@ Free and open-source data backup application
 
 </div>
 
-[!CAUTION]
-Warning: The official upstream Restic binaries **are not compiled using CGO or Android NDK**, and **due to missing system call support and dynamic linking issues**, **they cannot function correctly on Android (primarily DNS resolution).
+⚠️⚠️⚠️Warning⚠️⚠️⚠️: The official upstream Restic binaries **are not compiled using CGO and Android NDK**, and **due to missing system call support and dynamic linking issues**, **they cannot function correctly on Android (primarily DNS resolution).
 
 You must use Restic v0.18.1, specifically designed for the Android platform. This version enables CGO and uses the Android NDK for cross-compilation.
 
