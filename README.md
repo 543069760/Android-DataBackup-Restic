@@ -8,7 +8,14 @@
 
 Free and open-source data backup application
 
-</div>    
+</div>
+
+[!CAUTION]
+Warning: The official upstream Restic binaries **are not compiled using CGO or Android NDK**, and **due to missing system call support and dynamic linking issues**, **they cannot function correctly on Android (primarily DNS resolution).
+
+You must use Restic v0.18.1, specifically designed for the Android platform. This version enables CGO and uses the Android NDK for cross-compilation.
+
+🔗 **Restic for Android download link (please log in to Github to download) (this version is required)**: [Restic Android CGO Build #1](https://github.com/543069760/Android-DataBackup-S3/actions/runs/21072984413)
 
 ## Overview
 
@@ -57,12 +64,12 @@ Free and open-source data backup application
 
 ### Technical Changes
 
-| Item | Legacy | New |  
-|------|-------|----------------------------------|  
-| **Application package name** | `com.xayah.databackup.*` | `com.xayah.databackup.revived.*` |  
-| **Version number** | 2.x.x | **3.0.0** (complete Restic transition) |  
-| **Root Framework** | Custom root service | **libsu integration** |  
-| **Backup Engine** | Single compression | **Dual-layer: Compression + Restic** |  
+| Item | Legacy | New                                                       |  
+|------|-------|-----------------------------------------------------------|  
+| **Application package name** | `com.xayah.databackup.*` | `com.xayah.databackup.revived.*`                          |  
+| **Version number** | 2.x.x | **3.0.0** (complete Restic transition)                    |  
+| **Root Framework** | Custom root service | **libsu integration**                                     |  
+| **Backup Engine** | Single compression | **Dual-layer: Restic deduplication + Restic Compression** |  
 
 ## Architecture Milestone Completed (2026-01-17)
 
@@ -74,7 +81,7 @@ Free and open-source data backup application
 
 #### Final Backup Architecture
 
-Raw data → tar (zstd for app data) compression → Restic block-level deduplication → Local/S3 storage
+APK Raw data → tar → Restic block-level deduplication → Local/S3 storage
 
 ---
 
@@ -110,18 +117,11 @@ Raw data → tar (zstd for app data) compression → Restic block-level deduplic
 - **App Data Backups**: Now use Restic deduplication
 - **File Backups**: Now use Restic deduplication (Local only, S3 pending)
 
-#### Precision Restore Features
-- **App-level precision**: Restore specific applications
-- **File-level precision**: Restore specific files with filtering
-- **Version selection**: Choose any historical version
-
 ### 🎨 Enhanced User Experience
 
 #### New UI Components
-- Restic Restore List Page: Browse and select snapshot backups
+- Restic Restore List Page: Browse and select snapshot backups(Local only)
 - Snapshot Detail Page: Display backup types and progress
-- File Restore Filtering: Precision file selection
-- Restore Progress Tracker: Real-time restore status
 
 #### Optimized Interaction Flow
 Configure Restic repo → Browse snapshots → Select app/file version → View details → One-click restore
@@ -137,13 +137,7 @@ Configure Restic repo → Browse snapshots → Select app/file version → View 
 | **Cloud Sync** | ❌ | **Supported S3 (AWS\COS\MINIO\OSS) for APK & Data** |  
 | **Restore Granularity** | Batch restore | **Per-app and per-file precision** |  
 | **Storage Footprint** | Linear growth | **60–90% space savings** |  
-| **Root Access** | Custom implementation | **libsu integration** |  
-
-### 🛡️ Backward Compatibility
-
-- **Legacy Backups**: Fully supported with automatic fallback
-- **Migration Path**: Seamless upgrade from compression-only to Restic
-- **API Compatibility**: Existing restore workflows preserved
+| **Root Access** | Custom implementation | **libsu integration** |
 
 ### 🎉 Milestone Achievement
 

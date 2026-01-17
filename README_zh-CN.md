@@ -10,6 +10,12 @@
 
 </div>
 
+[!CAUTION] 警告：官方上游 Restic 二进制文件**未使用 CGO 或 Android NDK 编译**，**由于缺少系统调用支持和动态链接问题，**无法在 Android 上正常运行（主要是DNS解析）**。
+
+您必须使用专为 Android 平台打造的 Restic v0.18.1 版本，该版本已启用 CGO 并使用 Android NDK 进行交叉编译。
+
+🔗 **Restic For Android 下载地址（请登录Github之后下载）（务必使用此版本）**: [Restic Android CGO Build #1](https://github.com/543069760/Android-DataBackup-S3/actions/runs/21072984413)
+
 ## 项目概览
 
 <a href="[https://hellogithub.com/repository/3e9dc382d4764688856238a83616de5b](https://hellogithub.com/repository/3e9dc382d4764688856238a83616de5b)" target="_blank"><img src="[https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=3e9dc382d4764688856238a83616de5b&claim_uid=POXv2xVC71JHihc&theme=neutral](https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=3e9dc382d4764688856238a83616de5b&claim_uid=POXv2xVC71JHihc&theme=neutral)" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" /></a>
@@ -33,13 +39,13 @@
 ### 云存储协议支持
 
 | 功能 | 旧版 (DataBackup) | 新版 (DataBackup Revived 3.0.0) |
-| --- | --- | --- |
-| **S3 协议** | ❌ 不支持 | ✅ 支持（可选 HTTP/HTTPS） |
-| **FTP 协议** | ✅ 已支持 | ✅ 已支持 |
-| **SFTP 协议** | ✅ 已支持 | ✅ 已支持 |
-| **WebDAV 协议** | ✅ 已支持 | ✅ 已支持 |
-| **SMB/CIFS 协议** | ✅ 支持多版本 | ✅ 支持多版本 |
-| **本地存储** | ✅ 已支持 | ✅ **基于 Restic 的重复数据删除** |
+| --- | --- |-------------------------------|
+| **S3 协议** | ❌ 不支持 | ✅ 已支持（Restic 块级增量去重）          |
+| **FTP 协议** | ✅ 已支持 | ✅ 已支持                         |
+| **SFTP 协议** | ✅ 已支持 | ✅ 已支持                         |
+| **WebDAV 协议** | ✅ 已支持 | ✅ 已支持                         |
+| **SMB/CIFS 协议** | ✅ 已支持 | ✅ 已支持                         |
+| **本地存储** | ✅ 已支持 | ✅ 已支持                         |
 
 ### 备份架构演进
 
@@ -74,7 +80,7 @@
 
 #### 最终备份架构
 
-原始数据 → tar (应用数据使用 zstd) 压缩 → Restic 块级去重 → 本地/S3 存储
+APK原始数据 → tar 压缩 → Restic 块级去重 → 本地/S3 存储
 
 ---
 
@@ -106,8 +112,6 @@
 * 改进的错误处理
 * 增强的安全性能
 
-
-
 ### 📦 通用 Restic 实现
 
 #### 全面覆盖
@@ -116,20 +120,12 @@
 * **应用数据备份**：现已使用 Restic 去重
 * **文件备份**：现已使用 Restic 去重（仅限本地，S3 待办）
 
-#### 精准还原特性
-
-* **应用级精度**：还原特定应用程序
-* **文件级精度**：支持过滤还原特定文件
-* **版本选择**：可选择任意历史版本
-
 ### 🎨 增强的用户体验
 
 #### 新 UI 组件
 
-* Restic 还原列表页：浏览并选择快照备份
+* Restic 还原列表页：浏览并选择快照备份（仅本地实现）
 * 快照详情页：显示备份类型和进度
-* 文件还原过滤：精确的文件选择
-* 还原进度追踪：实时的还原状态显示
 
 #### 优化的交互流程
 
@@ -147,12 +143,6 @@
 | **还原粒度** | 批量还原 | **支持单个应用和单个文件的精准还原** |
 | **存储占用** | 线性增长 | **节省 60–90% 空间** |
 | **Root 权限** | 自定义实现 | **libsu 集成** |
-
-### 🛡️ 向后兼容性
-
-* **旧版备份**：完全支持并提供自动回退机制
-* **迁移路径**：从仅压缩平滑升级至 Restic
-* **API 兼容性**：保留现有的还原工作流
 
 ### 🎉 里程碑成就
 
