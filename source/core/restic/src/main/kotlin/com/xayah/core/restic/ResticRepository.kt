@@ -51,14 +51,28 @@ class ResticRepository @Inject constructor(
         )
         defaultEnv.putAll(env)
 
-        // 构建带环境变量的命令
+        // 详细日志记录
+        Log.d(TAG, "=== Restic Command Debug ===")
+        Log.d(TAG, "Command: restic ${args.joinToString(" ")}")
+        Log.d(TAG, "Environment: ${defaultEnv.entries.joinToString(", ") { "${it.key}=${it.value}" }}")
+
         val envExports = defaultEnv.map { "export ${it.key}=\"${it.value}\"" }
         val command = envExports.joinToString(" && ") + " && $resticPath ${args.joinToString(" ")}"
 
-        Log.d(TAG, "Executing Root Command: $command")
+        Log.d(TAG, "Full command: $command")
 
         val result = Shell.cmd(command).exec()
-        logger.logCommandResult(result.code, result.out.joinToString("\n"))
+
+        // 详细输出日志
+        Log.d(TAG, "Exit code: ${result.code}")
+        if (result.out.isNotEmpty()) {
+            Log.d(TAG, "STDOUT:\n${result.out.joinToString("\n")}")
+        }
+        if (result.err.isNotEmpty()) {
+            Log.e(TAG, "STDERR:\n${result.err.joinToString("\n")}")
+        }
+        Log.d(TAG, "==============================")
+
         result
     }
 
@@ -360,22 +374,55 @@ class ResticRepository @Inject constructor(
     ): Result<String> {
         val repoUrl = buildS3ResticUrl(extra, remotePath)
 
-        // 设置环境变量
+        // 完整的环境变量设置
         val env = mutableMapOf(
             "AWS_ACCESS_KEY_ID" to extra.accessKeyId,
             "AWS_SECRET_ACCESS_KEY" to extra.secretAccessKey,
             "RESTIC_PASSWORD" to password
         )
 
-        // 对于非 AWS 的 S3 兼容存储，可能需要额外设置
+        // 根据文档添加必要的配置
+        val options = mutableListOf<String>()
+
         if (extra.endpoint.isNotEmpty()) {
-            // 设置自定义 region（如果 endpoint 不是 AWS）
+            // 自定义endpoint的S3兼容存储
             if (extra.region.isNotEmpty()) {
                 env["AWS_DEFAULT_REGION"] = extra.region
+                options.add("-o")
+                options.add("s3.region=${extra.region}")
             }
+
+            // 对于非AWS存储，可能需要指定bucket-lookup模式
+            if (!extra.endpoint.contains("amazonaws.com")) {
+                options.add("-o")
+                options.add("s3.bucket-lookup=dns")
+            }
+        } else {
+            // AWS S3特定配置
+            env["AWS_DEFAULT_REGION"] = extra.region
         }
 
-        return initRepository(repoUrl, password)
+        // 构建完整的命令参数
+        val args = mutableListOf("init", "--repo", "\"$repoUrl\"")
+        args.addAll(options)
+
+        // 直接调用executeRestic而不是initRepository
+        val result = executeRestic(
+            *args.toTypedArray(),
+            env = env
+        )
+
+        val output = if (result.isSuccess) {
+            result.out.joinToString("\n")
+        } else {
+            result.err.joinToString("\n")
+        }
+
+        return if (result.isSuccess) {
+            Result.success(output)
+        } else {
+            Result.failure(Exception(output.ifEmpty { "Unknown error during restic init" }))
+        }
     }
 
     /**
