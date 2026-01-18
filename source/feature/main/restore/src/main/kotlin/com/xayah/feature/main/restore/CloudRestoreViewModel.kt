@@ -8,6 +8,7 @@ import com.xayah.core.database.dao.PackageDao
 import com.xayah.core.data.repository.CloudRepository
 import com.xayah.core.datastore.readBackupDirectory
 import com.xayah.core.datastore.readResticPassword
+import com.xayah.core.datastore.readS3ResticPassword
 import com.xayah.core.model.DataType
 import com.xayah.core.model.OpType
 import com.xayah.core.model.ResticProgressState
@@ -60,6 +61,7 @@ class CloudRestoreViewModel @Inject constructor(
             val cloudEntity = cloudRepo.queryByName(cleanAccountName)
             if (cloudEntity != null) {
                 Log.e("CloudRestore", "找到云端账户: ${cloudEntity.name}, 类型: ${cloudEntity.type}")
+                Log.e("CloudRestore", "准备调用 loadCloudBackedUpApps")
                 loadCloudBackedUpApps(cloudEntity)
             } else {
                 Log.e("CloudRestore", "云端账户查询失败: $cleanAccountName")
@@ -69,30 +71,28 @@ class CloudRestoreViewModel @Inject constructor(
     }
 
     fun loadCloudBackedUpApps(cloudEntity: CloudEntity) {
-        Log.e("CloudRestore", "loadCloudBackedUpApps 开始，云端实体: ${cloudEntity.name}")
+        Log.e("CloudRestore", "=== loadCloudBackedUpApps 开始 ===")
         viewModelScope.launch {
             _uiState.value = CloudRestoreUiState.Loading
-            Log.e("CloudRestore", "检查 Restic 密码配置")
-            val password = context.readResticPassword()
+            val password = context.readS3ResticPassword()
             if (password.isNullOrEmpty()) {
-                Log.e("CloudRestore", "Restic 密码未配置")
                 _uiState.value = CloudRestoreUiState.Error("Restic密码未配置")
                 return@launch
             }
             try {
-                Log.e("CloudRestore", "开始调用 listBackedUpAppsFromS3")
-                val apps = resticRepo.listBackedUpAppsFromS3(cloudEntity, password)
-                Log.e("CloudRestore", "listBackedUpAppsFromS3 返回 ${apps.size} 个应用")
+                // 明确指定类型，消除歧义
+                val apps: List<ResticBackupApp> = resticRepo.listBackedUpAppsFromS3(cloudEntity, password)
+
                 val groupedBackups = apps
-                    .groupBy { (it: ResticBackupApp) -> "${it.userId}-${it.packageName}-${it.timestamp}" }
-                    .values
-                    .map { backups: List<ResticBackupApp> ->
-                        val first = backups.first()
+                    .groupBy { "${it.userId}-${it.packageName}-${it.timestamp}" }
+                    .map { entry ->
+                        val backupsInGroup = entry.value
+                        val first = backupsInGroup.first()
                         ResticBackupGroup(
                             packageName = first.packageName,
                             userId = first.userId,
                             timestamp = first.timestamp,
-                            backups = backups.sortedBy { backup: ResticBackupApp ->
+                            backups = backupsInGroup.sortedBy { backup ->
                                 when (backup.dataType) {
                                     DataType.PACKAGE_APK -> 0
                                     DataType.PACKAGE_USER -> 1
@@ -113,10 +113,10 @@ class CloudRestoreViewModel @Inject constructor(
                             }
                         )
                     }
-                    .sortedByDescending { (it: ResticBackupGroup) -> it.timestamp }
+                    .sortedByDescending { it.timestamp }
+
                 _uiState.value = CloudRestoreUiState.Success(groupedBackups)
             } catch (e: Exception) {
-                Log.e("CloudRestore", "加载云端备份失败", e)
                 _uiState.value = CloudRestoreUiState.Error("加载失败: ${e.message}")
             }
         }
@@ -126,7 +126,7 @@ class CloudRestoreViewModel @Inject constructor(
         return withContext(Dispatchers.IO) {
             try {
                 val cloudEntity = cloudRepo.queryByName(accountName) ?: return@withContext false
-                val password = context.readResticPassword() ?: return@withContext false
+                val password = context.readS3ResticPassword() ?: return@withContext false
 
                 // 按优先级排序数据类型
                 val sortedBackups = group.backups.sortedBy { backup ->

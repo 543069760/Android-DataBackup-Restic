@@ -364,6 +364,119 @@ class ResticRepository @Inject constructor(
     }
 
     /**
+     * 从 S3 仓库获取备份的应用列表
+     */
+    suspend fun listBackedUpAppsFromS3(cloudEntity: CloudEntity, password: String): List<ResticBackupApp> {
+        Log.d(TAG, "=== listBackedUpAppsFromS3 启动 ===")
+        Log.d(TAG, "账户名称: ${cloudEntity.name}, 远程路径: ${cloudEntity.remote}")
+
+        return try {
+            // 1. 解析 S3 配置
+            val extra = json.decodeFromString<S3Extra>(cloudEntity.extra) ?: run {
+                Log.e(TAG, "错误: 无法解析 S3Extra 配置")
+                return emptyList()
+            }
+
+            // 2. 构建统一的 S3 URL (自动处理 http/https 和斜杠)
+            // 使用你现有的 buildS3ResticUrl，确保它处理了 bucket 和 remote 之间的斜杠
+            val repoUrl = buildS3ResticUrl(extra, cloudEntity.remote)
+            Log.d(TAG, "生成的完整仓库 URL: $repoUrl")
+
+            // 3. 准备环境变量 (与成功备份时的环境保持一致)
+            val env = mutableMapOf(
+                "AWS_ACCESS_KEY_ID" to extra.accessKeyId,
+                "AWS_SECRET_ACCESS_KEY" to extra.secretAccessKey,
+                "RESTIC_PASSWORD" to password
+            )
+            if (extra.region.isNotEmpty()) {
+                env["AWS_DEFAULT_REGION"] = extra.region
+            }
+
+            // 4. 构建命令行参数
+            val args = mutableListOf(
+                "snapshots",
+                "--repo", "\"$repoUrl\"",
+                "--json",
+                "-o", "s3.bucket-lookup=dns"
+            )
+
+            // 如果有 region，显式添加到参数中（对应成功日志中的逻辑）
+            if (extra.region.isNotEmpty()) {
+                args.add("-o")
+                args.add("s3.region=${extra.region}")
+            }
+
+            Log.d(TAG, "正在执行 restic snapshots...")
+            val result = executeRestic(*args.toTypedArray(), env = env)
+
+            // 5. 处理结果
+            if (result.isSuccess) {
+                val jsonStr = result.out
+                    .filter { it.trim().startsWith("[") || it.trim().startsWith("{") }
+                    .joinToString("")
+
+                if (jsonStr.isEmpty()) {
+                    Log.w(TAG, "命令成功但未返回任何快照内容 (JSON 为空)")
+                    return emptyList()
+                }
+
+                // 解析快照列表
+                val snapshots = json.decodeFromString<List<ResticSnapshot>>(jsonStr)
+                Log.d(TAG, "成功获取 ${snapshots.size} 个快照，开始解析应用标签...")
+
+                val apps = mutableListOf<ResticBackupApp>()
+                snapshots.forEach { snapshot ->
+                    snapshot.tags.forEach { tag ->
+                        val parts = tag.split("-")
+                        // 预期的标签格式: user_0-com.package.name-1768755852316-apk
+                        if (parts.size >= 4) {
+                            try {
+                                val userId = parts[0].split("_").lastOrNull()?.toIntOrNull() ?: 0
+                                val packageName = parts[1]
+                                val timestamp = parts[2].toLongOrNull() ?: 0L
+                                val dataType = when (parts[3]) {
+                                    "apk" -> DataType.PACKAGE_APK
+                                    "user" -> DataType.PACKAGE_USER
+                                    "user_de" -> DataType.PACKAGE_USER_DE
+                                    "data" -> DataType.PACKAGE_DATA
+                                    "obb" -> DataType.PACKAGE_OBB
+                                    "media" -> DataType.PACKAGE_MEDIA
+                                    "config" -> DataType.PACKAGE_CONFIG
+                                    else -> null
+                                }
+
+                                if (dataType != null) {
+                                    apps.add(
+                                        ResticBackupApp(
+                                            packageName = packageName,
+                                            userId = userId,
+                                            timestamp = timestamp,
+                                            dataType = dataType,
+                                            snapshotId = snapshot.id,
+                                            snapshotTime = snapshot.time,
+                                            tags = snapshot.tags
+                                        )
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "解析标签出错: $tag", e)
+                            }
+                        }
+                    }
+                }
+                Log.d(TAG, "最终成功提取出 ${apps.size} 个应用备份项")
+                apps
+            } else {
+                Log.e(TAG, "Restic 查询失败 (Exit Code: ${result.code})")
+                Log.e(TAG, "错误输出: ${result.err.joinToString("\n")}")
+                emptyList()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "listBackedUpAppsFromS3 发生严重异常", e)
+            emptyList()
+        }
+    }
+    /**
      * 使用 Restic 备份到本地仓库
      * @param repoPath 本地仓库路径
      * @param password 仓库密码
@@ -410,21 +523,46 @@ class ResticRepository @Inject constructor(
      * 构建通用的 S3 Restic URL
      * 支持 AWS S3 和所有 S3 兼容存储（MinIO、Ceph、阿里云OSS等）
      */
+    /**
+     * 构建通用的 S3 Restic URL（最稳妥版）
+     * 确保协议、Endpoint、Bucket 和 RemotePath 之间的斜杠处理万无一失
+     */
     fun buildS3ResticUrl(extra: S3Extra, remotePath: String): String {
-        val baseUrl = if (extra.endpoint.isNotEmpty()) {
-            // 使用自定义 endpoint（MinIO、Ceph、阿里云OSS等）
-            val scheme = when (extra.protocol) {
-                S3Protocol.HTTP -> "http"
-                S3Protocol.HTTPS -> "https"
-            }
-            "s3:$scheme://${extra.endpoint}"
-        } else {
-            // AWS S3 使用标准格式
-            "s3:s3.${extra.region}.amazonaws.com"
+        // 1. 确定协议前缀
+        val protocol = when (extra.protocol) {
+            S3Protocol.HTTP -> "http"
+            S3Protocol.HTTPS -> "https"
         }
 
-        // 添加 bucket 和远程路径
-        return "$baseUrl/${extra.bucket}/$remotePath"
+        // 2. 处理 Host (Endpoint)
+        // 剥离末尾的斜杠，防止拼接后出现双斜杠
+        val host = if (extra.endpoint.isNotEmpty()) {
+            extra.endpoint.trim().removeSuffix("/")
+        } else {
+            "s3.${extra.region}.amazonaws.com"
+        }
+
+        // 3. 处理 Bucket
+        // 剥离两端的斜杠
+        val bucket = extra.bucket.trim().trim('/')
+
+        // 4. 处理远程路径 (remotePath)
+        // 确保以单斜杠开头，且剥离末尾斜杠
+        val path = remotePath.trim()
+        val formattedPath = if (path.isEmpty() || path == "/") {
+            ""
+        } else {
+            if (path.startsWith("/")) path.removeSuffix("/") else "/$path"
+        }
+
+        // 5. 组合最终 URL
+        // 格式：s3:http://endpoint/bucket/remotePath
+        val finalUrl = "s3:$protocol://$host/$bucket$formattedPath"
+
+        Log.d("ResticRepository", "URL 构建调试: protocol=$protocol, host=$host, bucket=$bucket, path=$formattedPath")
+        Log.d("ResticRepository", "最终 URL: $finalUrl")
+
+        return finalUrl
     }
 
     /**
