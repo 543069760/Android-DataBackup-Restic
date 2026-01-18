@@ -14,6 +14,7 @@ import com.xayah.core.model.ResticProgressState
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.PackageEntity
 import com.xayah.core.model.database.S3Extra
+import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.restic.ResticRepository
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.GsonUtil
@@ -24,6 +25,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.decodeFromString
 import javax.inject.Inject
 import java.io.File
 
@@ -38,45 +43,56 @@ class CloudRestoreViewModel @Inject constructor(
 
     private var lastBytes = 0L
     private var lastTime = System.currentTimeMillis()
+    private var accountName: String = "" // 添加账户名存储
 
     private val _uiState = MutableStateFlow<CloudRestoreUiState>(CloudRestoreUiState.Loading)
     val uiState: StateFlow<CloudRestoreUiState> = _uiState.asStateFlow()
 
-    // 进度状态跟踪：此处不再传递任何参数，因为你的 ResticProgressState 所有字段都有默认值
     private val _resticProgress = MutableStateFlow(ResticProgressState())
     val resticProgress: StateFlow<ResticProgressState> = _resticProgress.asStateFlow()
 
     fun setCloudEntity(accountName: String) {
+        val cleanAccountName = accountName.replace("accountName=", "")
+        this.accountName = cleanAccountName // 存储账户名
+        Log.e("CloudRestore", "setCloudEntity 被调用，账户名: $accountName")
         viewModelScope.launch {
-            val cloudEntity = cloudRepo.queryByName(accountName)
+            Log.e("CloudRestore", "开始查询云端账户: $cleanAccountName")
+            val cloudEntity = cloudRepo.queryByName(cleanAccountName)
             if (cloudEntity != null) {
+                Log.e("CloudRestore", "找到云端账户: ${cloudEntity.name}, 类型: ${cloudEntity.type}")
                 loadCloudBackedUpApps(cloudEntity)
             } else {
-                _uiState.value = CloudRestoreUiState.Error("账户不存在: $accountName")
+                Log.e("CloudRestore", "云端账户查询失败: $cleanAccountName")
+                _uiState.value = CloudRestoreUiState.Error("账户不存在: $cleanAccountName")
             }
         }
     }
 
     fun loadCloudBackedUpApps(cloudEntity: CloudEntity) {
+        Log.e("CloudRestore", "loadCloudBackedUpApps 开始，云端实体: ${cloudEntity.name}")
         viewModelScope.launch {
             _uiState.value = CloudRestoreUiState.Loading
+            Log.e("CloudRestore", "检查 Restic 密码配置")
             val password = context.readResticPassword()
             if (password.isNullOrEmpty()) {
+                Log.e("CloudRestore", "Restic 密码未配置")
                 _uiState.value = CloudRestoreUiState.Error("Restic密码未配置")
                 return@launch
             }
             try {
+                Log.e("CloudRestore", "开始调用 listBackedUpAppsFromS3")
                 val apps = resticRepo.listBackedUpAppsFromS3(cloudEntity, password)
+                Log.e("CloudRestore", "listBackedUpAppsFromS3 返回 ${apps.size} 个应用")
                 val groupedBackups = apps
-                    .groupBy { "${it.userId}-${it.packageName}-${it.timestamp}" }
+                    .groupBy { (it: ResticBackupApp) -> "${it.userId}-${it.packageName}-${it.timestamp}" }
                     .values
-                    .map { backups ->
+                    .map { backups: List<ResticBackupApp> ->
                         val first = backups.first()
                         ResticBackupGroup(
                             packageName = first.packageName,
                             userId = first.userId,
                             timestamp = first.timestamp,
-                            backups = backups.sortedBy { backup ->
+                            backups = backups.sortedBy { backup: ResticBackupApp ->
                                 when (backup.dataType) {
                                     DataType.PACKAGE_APK -> 0
                                     DataType.PACKAGE_USER -> 1
@@ -97,7 +113,7 @@ class CloudRestoreViewModel @Inject constructor(
                             }
                         )
                     }
-                    .sortedByDescending { it.timestamp }
+                    .sortedByDescending { (it: ResticBackupGroup) -> it.timestamp }
                 _uiState.value = CloudRestoreUiState.Success(groupedBackups)
             } catch (e: Exception) {
                 Log.e("CloudRestore", "加载云端备份失败", e)
@@ -106,23 +122,27 @@ class CloudRestoreViewModel @Inject constructor(
         }
     }
 
-    suspend fun restoreFromCloudSnapshots(group: ResticBackupGroup, accountName: String): Boolean {
-        return try {
-            val cloudEntity = cloudRepo.queryByName(accountName) ?: return false
-            val extra = GsonUtil().fromJson(cloudEntity.extra, S3Extra::class.java) ?: return false
-            val repoUrl = resticRepo.buildS3ResticUrl(extra, cloudEntity.remote)
-            val password = context.readResticPassword() ?: return false
-            val backupBaseDir = context.readBackupDirectory()
+    suspend fun restoreFromCloudSnapshots(group: ResticBackupGroup): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val cloudEntity = cloudRepo.queryByName(accountName) ?: return@withContext false
+                val password = context.readResticPassword() ?: return@withContext false
 
-            group.backups.forEachIndexed { index, backup ->
-                // 更新进度起始状态：使用 .copy 确保不传入不存在的 'type'
-                _resticProgress.value = _resticProgress.value.copy(
-                    currentDataTypeIndex = index,
-                    totalDataTypes = group.backups.size,
-                    isCompleted = false,
-                    percentage = 0f
-                )
+                // 按优先级排序数据类型
+                val sortedBackups = group.backups.sortedBy { backup ->
+                    when (backup.dataType) {
+                        DataType.PACKAGE_APK -> 0
+                        DataType.PACKAGE_USER -> 1
+                        DataType.PACKAGE_USER_DE -> 2
+                        DataType.PACKAGE_DATA -> 3
+                        DataType.PACKAGE_OBB -> 4
+                        DataType.PACKAGE_MEDIA -> 5
+                        DataType.PACKAGE_CONFIG -> 6
+                        else -> 7
+                    }
+                }
 
+                // 创建进度回调
                 val progressCallback = object : ResticRepository.ResticProgressCallback {
                     override fun onRestoreProgress(
                         filesFinished: Long, filesTotal: Long,
@@ -149,32 +169,43 @@ class CloudRestoreViewModel @Inject constructor(
                             speed = speedStr
                         )
                     }
+
                     override fun onBackupProgress(percentDone: Float, bytesDone: Long, bytesTotal: Long, filesDone: Long, filesTotal: Long) {}
                 }
 
-                val targetPath = "${context.localBackupSaveDir()}/restore/"
-                val snapshotSubPath = "$backupBaseDir/apps/${backup.packageName}/user_${backup.userId}"
-                val includePath = if (backup.dataType == DataType.PACKAGE_CONFIG) "package_restore_config.json" else "${backup.dataType.type}.tar"
-                val fullTargetPath = "${targetPath}apps/${backup.packageName}/user_${backup.userId}/"
+                for (backup in sortedBackups) {
+                    val targetPath = "${context.localBackupSaveDir()}/restore/"
+                    val backupBaseDir = context.readBackupDirectory() ?: context.localBackupSaveDir()
+                    val snapshotSubPath = "$backupBaseDir/apps/${backup.packageName}/user_${backup.userId}"
+                    val includePath = when (backup.dataType) {
+                        DataType.PACKAGE_CONFIG -> "package_restore_config.json"
+                        else -> "${backup.dataType.type}.tar"
+                    }
+                    val fullTargetPath = "${targetPath}apps/${backup.packageName}/user_${backup.userId}/"
 
-                val success = resticRepo.restoreSnapshot(
-                    repoPath = repoUrl,
-                    password = password,
-                    snapshotId = backup.snapshotId,
-                    targetPath = fullTargetPath,
-                    includePath = includePath,
-                    snapshotSubPath = snapshotSubPath,
-                    progressCallback = progressCallback
-                )
-                if (!success) return false
+                    val success = resticRepo.restoreSnapshotFromS3(
+                        cloudEntity = cloudEntity,
+                        password = password,
+                        snapshotId = backup.snapshotId,
+                        targetPath = fullTargetPath,
+                        snapshotSubPath = snapshotSubPath,
+                        includePath = includePath,
+                        progressCallback = progressCallback
+                    )
+
+                    if (!success) {
+                        Log.e("CloudRestore", "恢复失败: ${backup.dataType.type}, 快照ID: ${backup.snapshotId}")
+                        _resticProgress.value = ResticProgressState()
+                        return@withContext false
+                    }
+                }
+
+                _resticProgress.value = ResticProgressState(isCompleted = true)
+                true
+            } catch (e: Exception) {
+                Log.e("CloudRestore", "云端恢复异常: ${e.message}", e)
+                false
             }
-
-            refreshLocalDatabase("${context.localBackupSaveDir()}/restore/")
-            _resticProgress.value = _resticProgress.value.copy(percentage = 1.0f, isCompleted = true)
-            true
-        } catch (e: Exception) {
-            Log.e("CloudRestore", "恢复异常: ${e.message}")
-            false
         }
     }
 

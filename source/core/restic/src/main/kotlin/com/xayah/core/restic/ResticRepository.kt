@@ -170,13 +170,69 @@ class ResticRepository @Inject constructor(
         }
     }
 
-    suspend fun listBackedUpAppsFromS3(
+    /**
+     * 从 S3 恢复快照（包含完整 S3 环境变量）
+     */
+    suspend fun restoreSnapshotFromS3(
         cloudEntity: CloudEntity,
-        password: String
-    ): List<ResticBackupApp> {
-        val extra = GsonUtil().fromJson(cloudEntity.extra, S3Extra::class.java) ?: return emptyList()
-        val repoUrl = buildS3ResticUrl(extra, cloudEntity.remote)
-        return listBackedUpApps(repoUrl, password)
+        password: String,
+        snapshotId: String,
+        targetPath: String,
+        snapshotSubPath: String? = null,
+        includePath: String? = null,
+        progressCallback: ResticProgressCallback? = null
+    ): Boolean {
+        val extra = json.decodeFromString<S3Extra>(cloudEntity.extra) ?: return false
+
+        val s3Url = if (extra.endpoint.isNotEmpty()) {
+            "s3:${extra.endpoint}/${extra.bucket}${cloudEntity.remote}"
+        } else {
+            "s3:s3.${extra.region}.amazonaws.com/${extra.bucket}${cloudEntity.remote}"
+        }
+
+        val env = mutableMapOf(
+            "AWS_ACCESS_KEY_ID" to extra.accessKeyId,
+            "AWS_SECRET_ACCESS_KEY" to extra.secretAccessKey,
+            "RESTIC_PASSWORD" to password
+        )
+
+        // 添加区域配置
+        if (extra.region.isNotEmpty()) {
+            env["AWS_DEFAULT_REGION"] = extra.region
+        }
+
+        val fullSnapshotId = if (!snapshotSubPath.isNullOrEmpty()) {
+            "$snapshotId:$snapshotSubPath"
+        } else {
+            snapshotId
+        }
+
+        val args = mutableListOf(
+            "restore", fullSnapshotId,
+            "--repo", "\"$s3Url\"",
+            "--target", "\"$targetPath\"",
+            "--json",
+            "-o", "s3.bucket-lookup=dns"
+        )
+
+        if (!includePath.isNullOrEmpty()) {
+            args.addAll(listOf("--include", "\"$includePath\""))
+        }
+
+        val result = executeRestic(*args.toTypedArray(), env = env)
+
+        // 处理进度回调
+        result.out.forEach { line ->
+            parseRestoreProgress(line)?.let { p ->
+                progressCallback?.onRestoreProgress(
+                    p.files_finished ?: 0, p.files_total ?: 0,
+                    p.bytes_written ?: 0, p.bytes_total ?: 0,
+                    p.files_skipped ?: 0, p.bytes_skipped ?: 0
+                )
+            }
+        }
+
+        return result.code == 0
     }
 
     // --- 其他方法 (保持 libsu 优化版) ---

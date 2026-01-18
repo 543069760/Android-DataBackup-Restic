@@ -1,5 +1,6 @@
 package com.xayah.core.data.repository
 
+import android.util.Log
 import android.content.Context
 import androidx.annotation.StringRes
 import com.xayah.core.database.dao.CloudDao
@@ -33,7 +34,13 @@ class CloudRepository @Inject constructor(
     fun getString(@StringRes resId: Int) = context.getString(resId)
     suspend fun upsert(item: CloudEntity) = cloudDao.upsert(item)
     suspend fun upsert(items: List<CloudEntity>) = cloudDao.upsert(items)
-    suspend fun queryByName(name: String) = cloudDao.queryByName(name)
+    suspend fun queryByName(name: String): CloudEntity? {
+        Log.e("CloudRepository", "查询账户: $name")
+        Log.e("CloudRepository", "所有可用账户: ${clouds.first()}")
+        val result = cloudDao.queryByName(name)
+        Log.e("CloudRepository", "查询结果: $result")
+        return result
+    }
     suspend fun query() = cloudDao.query()
 
     val clouds = cloudDao.queryFlow().distinctUntilChanged()

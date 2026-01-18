@@ -123,7 +123,7 @@ fun CloudBackupDetailPage(
                         coroutineScope.launch {
                             try {
                                 Log.d("CloudRestore", "用户点击恢复按钮，开始云端恢复流程")
-                                val success = viewModel.restoreFromCloudSnapshots(group, accountName)
+                                val success = viewModel.restoreFromCloudSnapshots(group)
                                 Log.d("CloudRestore", "云端恢复结果: $success")
 
                                 if (success) {
