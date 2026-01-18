@@ -294,14 +294,8 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                             mRootService.writeJson(data = restoreEntity, dst = configDst)
                             val configFile = File(configDst)
                             if (configFile.exists()) {
-                                val configResticSuccess = backupWithRestic(
-                                    packageName = p.packageName,
-                                    compressedFile = configFile,
-                                    dataType = DataType.PACKAGE_CONFIG
-                                )
-                                if (configResticSuccess) {
-                                    log { "Restic backup successful for config file" }
-                                }
+                                backup(type = DataType.PACKAGE_CONFIG, p = p, r = restoreEntity, t = pkg, dstDir = dstDir)
+                                log { "Config backup completed for ${p.packageName}" }
                             }
                             onConfigSaved(path = configDst, archivesRelativeDir = p.archivesRelativeDir)
                             mPackageDao.upsert(restoreEntity)
