@@ -63,6 +63,12 @@ sealed class MainRoutes(val route: String) {
     data object ResticFilesBackupDetail : MainRoutes(route = "main_restic_files_backup_detail?${ARG_GROUP}={${ARG_GROUP}}") {
         fun getRoute(groupJsonEncoded: String) = "main_restic_files_backup_detail?${ARG_GROUP}=${groupJsonEncoded}"
     }
+
+    // 在这里添加 CloudRestore 路由
+    data object CloudRestore : MainRoutes(route = "main_cloud_restore?{$ARG_ACCOUNT_NAME}={$ARG_ACCOUNT_NAME}") {
+        fun getRoute(accountName: String) = "main_cloud_restore?${ARG_ACCOUNT_NAME}=${accountName}"
+    }
+
     data object ResticBackupDetail : MainRoutes(route = "main_restic_backup_detail?${ARG_GROUP}={${ARG_GROUP}}") {
         fun getRoute(groupJsonEncoded: String) = "main_restic_backup_detail?${ARG_GROUP}=${groupJsonEncoded}"
     }
@@ -74,6 +80,10 @@ sealed class MainRoutes(val route: String) {
 
     data object Details : MainRoutes(route = "main_details/{$ARG_TARGET}/{$ARG_OP_TYPE}/{$ARG_ID}") {
         fun getRoute(target: Target, opType: OpType, id: Long) = "main_details/${target}/${opType}/${id}"
+    }
+
+    data object CloudBackupDetail : MainRoutes(route = "main_cloud_backup_detail?{$ARG_GROUP}={${ARG_GROUP}}&{$ARG_ACCOUNT_NAME}={${ARG_ACCOUNT_NAME}}") {
+        fun getRoute(groupJsonEncoded: String, accountName: String) = "main_cloud_backup_detail?${ARG_GROUP}=${groupJsonEncoded}&${ARG_ACCOUNT_NAME}=${accountName}"
     }
 
     data object History : MainRoutes(route = "main_history")

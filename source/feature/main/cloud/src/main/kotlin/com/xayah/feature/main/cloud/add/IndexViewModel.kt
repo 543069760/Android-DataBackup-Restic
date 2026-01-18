@@ -124,22 +124,24 @@ class IndexViewModel @Inject constructor(
     suspend fun updateS3Entity(
         name: String,
         remote: String,
+        type: String,  // 新增参数
         region: String,
         accessKeyId: String,
         secretAccessKey: String,
         bucket: String,
         endpoint: String,
-        protocol: S3Protocol,  // 新增参数
+        protocol: S3Protocol,
         networkType: S3NetworkType
     ) {
         val extra = GsonUtil().toJson(
             S3Extra(
+                type = type,  // 新增字段
                 region = region,
                 accessKeyId = accessKeyId,
                 secretAccessKey = secretAccessKey,
                 bucket = bucket,
                 endpoint = endpoint,
-                protocol = protocol,  // 新增字段
+                protocol = protocol,
                 networkType = networkType
             )
         )

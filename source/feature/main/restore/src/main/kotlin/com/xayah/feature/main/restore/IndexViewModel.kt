@@ -121,23 +121,15 @@ class IndexViewModel @Inject constructor(
                     when (state.storageType) {
                         StorageMode.Local -> {
                             intent.navController.navigateSingle(
-                                MainRoutes.List.getRoute(
-                                    target = Target.Apps,
-                                    opType = OpType.RESTORE,
-                                    backupDir = context.localBackupSaveDir().encodeURL()
-                                )
+                                MainRoutes.ResticRestore.route  // 本地Restic恢复
                             )
                         }
-
                         StorageMode.Cloud -> {
+                            // 云端Restic恢复，传递账户信息
                             if (state.cloudEntity != null) {
+                                val encodedAccountName = state.cloudEntity.name.encodeURL()
                                 intent.navController.navigateSingle(
-                                    MainRoutes.List.getRoute(
-                                        target = Target.Apps,
-                                        opType = OpType.RESTORE,
-                                        cloudName = state.cloudEntity.name.encodeURL(),
-                                        backupDir = state.cloudEntity.remote.encodeURL()
-                                    )
+                                    MainRoutes.CloudRestore.getRoute(accountName = encodedAccountName)
                                 )
                             }
                         }

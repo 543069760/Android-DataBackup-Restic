@@ -32,6 +32,7 @@ data class WebDAVExtra(
 
 @Serializable
 data class S3Extra(
+    val type: String = "S3",             //如 AWS S3、阿里云 OSS、腾讯云 COS、MinIO 等，后续完善，先统一使用S3
     val region: String,           // 如 "ap-shanghai"
     val accessKeyId: String,      // 您示例中的 accessKey
     val secretAccessKey: String,  // 您示例中的 secretKey
@@ -54,7 +55,7 @@ enum class S3NetworkType {
 @Entity
 data class CloudEntity(
     @PrimaryKey var name: String,
-    val type: CloudType,
+    val type: CloudType = CloudType.S3,
     val host: String,
     val user: String,
     val pass: String,

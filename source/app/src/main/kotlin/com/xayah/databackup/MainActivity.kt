@@ -20,7 +20,9 @@ import com.xayah.core.ui.route.MainRoutes
 import com.xayah.core.ui.theme.DataBackupTheme
 import com.xayah.core.ui.util.LocalNavController
 import com.xayah.core.util.command.BaseUtil
+import com.xayah.core.util.decodeURL
 import com.xayah.feature.main.cloud.PageCloud
+import com.xayah.feature.main.restore.CloudRestorePage
 import com.xayah.feature.main.cloud.add.PageCloudAddAccount
 import com.xayah.feature.main.cloud.add.PageFTPSetup
 import com.xayah.feature.main.cloud.add.PageSFTPSetup
@@ -63,6 +65,7 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import com.xayah.feature.main.restore.ResticBackupGroup
 import com.xayah.feature.main.restore.ResticFileBackupGroup
 import com.xayah.feature.main.restore.ResticFilesBackupDetailPage
+import com.xayah.feature.main.restore.CloudBackupDetailPage
 
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
@@ -132,6 +135,18 @@ class MainActivity : AppCompatActivity() {
                             PackagesBackupProcessingGraph()
                         }
                         composable(
+                            route = MainRoutes.CloudRestore.route,
+                            arguments = listOf(
+                                navArgument(MainRoutes.ARG_ACCOUNT_NAME) {
+                                    type = NavType.StringType
+                                    nullable = false
+                                }
+                            )
+                        ) { backStackEntry ->
+                            val accountName = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME)?.decodeURL() ?: ""
+                            CloudRestorePage(navController = navController, accountName = accountName)
+                        }
+                        composable(
                             route = MainRoutes.PackagesRestoreProcessingGraph.route,
                             arguments = listOf(
                                 navArgument(MainRoutes.ARG_ACCOUNT_NAME) { type = NavType.StringType },
@@ -173,6 +188,30 @@ class MainActivity : AppCompatActivity() {
 
                         composable(MainRoutes.ResticRestore.route) {  // 添加这行
                             ResticRestorePage(navController = navController)
+                        }
+
+                        composable(
+                            route = MainRoutes.CloudBackupDetail.route,
+                            arguments = listOf(
+                                navArgument(MainRoutes.ARG_GROUP) { type = NavType.StringType },
+                                navArgument(MainRoutes.ARG_ACCOUNT_NAME) { type = NavType.StringType }
+                            )
+                        ) { backStackEntry ->
+                            val groupJsonEncoded = backStackEntry.arguments?.getString(MainRoutes.ARG_GROUP)
+                            val accountName = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME) ?: ""
+
+                            val group = groupJsonEncoded?.let { encodedJson ->
+                                try {
+                                    val groupJsonDecoded = URLDecoder.decode(encodedJson, "UTF-8")
+                                    Json.decodeFromString<ResticBackupGroup>(groupJsonDecoded)
+                                } catch (e: Exception) {
+                                    null
+                                }
+                            }
+
+                            group?.let {
+                                CloudBackupDetailPage(navController = navController, group = it, accountName = accountName)
+                            } ?: navController.popBackStack()
                         }
 
                         composable(

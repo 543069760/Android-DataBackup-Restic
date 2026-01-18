@@ -23,6 +23,10 @@ dependencies {
 
     implementation(libs.kotlinx.serialization.json)
 
+    // Hilt
+    implementation(libs.hilt.android)
+    kapt(libs.hilt.android.compiler)
+
     // Compose Navigation
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.hilt.navigation.compose)

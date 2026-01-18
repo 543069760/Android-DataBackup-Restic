@@ -160,7 +160,7 @@ fun PageRestore() {
                 leadingIcon = ImageVector.vectorResource(id = R.drawable.ic_rounded_apps),
                 interactionSource = appsInteractionSource,
             ) {
-                navController.navigateSingle(MainRoutes.ResticRestore.route)
+                viewModel.emitIntentOnIO(IndexUiIntent.ToAppList(navController))
             }
 
             val filesInteractionSource = remember { MutableInteractionSource() }

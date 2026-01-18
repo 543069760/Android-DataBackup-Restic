@@ -13,7 +13,9 @@ dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:datastore"))
     implementation(project(":core:model"))
+    implementation(project(":core:util"))
     // 序列化依赖
+    implementation(libs.gson)
     implementation(libs.kotlinx.serialization.json)
 
     // Hilt

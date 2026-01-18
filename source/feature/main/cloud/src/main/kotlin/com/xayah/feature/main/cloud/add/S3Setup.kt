@@ -195,6 +195,7 @@ fun PageS3Setup() {
                         viewModel.updateS3Entity(
                             name = name,
                             remote = remote,
+                            type = "S3",
                             region = region,
                             accessKeyId = accessKeyId,
                             secretAccessKey = secretAccessKey,
@@ -214,6 +215,7 @@ fun PageS3Setup() {
                     viewModel.updateS3Entity(
                         name = name,
                         remote = remote,
+                        type = "S3",
                         region = region,
                         accessKeyId = accessKeyId,
                         secretAccessKey = secretAccessKey,
@@ -377,6 +379,7 @@ fun PageS3Setup() {
                         viewModel.updateS3Entity(
                             name = name,
                             remote = remote,
+                            type = "S3",
                             region = region,
                             accessKeyId = accessKeyId,
                             secretAccessKey = secretAccessKey,
@@ -442,6 +445,7 @@ fun PageS3Setup() {
                                 scope.launch {
                                     // 构建S3Extra对象
                                     val s3Extra = S3Extra(
+                                        type = "S3",
                                         region = region,
                                         accessKeyId = accessKeyId,
                                         secretAccessKey = secretAccessKey,
@@ -468,6 +472,7 @@ fun PageS3Setup() {
                             scope.launch {
                                 // 构建完整的S3Extra对象
                                 val s3Extra = S3Extra(
+                                    type = "S3",
                                     region = region,
                                     accessKeyId = accessKeyId,
                                     secretAccessKey = secretAccessKey,

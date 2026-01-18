@@ -154,9 +154,6 @@ This complete transition achieves:
 - [ ] **S3 Repository Initialization Check**: Implement a check for existing S3 repository initialization *before* attempting to initialize a new one. Perform a probe using the provided password first to determine if an existing repository exists.
 - [ ] **S3 Repository Handling Logic**: Based on the probe result, decide whether to use the existing repository or delete it and initialize a new one.
 - [ ] **S3 Account Saving Conditions**: Ensure the S3 account saving page only reports an error and saves the configuration *after* the full initialization process (including Restic) is completely successful. Otherwise, if the process exits prematurely, the credentials should not be saved.
-- [ ] **S3 Cloud Restoration Logic**: Design and implement the logic for the S3 cloud restoration page. This feature requires further planning and design.
-- [ ] **Restic HTTP Protocol Linkage**: Currently, Restic's HTTP/HTTPS protocol setting is not linked to the protocol selected on the settings page. This needs to be corrected for consistency.
-- [ ] **Network Environment Selection Refactor**: The "Public Network / Internal Network" selection option is currently non-functional (mainly due to old concurrent usage patterns). Refactor this into a more detailed S3 provider type selection (e.g., AWS S3, MINIO, Tencent COS, Alibaba OSS, etc.).
 - [ ] **File Backup S3 Support**: Extend S3 backup capability to include File backups (currently only local storage is supported for File backups using Restic).
 
 > **DataBackup Revived is now a complete modern data management platform with universal Restic-based deduplication, libsu integration, and initial S3 support.**

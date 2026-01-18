@@ -3,12 +3,14 @@ package com.xayah.core.restic
 import android.content.Context
 import android.util.Log
 import com.topjohnwu.superuser.Shell
+import com.xayah.core.util.GsonUtil
 import com.xayah.core.model.DataType
 import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.model.restic.ResticBackupFiles
 import com.xayah.core.datastore.readResticCompressionLevel
 import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.database.S3Protocol
+import com.xayah.core.model.database.CloudEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -166,6 +168,15 @@ class ResticRepository @Inject constructor(
                 false
             }
         }
+    }
+
+    suspend fun listBackedUpAppsFromS3(
+        cloudEntity: CloudEntity,
+        password: String
+    ): List<ResticBackupApp> {
+        val extra = GsonUtil().fromJson(cloudEntity.extra, S3Extra::class.java) ?: return emptyList()
+        val repoUrl = buildS3ResticUrl(extra, cloudEntity.remote)
+        return listBackedUpApps(repoUrl, password)
     }
 
     // --- 其他方法 (保持 libsu 优化版) ---
@@ -343,7 +354,7 @@ class ResticRepository @Inject constructor(
      * 构建通用的 S3 Restic URL
      * 支持 AWS S3 和所有 S3 兼容存储（MinIO、Ceph、阿里云OSS等）
      */
-    private fun buildS3ResticUrl(extra: S3Extra, remotePath: String): String {
+    fun buildS3ResticUrl(extra: S3Extra, remotePath: String): String {
         val baseUrl = if (extra.endpoint.isNotEmpty()) {
             // 使用自定义 endpoint（MinIO、Ceph、阿里云OSS等）
             val scheme = when (extra.protocol) {
