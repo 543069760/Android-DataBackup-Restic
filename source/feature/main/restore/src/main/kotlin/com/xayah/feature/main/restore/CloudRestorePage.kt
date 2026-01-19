@@ -107,27 +107,52 @@ fun CloudRestorePage(
                                 ResticBackupGroupItem(
                                     group = group,
                                     onClick = {
-                                        // 1. JSON 序列化 group 对象
-                                        val groupJson = Json.encodeToString(group)
-                                        val encodedJson = URLEncoder.encode(groupJson, "UTF-8")
+                                        try {
+                                            Log.d("CloudRestorePage", "开始处理点击事件")
 
-                                        // 2. URL 编码账户名称
-                                        val encodedAccountName = URLEncoder.encode(accountName, "UTF-8")
+                                            Log.d(
+                                                "CloudRestorePage",
+                                                "备份项被点击: ${group.packageName}"
+                                            )
 
-                                        // 3. 构建导航路由
-                                        val url = MainRoutes.CloudBackupDetail.getRoute(encodedJson, encodedAccountName)
+                                            // 1. JSON 序列化 group 对象
+                                            val groupJson = Json.encodeToString(group)
+                                            val encodedJson = URLEncoder.encode(groupJson, "UTF-8")
+                                            Log.d(
+                                                "CloudRestorePage",
+                                                "JSON序列化成功: ${encodedJson.take(100)}..."
+                                            )
 
-                                        // 4. 执行导航
-                                        navController.navigateSingle(url)
+                                            // 2. URL 编码账户名称
+                                            val cleanAccountName = accountName.replace("accountName=", "")
+                                            val encodedAccountName = URLEncoder.encode(cleanAccountName, "UTF-8")
+                                            Log.d(
+                                                "CloudRestorePage",
+                                                "账户名编码: $encodedAccountName"
+                                            )
+
+                                            // 3. 构建导航路由
+                                            val url = MainRoutes.CloudBackupDetail.getRoute(
+                                                encodedJson,
+                                                encodedAccountName
+                                            )
+                                            Log.d("CloudRestorePage", "构建路由: $url")
+
+                                            // 4. 执行导航
+                                            navController.navigateSingle(url)
+                                            Log.d("CloudRestorePage", "导航调用完成")
+                                        } catch (e: Exception) {
+                                            Log.e("CloudRestorePage", "点击事件处理失败", e)
+                                        }
                                     },
                                     context = LocalContext.current
                                 )
                             }
                         }
                     }
-                }
+                }  // <- 这里添加了缺失的闭合括号
 
-                is CloudRestoreUiState.Error -> {
+                is CloudRestoreUiState.Error -> {  // <- 现在正确地与 other cases 在同一级别
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center

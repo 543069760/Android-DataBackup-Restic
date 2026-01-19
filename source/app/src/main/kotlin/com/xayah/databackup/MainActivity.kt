@@ -197,21 +197,43 @@ class MainActivity : AppCompatActivity() {
                                 navArgument(MainRoutes.ARG_ACCOUNT_NAME) { type = NavType.StringType }
                             )
                         ) { backStackEntry ->
+                            Log.d("MainActivity", "CloudBackupDetail 路由被触发")
+
                             val groupJsonEncoded = backStackEntry.arguments?.getString(MainRoutes.ARG_GROUP)
                             val accountName = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME) ?: ""
 
+                            Log.d("MainActivity", "提取参数 - group: ${groupJsonEncoded?.take(50)}..., accountName: $accountName")
+
                             val group = groupJsonEncoded?.let { encodedJson ->
                                 try {
-                                    val groupJsonDecoded = URLDecoder.decode(encodedJson, "UTF-8")
-                                    Json.decodeFromString<ResticBackupGroup>(groupJsonDecoded)
+                                    Log.d("MainActivity", "开始解析 JSON 参数")
+
+                                    // 修复：移除可能的前缀  
+                                    val cleanJson = if (encodedJson.startsWith("group=")) {
+                                        encodedJson.substring(6) // 移除 "group=" 前缀  
+                                    } else {
+                                        encodedJson
+                                    }
+
+                                    val groupJsonDecoded = URLDecoder.decode(cleanJson, "UTF-8")
+                                    Log.d("MainActivity", "URL 解码成功: ${groupJsonDecoded.take(50)}...")
+
+                                    val decodedGroup = Json.decodeFromString<ResticBackupGroup>(groupJsonDecoded)
+                                    Log.d("MainActivity", "JSON 反序列化成功")
+                                    decodedGroup
                                 } catch (e: Exception) {
+                                    Log.e("MainActivity", "参数解析失败: ${e.message}", e)
                                     null
                                 }
                             }
 
                             group?.let {
+                                Log.d("MainActivity", "导航到 CloudBackupDetailPage")
                                 CloudBackupDetailPage(navController = navController, group = it, accountName = accountName)
-                            } ?: navController.popBackStack()
+                            } ?: run {
+                                Log.e("MainActivity", "参数为空，调用 popBackStack()")
+                                navController.popBackStack()
+                            }
                         }
 
                         composable(

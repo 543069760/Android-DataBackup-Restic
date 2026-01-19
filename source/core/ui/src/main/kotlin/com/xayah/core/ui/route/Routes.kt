@@ -82,8 +82,9 @@ sealed class MainRoutes(val route: String) {
         fun getRoute(target: Target, opType: OpType, id: Long) = "main_details/${target}/${opType}/${id}"
     }
 
-    data object CloudBackupDetail : MainRoutes(route = "main_cloud_backup_detail?{$ARG_GROUP}={${ARG_GROUP}}&{$ARG_ACCOUNT_NAME}={${ARG_ACCOUNT_NAME}}") {
-        fun getRoute(groupJsonEncoded: String, accountName: String) = "main_cloud_backup_detail?${ARG_GROUP}=${groupJsonEncoded}&${ARG_ACCOUNT_NAME}=${accountName}"
+    data object CloudBackupDetail : MainRoutes(route = "main_cloud_backup_detail?${ARG_GROUP}={${ARG_GROUP}}&${ARG_ACCOUNT_NAME}={${ARG_ACCOUNT_NAME}}") {
+        fun getRoute(groupJsonEncoded: String, accountName: String) =
+            "main_cloud_backup_detail?${ARG_GROUP}=${groupJsonEncoded}&${ARG_ACCOUNT_NAME}=${accountName}"
     }
 
     data object History : MainRoutes(route = "main_history")
