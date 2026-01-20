@@ -341,6 +341,13 @@ class PackagesRestoreUtil @Inject constructor(
                     }
 
                 } else {
+                    log { "=== 数据恢复路径检测失败 ===" }
+                    log { "应用包名: $packageName" }
+                    log { "数据类型: ${dataType.type}" }
+                    log { "传入srcDir: $srcDir" }
+                    log { "构建路径: $src" }
+                    val fileExists = rootService.exists(src)  // 先获取结果
+                    log { "文件存在: $fileExists" }          // 然后在日志中使用
                     if (dataType == DataType.PACKAGE_USER) {
                         isSuccess = false
                         out.add(log { "Not exist: $src" })

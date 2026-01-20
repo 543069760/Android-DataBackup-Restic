@@ -24,6 +24,7 @@ import com.xayah.core.util.DateUtil
 import com.xayah.core.util.NotificationUtil
 import com.xayah.core.util.command.PreparationUtil
 import kotlinx.coroutines.flow.first
+import java.io.File
 
 internal abstract class AbstractRestoreService : AbstractPackagesService() {
     override suspend fun onInitializingPreprocessingEntities(entities: MutableList<ProcessingInfoEntity>) {
@@ -128,7 +129,12 @@ internal abstract class AbstractRestoreService : AbstractPackagesService() {
 
                 pkg.update(state = OperationState.PROCESSING)
                 val p = pkg.packageEntity
-                val srcDir = "${mAppsDir}/${p.archivesRelativeDir}"
+                val baseDir = if (File("${mRootDir}/restore").exists()) {
+                    "${mRootDir}/restore/apps"
+                } else {
+                    mAppsDir
+                }
+                val srcDir = "${baseDir}/${p.archivesRelativeDir}"
                 val userId = if (restoreUser == -1) p.userId else restoreUser
                 restore(type = DataType.PACKAGE_APK, userId = userId, p = p, t = pkg, srcDir = srcDir)
                 restore(type = DataType.PACKAGE_USER, userId = userId, p = p, t = pkg, srcDir = srcDir)

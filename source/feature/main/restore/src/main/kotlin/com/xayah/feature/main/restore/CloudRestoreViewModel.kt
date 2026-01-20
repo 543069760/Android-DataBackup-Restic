@@ -213,7 +213,6 @@ class CloudRestoreViewModel @Inject constructor(
                         return@withContext false
                     }
                 }
-                calculateSizesForAllRestoredApps()
                 _resticProgress.value = ResticProgressState(isCompleted = true)
                 true
             } catch (e: Exception) {

@@ -718,23 +718,46 @@ class AppsRepo @Inject constructor(
     private fun getArchiveSrc(dstDir: String, dataType: DataType, ct: CompressionType) =
         "${dstDir}/${dataType.type}.${ct.suffix}"
 
-    private suspend fun calculateLocalAppArchiveSize(p: PackageEntity, dataType: DataType) =
-        rootService.calculateSize(
-            getArchiveSrc(
-                "${pathUtil.getLocalBackupAppsDir()}/${p.archivesRelativeDir}",
-                dataType,
-                p.indexInfo.compressionType
-            )
+    suspend fun calculateLocalAppArchiveSize(app: PackageEntity) {
+        DataType.PACKAGE_APK.let { calculateLocalAppArchiveSize(app, it) }
+        DataType.PACKAGE_USER.let { calculateLocalAppArchiveSize(app, it) }
+        DataType.PACKAGE_USER_DE.let { calculateLocalAppArchiveSize(app, it) }
+        DataType.PACKAGE_DATA.let { calculateLocalAppArchiveSize(app, it) }
+        DataType.PACKAGE_OBB.let { calculateLocalAppArchiveSize(app, it) }
+        DataType.PACKAGE_MEDIA.let { calculateLocalAppArchiveSize(app, it) }
+        appsDao.upsert(app)
+    }
+
+    private suspend fun calculateLocalAppArchiveSize(p: PackageEntity, dataType: DataType) {
+        val baseDir = if (p.indexInfo.backupDir.endsWith("/restore/")) {
+            // 恢复场景：使用restore目录 + apps子目录
+            p.indexInfo.backupDir + "apps"
+        } else {
+            // 在 Restic 架构下，不应该有其他场景
+            throw IllegalStateException("Unexpected backup scenario in Restic architecture")
+        }
+
+        val archivePath = getArchiveSrc(
+            "${baseDir}/${p.archivesRelativeDir}",
+            dataType,
+            p.indexInfo.compressionType
         )
 
-    suspend fun calculateLocalAppArchiveSize(app: PackageEntity) {
-        app.displayStats.apkBytes = calculateLocalAppArchiveSize(app, DataType.PACKAGE_APK)
-        app.displayStats.userBytes = calculateLocalAppArchiveSize(app, DataType.PACKAGE_USER)
-        app.displayStats.userDeBytes = calculateLocalAppArchiveSize(app, DataType.PACKAGE_USER_DE)
-        app.displayStats.dataBytes = calculateLocalAppArchiveSize(app, DataType.PACKAGE_DATA)
-        app.displayStats.obbBytes = calculateLocalAppArchiveSize(app, DataType.PACKAGE_OBB)
-        app.displayStats.mediaBytes = calculateLocalAppArchiveSize(app, DataType.PACKAGE_MEDIA)
-        appsDao.upsert(app)
+        val size = rootService.calculateSize(archivePath)
+
+        // 更新对应的数据类型大小
+        when (dataType) {
+            DataType.PACKAGE_APK -> p.displayStats.apkBytes = size
+            DataType.PACKAGE_USER -> p.displayStats.userBytes = size
+            DataType.PACKAGE_USER_DE -> p.displayStats.userDeBytes = size
+            DataType.PACKAGE_DATA -> p.displayStats.dataBytes = size
+            DataType.PACKAGE_OBB -> p.displayStats.obbBytes = size
+            DataType.PACKAGE_MEDIA -> p.displayStats.mediaBytes = size
+            else -> {
+                // 对于其他数据类型，可以选择忽略或记录日志
+                LogUtil.log { "AppsRepo" to "Unhandled data type: ${dataType.type}" }
+            }
+        }
     }
 
     // 添加云端单个数据类型大小计算
