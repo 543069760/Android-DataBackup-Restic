@@ -30,6 +30,7 @@ import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.service.util.CommonBackupUtil
 import com.xayah.core.service.util.PackagesBackupUtil
 import com.xayah.core.util.PathUtil
+import com.xayah.core.util.localBackupSaveDir
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -412,9 +413,9 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
     @Inject
     override lateinit var mPackagesBackupUtil: PackagesBackupUtil
 
-    override val mRootDir by lazy { mPathUtil.getCloudTmpDir() }
-    override val mAppsDir by lazy { mPathUtil.getCloudTmpAppsDir() }
-    override val mConfigsDir by lazy { mPathUtil.getCloudTmpConfigsDir() }
+    override val mRootDir by lazy { mContext.localBackupSaveDir() }
+    override val mAppsDir by lazy { mPathUtil.getLocalBackupAppsDir() }
+    override val mConfigsDir by lazy { mPathUtil.getLocalBackupConfigsDir() }
 
     @Inject
     lateinit var mCloudRepo: CloudRepository

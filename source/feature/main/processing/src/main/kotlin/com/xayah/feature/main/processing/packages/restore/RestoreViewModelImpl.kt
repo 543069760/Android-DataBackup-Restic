@@ -65,10 +65,10 @@ class RestoreViewModelImpl @Inject constructor(
                 val backupSaveDir: String
                 if (uiState.value.cloudEntity == null) {
                     cloud = ""
-                    backupSaveDir = mContext.localBackupSaveDir()
+                    backupSaveDir = "${mContext.localBackupSaveDir()}/restore/"
                 } else {
-                    cloud = uiState.value.cloudEntity!!.name
-                    backupSaveDir = uiState.value.cloudEntity!!.remote
+                    cloud = ""  // 修复：云端恢复也使用空字符串，与数据库记录匹配
+                    backupSaveDir = "${mContext.localBackupSaveDir()}/restore/"
                 }
                 val packages = mPkgRepo.queryActivated(OpType.RESTORE, cloud, backupSaveDir)
                 LogUtil.log { "RestoreViewModelImpl.UpdateApps" to "Query activated apps, cloud: $cloud, backupDir: $backupSaveDir" }
@@ -91,8 +91,8 @@ class RestoreViewModelImpl @Inject constructor(
                     cloud = ""
                     backupSaveDir = "${mContext.localBackupSaveDir()}/restore/"
                 } else {
-                    cloud = uiState.value.cloudEntity!!.name
-                    backupSaveDir = "${uiState.value.cloudEntity!!.remote}/restore/"
+                    cloud = ""
+                    backupSaveDir = "${mContext.localBackupSaveDir()}/restore/"
                 }
 
                 Log.d("RestoreViewModelImpl", "查询参数: cloud=$cloud, backupDir=$backupSaveDir")
@@ -143,6 +143,7 @@ class RestoreViewModelImpl @Inject constructor(
                         withMainContext {
                             intent.navController.popBackStack()
                             intent.navController.navigateSingle(MainRoutes.PackagesRestoreProcessing.route)
+                            mLocalService.startRestore(currentPackageNameFilter)
                         }
                     }.onFailure {
                         emitEffect(IndexUiEffect.DismissSnackbar)
@@ -154,8 +155,8 @@ class RestoreViewModelImpl @Inject constructor(
                     withMainContext {
                         intent.navController.popBackStack()
                         intent.navController.navigateSingle(MainRoutes.PackagesRestoreProcessing.route)
+                        mLocalService.startRestore(currentPackageNameFilter)
                     }
-                    mLocalService.startRestore(currentPackageNameFilter)
                 }
             }
 

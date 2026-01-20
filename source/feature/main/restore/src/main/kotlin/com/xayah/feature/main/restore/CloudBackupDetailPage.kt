@@ -33,9 +33,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.runtime.LaunchedEffect
 import com.xayah.core.ui.route.MainRoutes
 import com.xayah.core.model.OpType
 import com.xayah.core.util.navigateSingle
+import com.xayah.core.util.localBackupSaveDir
 import com.xayah.core.model.Target
 import com.xayah.core.ui.component.BodyMediumText
 import com.xayah.core.ui.component.PackageIconImage
@@ -61,6 +63,9 @@ fun CloudBackupDetailPage(
     viewModel: CloudRestoreViewModel = hiltViewModel()
 ) {
     val resticProgress by viewModel.resticProgress.collectAsStateWithLifecycle()
+    LaunchedEffect(accountName) {
+        viewModel.setCloudEntity(accountName)
+    }
     val isRestoring = resticProgress.totalDataTypes > 0 &&
             resticProgress.currentDataTypeIndex < resticProgress.totalDataTypes
     val isCompleted = resticProgress.isCompleted
@@ -128,7 +133,7 @@ fun CloudBackupDetailPage(
 
                                 if (success) {
                                     Log.d("CloudRestore", "云端恢复成功，准备读取备份目录")
-                                    val backupDir = "${context.readBackupDirectory()}/restore/"
+                                    val backupDir = "${context.localBackupSaveDir()}/restore/"
                                     Log.d("CloudRestore", "导航到恢复页面，备份目录: $backupDir")
                                     viewModel.refreshLocalDatabase(backupDir)
 

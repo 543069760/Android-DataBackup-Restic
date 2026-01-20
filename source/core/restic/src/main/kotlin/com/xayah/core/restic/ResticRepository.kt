@@ -182,13 +182,17 @@ class ResticRepository @Inject constructor(
         includePath: String? = null,
         progressCallback: ResticProgressCallback? = null
     ): Boolean {
+        Log.d(TAG, "=== 开始云端快照恢复 ===")
+        Log.d(TAG, "快照ID: $snapshotId")
+        Log.d(TAG, "目标路径: $targetPath")
+        Log.d(TAG, "快照子路径: $snapshotSubPath")
+        Log.d(TAG, "包含文件: $includePath")
         val extra = json.decodeFromString<S3Extra>(cloudEntity.extra) ?: return false
+        Log.d(TAG, "S3配置: endpoint=${extra.endpoint}, bucket=${extra.bucket}, region=${extra.region}")
 
-        val s3Url = if (extra.endpoint.isNotEmpty()) {
-            "s3:${extra.endpoint}/${extra.bucket}${cloudEntity.remote}"
-        } else {
-            "s3:s3.${extra.region}.amazonaws.com/${extra.bucket}${cloudEntity.remote}"
-        }
+        // 使用统一的 URL 构建方法
+        val s3Url = buildS3ResticUrl(extra, cloudEntity.remote)
+        Log.d(TAG, "构建的 S3 URL: $s3Url")
 
         val env = mutableMapOf(
             "AWS_ACCESS_KEY_ID" to extra.accessKeyId,
@@ -219,7 +223,13 @@ class ResticRepository @Inject constructor(
             args.addAll(listOf("--include", "\"$includePath\""))
         }
 
+        Log.d(TAG, "即将执行恢复命令...")
         val result = executeRestic(*args.toTypedArray(), env = env)
+
+        Log.d(TAG, "恢复命令执行完成，退出码: ${result.code}")
+        if (result.code != 0) {
+            Log.e(TAG, "恢复失败，错误输出: ${result.err.joinToString("\n")}")
+        }
 
         // 处理进度回调
         result.out.forEach { line ->

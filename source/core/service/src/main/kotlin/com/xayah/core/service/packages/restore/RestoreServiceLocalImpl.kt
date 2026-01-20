@@ -56,15 +56,30 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
 
     override fun onCreate() {
         super.onCreate()
+        Log.d(mTAG, "=== RestoreServiceLocalImpl 创建 ===")
+        Log.d(mTAG, "Root目录: $mRootDir")
+        Log.d(mTAG, "Apps目录: $mAppsDir")
+        Log.d(mTAG, "Configs目录: $mConfigsDir")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         mTargetPackageName = intent?.getStringExtra("TARGET_PACKAGE_NAME") ?: ""
-        Log.d(mTAG, "接收到目标包名: $mTargetPackageName")
+        Log.d(mTAG, "=== 服务启动命令接收 ===")
+        Log.d(mTAG, "目标包名: $mTargetPackageName")
+        Log.d(mTAG, "Intent: $intent")
+        Log.d(mTAG, "Flags: $flags, StartId: $startId")
+
+        // 检查restore目录
+        val restoreDir = File("${mRootDir}/restore")
+        Log.d(mTAG, "检查restore目录: ${restoreDir.path}")
+        Log.d(mTAG, "restore目录存在: ${restoreDir.exists()}")
+
         return super.onStartCommand(intent, flags, startId)
     }
 
     override suspend fun getPackages(): List<PackageEntity> {
+        Log.d(mTAG, "=== 开始获取恢复包列表 ===")
+
         // 检查是否为 Restic 恢复场景
         val restoreDir = File("${mRootDir}/restore")
         val backupDir = if (restoreDir.exists()) {
@@ -77,15 +92,22 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
 
         Log.d(mTAG, "查询参数: cloud=, backupDir=$backupDir")
         val allPackages = mPackageRepo.queryActivated(OpType.RESTORE, "", backupDir)
+        Log.d(mTAG, "查询到总应用数: ${allPackages.size}")
 
         // 使用传递的包名进行筛选
         val packages = if (mTargetPackageName.isNotEmpty()) {
+            Log.d(mTAG, "筛选目标包名: $mTargetPackageName")
             allPackages.filter { it.packageName == mTargetPackageName }
         } else {
+            Log.d(mTAG, "无包名筛选，返回所有应用")
             allPackages
         }
 
         Log.d(mTAG, "筛选后查询到 ${packages.size} 个应用")
+        packages.forEach { pkg ->
+            Log.d(mTAG, "应用: ${pkg.packageName}, 用户: ${pkg.userId}, 激活: ${pkg.extraInfo.activated}")
+        }
+
         return packages
     }
 

@@ -38,6 +38,7 @@ class CloudRestoreViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val resticRepo: ResticRepository,
     private val appsDao: PackageDao,
+    private val appsRepo: com.xayah.core.data.repository.AppsRepo,
     private val rootService: RemoteRootService,
     private val cloudRepo: CloudRepository
 ) : ViewModel() {
@@ -142,6 +143,12 @@ class CloudRestoreViewModel @Inject constructor(
                     }
                 }
 
+                // 初始化进度状态
+                _resticProgress.value = _resticProgress.value.copy(
+                    currentDataTypeIndex = 0,
+                    totalDataTypes = sortedBackups.size
+                )
+
                 // 创建进度回调
                 val progressCallback = object : ResticRepository.ResticProgressCallback {
                     override fun onRestoreProgress(
@@ -173,7 +180,14 @@ class CloudRestoreViewModel @Inject constructor(
                     override fun onBackupProgress(percentDone: Float, bytesDone: Long, bytesTotal: Long, filesDone: Long, filesTotal: Long) {}
                 }
 
-                for (backup in sortedBackups) {
+                sortedBackups.forEachIndexed { index, backup ->
+                    // 更新当前数据类型索引
+                    _resticProgress.value = _resticProgress.value.copy(
+                        currentDataTypeIndex = index,
+                        totalDataTypes = sortedBackups.size
+                    )
+
+                    // 使用与本地恢复相同的路径逻辑
                     val targetPath = "${context.localBackupSaveDir()}/restore/"
                     val backupBaseDir = context.readBackupDirectory() ?: context.localBackupSaveDir()
                     val snapshotSubPath = "$backupBaseDir/apps/${backup.packageName}/user_${backup.userId}"
@@ -199,7 +213,7 @@ class CloudRestoreViewModel @Inject constructor(
                         return@withContext false
                     }
                 }
-
+                calculateSizesForAllRestoredApps()
                 _resticProgress.value = ResticProgressState(isCompleted = true)
                 true
             } catch (e: Exception) {
@@ -210,37 +224,91 @@ class CloudRestoreViewModel @Inject constructor(
     }
 
     suspend fun refreshLocalDatabase(backupDir: String) {
+        Log.d("CloudRestore", "=== 开始刷新本地数据库 ===")
         try {
-            appsDao.deleteByOpTypeAndBackupDir(OpType.RESTORE, backupDir)
-            val restoreDir = File(backupDir)
-            if (restoreDir.exists()) {
-                val appsDir = File(restoreDir, "apps")
+            // 参考本地恢复：使用固定的restore目录进行清理
+            val restoreDir = "${context.localBackupSaveDir()}/restore/"
+            Log.d("CloudRestore", "清理旧的恢复记录: $restoreDir")
+            appsDao.deleteByOpTypeAndBackupDir(OpType.RESTORE, restoreDir)
+
+            val restoreDirFile = File(restoreDir)
+            Log.d("CloudRestore", "检查恢复目录是否存在: ${restoreDirFile.exists()}")
+            if (restoreDirFile.exists()) {
+                val appsDir = File(restoreDirFile, "apps")
+                Log.d("CloudRestore", "检查apps目录是否存在: ${appsDir.exists()}, 路径: ${appsDir.path}")
                 if (appsDir.exists()) {
+                    Log.d("CloudRestore", "开始扫描apps目录")
                     scanAppsDirectory(appsDir)
+                    Log.d("CloudRestore", "apps目录扫描完成")
+                } else {
+                    Log.w("CloudRestore", "apps目录不存在: ${appsDir.path}")
                 }
+            } else {
+                Log.w("CloudRestore", "恢复目录不存在: $restoreDir")
             }
+            Log.d("CloudRestore", "=== 本地数据库刷新完成 ===")
         } catch (e: Exception) {
             Log.e("CloudRestore", "数据库刷新失败", e)
         }
     }
 
     private suspend fun scanAppsDirectory(appsDir: File) {
-        appsDir.listFiles { file -> file.isDirectory }?.forEach { packageDir ->
-            packageDir.listFiles { file -> file.isDirectory }?.forEach { userDir ->
+        Log.d("CloudRestore", "=== 开始扫描apps目录 ===")
+        Log.d("CloudRestore", "apps目录路径: ${appsDir.path}")
+        Log.d("CloudRestore", "apps目录是否存在: ${appsDir.exists()}")
+
+        val packageDirs = appsDir.listFiles { file -> file.isDirectory }
+        Log.d("CloudRestore", "找到的包目录数量: ${packageDirs?.size ?: 0}")
+
+        packageDirs?.forEach { packageDir ->
+            Log.d("CloudRestore", "处理包目录: ${packageDir.name}")
+            val userDirs = packageDir.listFiles { file -> file.isDirectory }
+            Log.d("CloudRestore", "包 ${packageDir.name} 中的用户目录数量: ${userDirs?.size ?: 0}")
+
+            userDirs?.forEach { userDir ->
+                Log.d("CloudRestore", "处理用户目录: ${userDir.name}")
                 val configFile = File(userDir, "package_restore_config.json")
+                Log.d("CloudRestore", "配置文件路径: ${configFile.path}")
+                Log.d("CloudRestore", "配置文件是否存在: ${configFile.exists()}")
+
                 if (configFile.exists()) {
-                    readPackageConfig(configFile, packageDir.name, userDir.name)?.let {
-                        appsDao.upsert(it)
-                        updateDatabase(packageDir.name)
+                    try {
+                        Log.d("CloudRestore", "开始读取配置文件: ${configFile.path}")
+                        val entity = readPackageConfig(configFile, packageDir.name, userDir.name)
+
+                        if (entity != null) {
+                            Log.d("CloudRestore", "配置文件解析成功: ${entity.packageName}")
+                            Log.d("CloudRestore", "应用信息: packageName=${entity.packageName}, userId=${entity.indexInfo.userId}")
+                            Log.d("CloudRestore", "备份信息: opType=${entity.indexInfo.opType}, backupDir=${entity.indexInfo.backupDir}")
+
+                            Log.d("CloudRestore", "插入数据库: ${entity.packageName}")
+                            appsDao.upsert(entity)
+
+                            Log.d("CloudRestore", "激活应用: ${packageDir.name}")
+                            updateDatabase(packageDir.name)
+
+                            Log.d("CloudRestore", "应用 ${packageDir.name} 处理完成")
+                        } else {
+                            Log.w("CloudRestore", "配置文件解析为空: ${configFile.path}")
+                        }
+                    } catch (e: Exception) {
+                        Log.e("CloudRestore", "处理应用配置失败: ${configFile.path}", e)
                     }
+                } else {
+                    Log.w("CloudRestore", "配置文件不存在: ${configFile.path}")
                 }
             }
         }
+
+        Log.d("CloudRestore", "=== apps目录扫描完成 ===")
     }
 
     private suspend fun readPackageConfig(configFile: File, packageName: String, userDirName: String): PackageEntity? {
+        Log.d("CloudRestore", "读取配置文件: ${configFile.path}")
         return try {
             val entity = rootService.readJson<PackageEntity>(configFile.path)
+            Log.d("CloudRestore", "配置文件原始数据: packageName=${entity?.packageName}, userId=${entity?.indexInfo?.userId}")
+
             entity?.copy(
                 id = 0,
                 indexInfo = entity.indexInfo.copy(
@@ -253,14 +321,66 @@ class CloudRestoreViewModel @Inject constructor(
                 extraInfo = entity.extraInfo.copy(activated = false)
             )
         } catch (e: Exception) {
+            Log.e("CloudRestore", "读取配置文件失败: ${configFile.path}", e)
             null
         }
     }
 
+    suspend fun calculateSizesForAllRestoredApps() {
+        try {
+            Log.d("CloudRestore", "=== 开始计算所有恢复应用的大小 ===")
+            val backupDir = "${context.localBackupSaveDir()}/restore/"
+            val restoredApps = appsDao.queryPackages(OpType.RESTORE, "", backupDir)
+
+            Log.d("CloudRestore", "找到 ${restoredApps.size} 个已恢复应用")
+            restoredApps.forEach { app ->
+                Log.d("CloudRestore", "计算应用大小: ${app.packageName}")
+                appsRepo.calculateLocalAppArchiveSize(app)
+            }
+
+            Log.d("CloudRestore", "=== 所有应用大小计算完成 ===")
+        } catch (e: Exception) {
+            Log.e("CloudRestore", "计算应用大小失败", e)
+        }
+    }
+
     private suspend fun updateDatabase(packageName: String) {
-        appsDao.queryPackages(OpType.RESTORE, "", "${context.localBackupSaveDir()}/restore/")
-            .filter { it.packageName == packageName }
-            .forEach { appsDao.activateById(it.id, true) }
+        Log.d("CloudRestore", "=== 开始激活应用: $packageName ===")
+        try {
+            val backupDir = "${context.localBackupSaveDir()}/restore/"
+            Log.d("CloudRestore", "查询参数: opType=RESTORE, cloud=, backupDir=$backupDir")
+
+            // 查询该包名的所有应用记录
+            val existingApps = appsDao.queryPackages(OpType.RESTORE, "", backupDir)
+                .filter { it.packageName == packageName }
+
+            Log.d("CloudRestore", "查询到的应用记录数: ${existingApps.size}")
+            existingApps.forEach { app ->
+                Log.d("CloudRestore", "应用记录: ${app.packageName}, backupDir: ${app.indexInfo.backupDir}, activated: ${app.extraInfo.activated}, id: ${app.id}")
+            }
+
+            if (existingApps.isNotEmpty()) {
+                Log.d("CloudRestore", "开始激活应用: $packageName, 找到 ${existingApps.size} 个记录")
+                existingApps.forEach { app ->
+                    Log.d("CloudRestore", "激活应用ID: ${app.id}")
+                    appsDao.activateById(app.id, true)
+                    Log.d("CloudRestore", "应用已激活: $packageName (ID: ${app.id})")
+                }
+            } else {
+                Log.w("CloudRestore", "未找到应用记录: $packageName")
+
+                // 添加调试查询
+                val allApps = appsDao.queryPackages(OpType.RESTORE, "", backupDir)
+                Log.d("CloudRestore", "数据库中所有相关应用 (${allApps.size} 个):")
+                allApps.forEach { app ->
+                    Log.d("CloudRestore", "- ${app.packageName}, backupDir: ${app.indexInfo.backupDir}, activated: ${app.extraInfo.activated}")
+                }
+            }
+
+            Log.d("CloudRestore", "=== 应用激活完成: $packageName ===")
+        } catch (e: Exception) {
+            Log.e("CloudRestore", "激活应用失败: ${e.message}", e)
+        }
     }
 
     private fun Long.formatSpeed(): String {
