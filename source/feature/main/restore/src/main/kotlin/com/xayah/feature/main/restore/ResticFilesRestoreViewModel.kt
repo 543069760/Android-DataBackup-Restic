@@ -4,6 +4,7 @@ import android.util.Log
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.xayah.core.data.repository.FilesRepo
 import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.model.restic.ResticBackupFiles
@@ -38,7 +39,8 @@ class ResticFilesRestoreViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val resticRepo: ResticRepository,
     private val rootService: RemoteRootService,
-    private val mediaDao: MediaDao
+    private val mediaDao: MediaDao,
+    private val filesRepo: FilesRepo
 ) : ViewModel() {
 
     // 添加进度状态流
@@ -245,6 +247,25 @@ class ResticFilesRestoreViewModel @Inject constructor(
                     Log.e("ResticFilesRestore", "处理媒体配置失败: ${configFile.path}", e)
                 }
             }
+        }
+    }
+
+    suspend fun calculateSizesForActivatedMedia() {
+        try {
+            Log.d("ResticFilesRestore", "=== 开始计算激活媒体的大小 ===")
+            val backupDir = "${context.localBackupSaveDir()}/restore/"
+            // 修改：只查询激活的媒体，与第二阶段保持一致
+            val activatedMedia = mediaDao.queryActivated(OpType.RESTORE, "", backupDir)
+
+            Log.d("ResticFilesRestore", "找到 ${activatedMedia.size} 个已激活媒体")
+            activatedMedia.forEach { media ->
+                Log.d("ResticFilesRestore", "计算媒体大小: ${media.name}")
+                filesRepo.calculateLocalFileArchiveSize(media)
+            }
+
+            Log.d("ResticFilesRestore", "=== 激活媒体大小计算完成 ===")
+        } catch (e: Exception) {
+            Log.e("ResticFilesRestore", "计算媒体大小失败", e)
         }
     }
 

@@ -133,6 +133,7 @@ fun ResticBackupDetailPage(
                                     val backupDir = "${viewModel.readBackupDirectory()}/restore/"
                                     Log.d("ResticRestore", "导航到恢复页面，备份目录: $backupDir")
                                     viewModel.refreshLocalDatabase(backupDir)
+                                    viewModel.calculateSizesForActivatedApps()
                                     // 修改为传递备份目录参数
                                     val route = MainRoutes.PackagesRestoreProcessingGraph.getRoute(
                                         cloudName = URLEncoder.encode("", "UTF-8"),

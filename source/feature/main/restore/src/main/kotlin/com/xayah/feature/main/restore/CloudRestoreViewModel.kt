@@ -325,19 +325,20 @@ class CloudRestoreViewModel @Inject constructor(
         }
     }
 
-    suspend fun calculateSizesForAllRestoredApps() {
+    suspend fun calculateSizesForActivatedApps() {
         try {
-            Log.d("CloudRestore", "=== 开始计算所有恢复应用的大小 ===")
+            Log.d("CloudRestore", "=== 开始计算激活应用的大小 ===")
             val backupDir = "${context.localBackupSaveDir()}/restore/"
-            val restoredApps = appsDao.queryPackages(OpType.RESTORE, "", backupDir)
+            // 修改：只查询激活的应用，与第二阶段保持一致
+            val activatedApps = appsDao.queryActivated(OpType.RESTORE, "", backupDir)
 
-            Log.d("CloudRestore", "找到 ${restoredApps.size} 个已恢复应用")
-            restoredApps.forEach { app ->
+            Log.d("CloudRestore", "找到 ${activatedApps.size} 个已激活应用")
+            activatedApps.forEach { app ->
                 Log.d("CloudRestore", "计算应用大小: ${app.packageName}")
                 appsRepo.calculateLocalAppArchiveSize(app)
             }
 
-            Log.d("CloudRestore", "=== 所有应用大小计算完成 ===")
+            Log.d("CloudRestore", "=== 激活应用大小计算完成 ===")
         } catch (e: Exception) {
             Log.e("CloudRestore", "计算应用大小失败", e)
         }

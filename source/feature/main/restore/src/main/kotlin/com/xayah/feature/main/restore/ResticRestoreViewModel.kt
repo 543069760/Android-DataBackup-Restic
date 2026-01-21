@@ -342,6 +342,22 @@ class ResticRestoreViewModel @Inject constructor(
         }
     }
 
+    suspend fun calculateSizesForActivatedApps() {
+        try {
+            Log.d("ResticRestore", "=== 开始计算激活应用的大小 ===")
+            val backupDir = "${context.localBackupSaveDir()}/restore/"
+            val activatedApps = appsDao.queryActivated(OpType.RESTORE, "", backupDir)  // 只查询激活
+
+            Log.d("ResticRestore", "找到 ${activatedApps.size} 个已激活应用")
+            activatedApps.forEach { app ->
+                Log.d("ResticRestore", "计算应用大小: ${app.packageName}")
+                appsRepo.calculateLocalAppArchiveSize(app)
+            }
+        } catch (e: Exception) {
+            Log.e("ResticRestore", "计算应用大小失败", e)
+        }
+    }
+
     suspend fun readBackupDirectory(): String {
         Log.d("ResticRestore", "从 DataStore 读取备份目录配置")
         val backupDir = context.localBackupSaveDir()

@@ -133,6 +133,7 @@ fun ResticFilesBackupDetailPage(
                                     val backupDir = "${viewModel.readBackupDirectory()}/restore/"
                                     Log.d("ResticFilesRestore", "导航到恢复页面，备份目录: $backupDir")
                                     viewModel.refreshLocalDatabase(backupDir)
+                                    viewModel.calculateSizesForActivatedMedia()
                                     // 导航到媒体恢复处理页面
                                     val route = MainRoutes.MediumRestoreProcessingGraph.getRoute(
                                         cloudName = URLEncoder.encode("", "UTF-8"),

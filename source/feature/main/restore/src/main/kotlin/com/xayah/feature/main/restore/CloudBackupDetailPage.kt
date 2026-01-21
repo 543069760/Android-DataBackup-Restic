@@ -138,7 +138,7 @@ fun CloudBackupDetailPage(
                                     viewModel.refreshLocalDatabase(backupDir)
 
                                     // 在数据库刷新完成后计算应用大小
-                                    viewModel.calculateSizesForAllRestoredApps()
+                                    viewModel.calculateSizesForActivatedApps()
                                     val route = MainRoutes.PackagesRestoreProcessingGraph.getRoute(
                                         cloudName = URLEncoder.encode("", "UTF-8"),  // 改为空字符串，与本地恢复一致
                                         backupDir = URLEncoder.encode(backupDir, "UTF-8"),
