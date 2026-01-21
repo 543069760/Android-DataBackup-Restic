@@ -1,5 +1,6 @@
 package com.xayah.core.service.packages.restore
 
+import android.os.Build
 import android.content.Context
 import android.content.Intent
 import com.xayah.core.service.AbstractProcessingServiceProxy
@@ -19,7 +20,11 @@ class ProcessingServiceProxyLocalImpl @Inject constructor() : AbstractProcessing
         if (packageName.isNotEmpty()) {
             intent.putExtra("TARGET_PACKAGE_NAME", packageName)
         }
-        context.startForegroundService(intent)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(intent)
+        } else {
+            context.startService(intent)
+        }
     }
     // 修复 startMediaRestore 方法（移除默认参数）
     override suspend fun startMediaRestore(mediaName: String) {
