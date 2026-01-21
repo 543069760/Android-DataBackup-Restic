@@ -8,6 +8,12 @@ android {
     namespace = "com.xayah.feature.main.details"
 }
 
+android {
+    lint {
+        disable += "MissingTranslation"
+    }
+}
+
 dependencies {
     // Core
     implementation(project(":core:common"))
