@@ -7,6 +7,10 @@ plugins {
 
 android {
     namespace = "com.xayah.feature.main.processing"
+
+    lint {
+        disable += "MissingTranslation"
+    }
 }
 
 dependencies {

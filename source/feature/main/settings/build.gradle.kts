@@ -6,6 +6,9 @@ plugins {
 
 android {
     namespace = "com.xayah.feature.main.settings"
+    lint {
+        disable += "MissingTranslation"
+    }
 }
 
 dependencies {
