@@ -1,7 +1,7 @@
 [versions]
 # config
 compileSdk = "35"
-minSdk = "24"
+minSdk = "26"
 targetSdk = "35"
 # __(API)____(version)_(abi)
 versionCode = "30000"
