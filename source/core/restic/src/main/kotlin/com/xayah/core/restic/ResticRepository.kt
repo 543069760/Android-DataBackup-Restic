@@ -312,8 +312,8 @@ class ResticRepository @Inject constructor(
                     val mediaName = parts.dropLast(2).joinToString("-")
                     val timestamp = parts.last().toLongOrNull() ?: 0L
                     val dataType = when (parts[parts.size - 2]) {
-                        "media" -> DataType.PACKAGE_MEDIA
-                        "config" -> DataType.PACKAGE_CONFIG
+                        "filesbackup" -> DataType.PACKAGE_MEDIA
+                        "filesconfig" -> DataType.PACKAGE_CONFIG
                         else -> null
                     }
                     if (dataType != null) {
@@ -371,6 +371,111 @@ class ResticRepository @Inject constructor(
             }
         }
         return apps
+    }
+
+    suspend fun listBackedUpFilesFromS3(cloudEntity: CloudEntity, password: String): List<ResticBackupFiles> {
+        Log.d(TAG, "=== listBackedUpFilesFromS3 启动 ===")
+        Log.d(TAG, "账户名称: ${cloudEntity.name}, 远程路径: ${cloudEntity.remote}")
+
+        return try {
+            // 1. 解析 S3 配置
+            val extra = json.decodeFromString<S3Extra>(cloudEntity.extra) ?: run {
+                Log.e(TAG, "错误: 无法解析 S3Extra 配置")
+                return emptyList()
+            }
+
+            // 2. 构建统一的 S3 URL
+            val repoUrl = buildS3ResticUrl(extra, cloudEntity.remote)
+            Log.d(TAG, "生成的完整仓库 URL: $repoUrl")
+
+            // 3. 准备环境变量
+            val env = mutableMapOf(
+                "AWS_ACCESS_KEY_ID" to extra.accessKeyId,
+                "AWS_SECRET_ACCESS_KEY" to extra.secretAccessKey,
+                "RESTIC_PASSWORD" to password
+            )
+            if (extra.region.isNotEmpty()) {
+                env["AWS_DEFAULT_REGION"] = extra.region
+            }
+
+            // 4. 构建命令行参数
+            val args = mutableListOf(
+                "snapshots",
+                "--repo", "\"$repoUrl\"",
+                "--json",
+                "-o", "s3.bucket-lookup=dns"
+            )
+
+            if (extra.region.isNotEmpty()) {
+                args.add("-o")
+                args.add("s3.region=${extra.region}")
+            }
+
+            Log.d(TAG, "正在执行 restic snapshots...")
+            val result = executeRestic(*args.toTypedArray(), env = env)
+
+            // 5. 处理结果
+            if (result.isSuccess) {
+                val jsonStr = result.out
+                    .filter { it.trim().startsWith("[") || it.trim().startsWith("{") }
+                    .joinToString("")
+
+                if (jsonStr.isEmpty()) {
+                    Log.w(TAG, "命令成功但未返回任何快照内容 (JSON 为空)")
+                    return emptyList()
+                }
+
+                // 解析快照列表
+                val snapshots = json.decodeFromString<List<ResticSnapshot>>(jsonStr)
+                Log.d(TAG, "成功获取 ${snapshots.size} 个快照，开始解析文件标签...")
+
+                val files = mutableListOf<ResticBackupFiles>()
+                snapshots.forEach { snapshot ->
+                    snapshot.tags.forEach { tag ->
+                        val parts = tag.split("-")
+                        // 预期的标签格式: mediaName-timestamp-filesbackup/filesconfig
+                        if (parts.size >= 3) {
+                            try {
+                                val mediaName = parts.dropLast(2).joinToString("-")
+                                val timestamp = parts.last().toLongOrNull() ?: 0L
+                                val dataType = when (parts.last()) {
+                                    "filesbackup" -> DataType.PACKAGE_MEDIA
+                                    "filesconfig" -> DataType.PACKAGE_CONFIG
+                                    else -> null
+                                }
+
+
+                                if (dataType != null) {
+                                    val fullPath = snapshot.paths.firstOrNull() ?: ""
+                                    files.add(
+                                        ResticBackupFiles(
+                                            mediaName = mediaName,
+                                            fullPath = fullPath,
+                                            timestamp = timestamp,
+                                            dataType = dataType,
+                                            snapshotId = snapshot.id,
+                                            snapshotTime = snapshot.time,
+                                            tags = snapshot.tags
+                                        )
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "解析文件标签出错: $tag", e)
+                            }
+                        }
+                    }
+                }
+                Log.d(TAG, "最终成功提取出 ${files.size} 个文件备份项")
+                files
+            } else {
+                Log.e(TAG, "Restic 查询失败 (Exit Code: ${result.code})")
+                Log.e(TAG, "错误输出: ${result.err.joinToString("\n")}")
+                emptyList()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "listBackedUpFilesFromS3 发生严重异常", e)
+            emptyList()
+        }
     }
 
     /**

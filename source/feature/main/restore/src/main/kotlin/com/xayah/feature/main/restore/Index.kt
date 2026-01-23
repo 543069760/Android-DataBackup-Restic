@@ -170,7 +170,15 @@ fun PageRestore() {
                 leadingIcon = ImageVector.vectorResource(id = R.drawable.ic_rounded_folder_open),
                 interactionSource = filesInteractionSource,
             ) {
-                navController.navigateSingle(MainRoutes.ResticFilesRestore.route)
+                // 根据存储类型选择不同的导航路径
+                val route = if (uiState.storageIndex == 1) {
+                    // 云端文件恢复
+                    MainRoutes.CloudFilesRestore.getRoute(uiState.cloudEntity?.name ?: "")
+                } else {
+                    // 本地文件恢复
+                    MainRoutes.ResticFilesRestore.route
+                }
+                navController.navigateSingle(route)
             }
 
             Title(title = stringResource(id = R.string.advanced)) {

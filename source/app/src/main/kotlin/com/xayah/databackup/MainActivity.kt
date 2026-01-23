@@ -22,7 +22,9 @@ import com.xayah.core.ui.util.LocalNavController
 import com.xayah.core.util.command.BaseUtil
 import com.xayah.core.util.decodeURL
 import com.xayah.feature.main.cloud.PageCloud
+import com.xayah.feature.main.restore.CloudFilesRestorePage
 import com.xayah.feature.main.restore.CloudRestorePage
+import com.xayah.feature.main.restore.CloudFilesBackupDetailPage
 import com.xayah.feature.main.cloud.add.PageCloudAddAccount
 import com.xayah.feature.main.cloud.add.PageFTPSetup
 import com.xayah.feature.main.cloud.add.PageSFTPSetup
@@ -310,6 +312,47 @@ class MainActivity : AppCompatActivity() {
                                 // 参数获取失败，返回上一页
                                 navController.popBackStack()
                             }
+                        }
+
+                        composable(
+                            route = MainRoutes.CloudFilesBackupDetail.route,
+                            arguments = listOf(
+                                navArgument(MainRoutes.ARG_GROUP) { type = NavType.StringType },
+                                navArgument(MainRoutes.ARG_ACCOUNT_NAME) { type = NavType.StringType }
+                            )
+                        ) { backStackEntry ->
+                            val groupJsonEncoded = backStackEntry.arguments?.getString(MainRoutes.ARG_GROUP)
+                            val accountName = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME) ?: ""
+
+                            val group = groupJsonEncoded?.let { encodedJson ->
+                                try {
+                                    val groupJsonDecoded = URLDecoder.decode(encodedJson, "UTF-8")
+                                    val decodedGroup = Json.decodeFromString<ResticFileBackupGroup>(groupJsonDecoded)
+                                    decodedGroup
+                                } catch (e: Exception) {
+                                    Log.e("MainActivity", "Failed to decode CloudFilesBackupDetail: ${e.message}", e)
+                                    null
+                                }
+                            }
+
+                            group?.let {
+                                CloudFilesBackupDetailPage(navController = navController, group = it, accountName = accountName)
+                            } ?: run {
+                                navController.popBackStack()
+                            }
+                        }
+
+                        composable(
+                            route = MainRoutes.CloudFilesRestore.route,
+                            arguments = listOf(
+                                navArgument(MainRoutes.ARG_ACCOUNT_NAME) {
+                                    type = NavType.StringType
+                                    nullable = false
+                                }
+                            )
+                        ) { backStackEntry ->
+                            val accountName = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME)?.decodeURL() ?: ""
+                            CloudFilesRestorePage(navController = navController, accountName = accountName)
                         }
 
                         composable(MainRoutes.Reload.route) {

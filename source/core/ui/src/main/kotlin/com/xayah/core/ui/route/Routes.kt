@@ -104,6 +104,15 @@ sealed class MainRoutes(val route: String) {
         fun getRoute(cloudName: String = encodedURLWithSpace, backupDir: String = encodedURLWithSpace, packageName: String = encodedURLWithSpace) = "main_packages_restore_processing_graph/${cloudName}/${backupDir}/${packageName}"
     }
 
+    data object CloudFilesBackupDetail : MainRoutes(route = "main_cloud_files_backup_detail?${ARG_GROUP}={${ARG_GROUP}}&${ARG_ACCOUNT_NAME}={${ARG_ACCOUNT_NAME}}") {
+        fun getRoute(groupJsonEncoded: String, accountName: String) =
+            "main_cloud_files_backup_detail?${ARG_GROUP}=${groupJsonEncoded}&${ARG_ACCOUNT_NAME}=${accountName}"
+    }
+
+    data object CloudFilesRestore : MainRoutes(route = "main_cloud_files_restore?{$ARG_ACCOUNT_NAME}={$ARG_ACCOUNT_NAME}") {
+        fun getRoute(accountName: String) = "main_cloud_files_restore?${ARG_ACCOUNT_NAME}=${accountName}"
+    }
+
     data object MediumBackupProcessing : MainRoutes(route = "main_medium_backup_processing")
     data object MediumBackupProcessingSetup : MainRoutes(route = "main_medium_backup_processing_setup")
     data object MediumBackupProcessingGraph : MainRoutes(route = "main_medium_backup_processing_graph")

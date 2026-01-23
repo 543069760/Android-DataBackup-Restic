@@ -1,7 +1,6 @@
 package com.xayah.core.service.medium.backup
 
 import android.util.Log
-import android.annotation.SuppressLint
 import com.xayah.core.common.util.toLineString
 import com.xayah.core.datastore.readBackupConfigs
 import com.xayah.core.datastore.readBackupItself
@@ -18,22 +17,23 @@ import com.xayah.core.model.database.MediaEntity
 import com.xayah.core.model.database.ProcessingInfoEntity
 import com.xayah.core.model.database.TaskDetailMediaEntity
 import com.xayah.core.model.util.set
-import com.xayah.core.restic.ResticRepository
 import com.xayah.core.service.R
 import com.xayah.core.service.medium.AbstractMediumService
 import com.xayah.core.service.util.MediumBackupUtil
 import com.xayah.core.util.DateUtil
 import com.xayah.core.util.NotificationUtil
 import com.xayah.core.util.PathUtil
-import com.xayah.core.datastore.readResticPassword
+import com.xayah.core.restic.ResticRepository
 import com.xayah.core.datastore.readResticRepoPath
+import com.xayah.core.datastore.readResticPassword
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.io.File
 
+@AndroidEntryPoint
 internal abstract class AbstractBackupService : AbstractMediumService() {
     protected var mBackupTimestamp: Long = 0L
 
@@ -74,7 +74,6 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
         }
     }
 
-    @SuppressLint("StringFormatInvalid")
     override suspend fun onInitializing() {
         // 生成本次备份的统一时间戳
         mBackupTimestamp = DateUtil.getTimestamp()
@@ -97,87 +96,85 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
         NotificationUtil.notify(mContext, mNotificationBuilder, mContext.getString(R.string.backing_up), mContext.getString(R.string.preprocessing))
     }
 
-    // 辅助方法：查找压缩文件
-    private fun findCompressedFile(dstDir: String): File? {
-        val tarFile = File("$dstDir/media.tar")
-        val configFile = File("$dstDir/media_restore_config.json")
-
-        Log.d(mTAG, "检查tar文件: ${tarFile.absolutePath}, 存在: ${tarFile.exists()}")
-        Log.d(mTAG, "检查配置文件: ${configFile.absolutePath}, 存在: ${configFile.exists()}")
-
-        return if (tarFile.exists() && configFile.exists()) {
-            Log.d(mTAG, "两个文件都存在，返回tar文件进行Restic备份")
-            tarFile
-        } else {
-            Log.d(mTAG, "文件缺失，跳过Restic备份")
-            null
-        }
-    }
-
-
-    // 获取 Restic 仓库路径
+    // Restic 辅助方法：获取仓库路径
     protected suspend fun getResticRepoPath(): String {
-        // 从 DataStore 读取用户配置的路径，与 ResticViewModel 保持一致
         return mContext.readResticRepoPath() ?: File(mFilesDir, "restic_repo").absolutePath
     }
 
-    // 获取 Restic 密码（基于时间戳）
+    // Restic 辅助方法：生成密码
     protected suspend fun getResticPassword(): String {
-        // 从 DataStore 读取用户配置的密码，如果没有则使用默认值
         return mContext.readResticPassword() ?: "backup_${mBackupTimestamp}"
     }
 
-    // Restic 备份方法 - 更新为无状态调用
-    protected suspend fun backupWithRestic(mediaName: String, compressedFile: File): Boolean {
-        Log.d("ResticFlow", "=== 开始Restic备份: $mediaName ===")
-
+    // Restic 无状态备份方法 - 支持DataType参数
+    protected suspend fun backupWithRestic(
+        mediaName: String,
+        compressedFile: File,
+        dataType: DataType
+    ): Boolean {
+        Log.d("ResticFlow", "backupWithRestic() ENTRY - mediaName: $mediaName, file: ${compressedFile.absolutePath}, type: $dataType")
         val repoPath = getResticRepoPath()
         val password = getResticPassword()
 
-        Log.d("ResticFlow", "Restic仓库路径: $repoPath")
-        Log.d("ResticFlow", "备份文件: ${compressedFile.absolutePath}")
-        Log.d("ResticFlow", "备份时间戳: $mBackupTimestamp")
-
+        // 动态检查仓库是否已初始化
         if (!resticRepo.checkRepository(repoPath, password)) {
-            Log.w("ResticFlow", "Restic仓库未初始化，跳过备份: $mediaName")
+            log { "Restic repository not initialized, skipping backup for $mediaName" }
             return false
         }
 
-        Log.d("ResticFlow", "Restic仓库已初始化，开始备份...")
-
         return try {
             val filePath = compressedFile.absolutePath
-            val tag = "$mediaName-$mBackupTimestamp"
+            // 根据文件类型确定标签后缀
+            val tagSuffix = when (dataType) {
+                DataType.PACKAGE_MEDIA -> "filesbackup"
+                DataType.PACKAGE_CONFIG -> "filesconfig"
+                else -> "filesbackup"
+            }
+
+            // 新的文件备份标签格式：mediaName-timestamp-filesbackup/filesconfig
+            val tag = "$mediaName-$mBackupTimestamp-$tagSuffix"
             val tags = listOf(tag)
 
-            Log.d("ResticFlow", "Restic标签: $tag")
-            Log.d("ResticFlow", "执行restic backup命令...")
-
+            log { "Starting Restic backup for $mediaName with tag: $tag" }
             val result = resticRepo.backupWithResticToLocal(repoPath, password, filePath, tags)
 
-            Log.d("ResticFlow", "Restic命令退出码: ${result.first}")
-            Log.d("ResticFlow", "Restic命令输出: ${result.second}")
-
             if (result.first == 0) {
-                Log.d("ResticFlow", "Restic备份成功: $mediaName")
-                updateResticInfo(mediaName, result.second)
+                log { "Restic backup completed successfully for $mediaName" }
+                val snapshotId = extractSnapshotIdFromJson(result.second)
+                if (snapshotId != null) {
+                    updateResticInfo(mediaName, snapshotId, dataType)
+                } else {
+                    Log.e("ResticFlow", "Failed to extract snapshot ID from: ${result.second}")
+                }
                 true
             } else {
-                Log.e("ResticFlow", "Restic备份失败: $mediaName, 错误: ${result.second}")
+                val errorMsg = result.second
+                log { "Restic backup failed for $mediaName: $errorMsg" }
                 false
             }
         } catch (e: Exception) {
-            Log.e("ResticFlow", "Restic备份异常: $mediaName")
-            Log.e("ResticFlow", "异常类型: ${e.javaClass.simpleName}")
-            Log.e("ResticFlow", "异常信息: ${e.message}")
+            val baseMessage = "Error during Restic backup"
+            log { "$baseMessage for $mediaName" }
+            log { "Exception type: ${e.javaClass.simpleName}" }
+            log { "Exception message: ${e.message}" }
             false
         }
     }
 
     // 更新 Restic 信息到数据库
-    protected open suspend fun updateResticInfo(mediaName: String, snapshotInfo: String) {
-        log { "Updated Restic info for $mediaName: $snapshotInfo" }
+    protected open suspend fun updateResticInfo(mediaName: String, snapshotId: String, dataType: DataType) {
+        log { "Updated Restic info for $mediaName ($dataType): snapshotId=$snapshotId" }
     }
+
+    // 从JSON输出中提取快照ID
+    private fun extractSnapshotIdFromJson(jsonOutput: String): String? {
+        return jsonOutput.lines()
+            .find { it.contains("\"message_type\":\"summary\"") }
+            ?.let { line ->
+                Regex("\"snapshot_id\":\"([^\"]+)\"").find(line)?.groupValues?.get(1)
+            }
+    }
+
     protected open suspend fun onTargetDirsCreated() {}
     protected open suspend fun onFileDirCreated(archivesRelativeDir: String): Boolean = true
     abstract suspend fun backup(m: MediaEntity, r: MediaEntity?, t: TaskDetailMediaEntity, dstDir: String)
@@ -187,6 +184,7 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
     protected open suspend fun clear() {}
     protected open suspend fun onCleanupFailedBackup(archivesRelativeDir: String) {}
     override suspend fun onCleanupIncompleteBackup(currentIndex: Int) {}
+
     protected abstract val mMediumBackupUtil: MediumBackupUtil
 
     override suspend fun onPreprocessing(entity: ProcessingInfoEntity) {
@@ -203,13 +201,12 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
 
     override suspend fun onProcessing() {
         mTaskEntity.update(rawBytes = mTaskRepo.getRawBytes(TaskType.MEDIA), availableBytes = mTaskRepo.getAvailableBytes(OpType.BACKUP), totalBytes = mTaskRepo.getTotalBytes(OpType.BACKUP), totalCount = mMediaEntities.size)
-        Log.d(mTAG, "Task count: ${mMediaEntities.size}.")
+        log { "Task count: ${mMediaEntities.size}." }
 
         for (index in mMediaEntities.indices) {
-            // 1. 循环开始时检查取消标志
             if (isCanceled()) {
-                Log.d(mTAG, "Backup canceled by user at media index: $index")
-                break  // 直接退出循环
+                log { "Backup canceled by user at media index: $index" }
+                break
             }
 
             val media = mMediaEntities[index]
@@ -222,7 +219,7 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                     mMediaEntities.size,
                     index
                 )
-                Log.d(mTAG, "Current media: ${media.mediaEntity}")
+                log { "Current media: ${media.mediaEntity}" }
 
                 media.update(state = OperationState.PROCESSING)
                 val m = media.mediaEntity
@@ -234,7 +231,7 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                     // 执行备份
                     backup(m = m, r = restoreEntity, t = media, dstDir = dstDir)
 
-                    // 只有在未取消且备份成功时才保存配置
+                    // 只有在未取消且备份成功时才保存配置和进行Restic备份
                     if (media.isSuccess) {
                         // 保存配置文件和创建恢复记录
                         m.extraInfo.lastBackupTime = DateUtil.getTimestamp()
@@ -251,19 +248,19 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                         mMediaDao.upsert(m)
                         media.update(mediaEntity = m)
 
-                        // 新增：双文件Restic备份
+                        // 双文件Restic备份
                         val tarFile = File("$dstDir/media.tar")
                         val configFile = File("$dstDir/media_restore_config.json")
 
                         if (tarFile.exists() && configFile.exists()) {
                             Log.d("ResticFlow", "两个文件都存在，开始Restic备份: ${m.name}")
 
-                            // 备份tar文件
-                            val tarSuccess = backupWithRestic("${m.name}-media", tarFile)
+                            // 备份tar文件 - 使用新的标签格式
+                            val tarSuccess = backupWithRestic("${m.name}-filesbackup", tarFile, DataType.PACKAGE_MEDIA)
                             Log.d("ResticFlow", "tar文件Restic备份结果: $tarSuccess")
 
-                            // 备份配置文件
-                            val configSuccess = backupWithRestic("${m.name}-config", configFile)
+                            // 备份配置文件 - 使用新的标签格式
+                            val configSuccess = backupWithRestic("${m.name}-filesconfig", configFile, DataType.PACKAGE_CONFIG)
                             Log.d("ResticFlow", "配置文件Restic备份结果: $configSuccess")
                         } else {
                             Log.d("ResticFlow", "文件缺失，跳过Restic备份")
@@ -271,12 +268,11 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
 
                         mTaskEntity.update(successCount = mTaskEntity.successCount + 1)
                     } else {
-                        // 备份失败,清理已上传的文件
-                        Log.d(mTAG, "Backup failed for ${m.name}, cleaning up remote files...")
+                        log { "Backup failed for ${m.name}, cleaning up remote files..." }
                         runCatching {
                             onCleanupFailedBackup(archivesRelativeDir = m.archivesRelativeDir)
                         }.onFailure { e ->
-                            Log.e(mTAG, "Failed to cleanup remote files: ${e.message}")
+                            log { "Failed to cleanup remote files: ${e.message}" }
                         }
                         mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
                     }
@@ -287,10 +283,9 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                 }
             }
 
-            // 2. 备份完成后检查取消标志(在保存配置前)
             if (isCanceled()) {
-                Log.d(mTAG, "Backup canceled after media backup, skipping remaining items")
-                break  // 退出循环
+                log { "Backup canceled after media backup, skipping remaining items" }
+                break
             }
 
             mTaskEntity.update(processingIndex = mTaskEntity.processingIndex + 1)
