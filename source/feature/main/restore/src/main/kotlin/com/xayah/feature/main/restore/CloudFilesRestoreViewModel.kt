@@ -114,17 +114,19 @@ class CloudFilesRestoreViewModel @Inject constructor(
 
                 Log.d(TAG, "开始分组文件备份")
                 val groupedBackups = files
-                    .groupBy { "${it.mediaName}-${it.timestamp}" }
-                    .map { entry ->
-                        val key = entry.key
-                        val backupsInGroup = entry.value
-                        Log.d(TAG, "处理分组: $key, 包含 ${backupsInGroup.size} 个备份项")
+                    .groupBy {
+                        // 提取前缀路径（去掉最后一层），与本地版本保持一致
+                        val prefixPath = it.fullPath.substringBeforeLast("/")
+                        Triple(it.mediaName, prefixPath, it.timestamp)
+                    }
+                    .map { (groupKey, backupsInGroup) ->
+                        val (mediaName, prefixPath, timestamp) = groupKey
+                        Log.d(TAG, "处理分组: $mediaName-$prefixPath-$timestamp, 包含 ${backupsInGroup.size} 个备份项")
 
-                        val first = backupsInGroup.first()
                         val group = ResticFileBackupGroup(
-                            mediaName = first.mediaName,
-                            fullPath = first.fullPath,
-                            timestamp = first.timestamp,
+                            mediaName = mediaName,
+                            fullPath = prefixPath, // 使用前缀路径，与本地版本保持一致
+                            timestamp = timestamp,
                             backups = backupsInGroup.sortedBy { backup ->
                                 when (backup.dataType) {
                                     DataType.PACKAGE_MEDIA -> 0
@@ -132,7 +134,7 @@ class CloudFilesRestoreViewModel @Inject constructor(
                                     else -> 2
                                 }
                             },
-                            mediaLabel = first.mediaName
+                            mediaLabel = mediaName
                         )
                         Log.d(TAG, "创建备份组: ${group.mediaName}, 时间戳: ${group.timestamp}, 备份数量: ${group.backups.size}")
                         group

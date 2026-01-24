@@ -310,8 +310,8 @@ class ResticRepository @Inject constructor(
                 val parts = tag.split("-")
                 if (parts.size >= 3) {
                     val mediaName = parts.dropLast(2).joinToString("-")
-                    val timestamp = parts.last().toLongOrNull() ?: 0L
-                    val dataType = when (parts[parts.size - 2]) {
+                    val timestamp = parts[parts.size - 2].toLongOrNull() ?: 0L
+                    val dataType = when (parts.last()) {
                         "filesbackup" -> DataType.PACKAGE_MEDIA
                         "filesconfig" -> DataType.PACKAGE_CONFIG
                         else -> null
@@ -437,7 +437,7 @@ class ResticRepository @Inject constructor(
                         if (parts.size >= 3) {
                             try {
                                 val mediaName = parts.dropLast(2).joinToString("-")
-                                val timestamp = parts.last().toLongOrNull() ?: 0L
+                                val timestamp = parts[parts.size - 2].toLongOrNull() ?: 0L
                                 val dataType = when (parts.last()) {
                                     "filesbackup" -> DataType.PACKAGE_MEDIA
                                     "filesconfig" -> DataType.PACKAGE_CONFIG

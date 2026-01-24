@@ -88,9 +88,27 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
     override suspend fun restore(m: MediaEntity, t: TaskDetailMediaEntity, srcDir: String) {
         if (m.path.isEmpty()) {
             t.update(state = OperationState.ERROR, log = "Path is empty.")
-        } else {
-            mMediumRestoreUtil.restoreMedia(m = m, t = t, srcDir = srcDir)
+            return
         }
+
+        // 修正源目录路径，确保在Restic恢复场景下使用restore子目录
+        val actualSrcDir = if (srcDir.contains("/files/") && !srcDir.contains("/restore/")) {
+            val correctedDir = srcDir.replace("/files/", "/restore/files/")
+            Log.d(mTAG, "修正源目录路径: $srcDir -> $correctedDir")
+            correctedDir
+        } else {
+            srcDir
+        }
+
+        // 验证文件存在性
+        val mediaFile = File("$actualSrcDir/media.tar")
+        if (!mediaFile.exists()) {
+            Log.e(mTAG, "MEDIA Not exist: ${mediaFile.absolutePath}")
+            t.update(state = OperationState.ERROR, log = "MEDIA Not exist: ${mediaFile.absolutePath}")
+            return
+        }
+
+        mMediumRestoreUtil.restoreMedia(m = m, t = t, srcDir = actualSrcDir)
         t.update(progress = 1f)
         t.update(processingIndex = t.processingIndex + 1)
     }

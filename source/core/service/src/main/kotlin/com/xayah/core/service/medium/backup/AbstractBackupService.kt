@@ -199,6 +199,14 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
         }
     }
 
+    /**
+     * 备份config文件到云端
+     */
+    protected open suspend fun backupConfigToCloud(configFile: File, media: MediaEntity): Boolean {
+        // 默认实现为空，由BackupServiceCloudImpl重写
+        return true
+    }
+
     override suspend fun onProcessing() {
         mTaskEntity.update(rawBytes = mTaskRepo.getRawBytes(TaskType.MEDIA), availableBytes = mTaskRepo.getAvailableBytes(OpType.BACKUP), totalBytes = mTaskRepo.getTotalBytes(OpType.BACKUP), totalCount = mMediaEntities.size)
         log { "Task count: ${mMediaEntities.size}." }
@@ -256,14 +264,37 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                             Log.d("ResticFlow", "两个文件都存在，开始Restic备份: ${m.name}")
 
                             // 备份tar文件 - 使用新的标签格式
-                            val tarSuccess = backupWithRestic("${m.name}-filesbackup", tarFile, DataType.PACKAGE_MEDIA)
+                            val tarSuccess = backupWithRestic(m.name, tarFile, DataType.PACKAGE_MEDIA)
                             Log.d("ResticFlow", "tar文件Restic备份结果: $tarSuccess")
 
                             // 备份配置文件 - 使用新的标签格式
-                            val configSuccess = backupWithRestic("${m.name}-filesconfig", configFile, DataType.PACKAGE_CONFIG)
+                            val configSuccess = backupWithRestic(m.name, configFile, DataType.PACKAGE_CONFIG)
                             Log.d("ResticFlow", "配置文件Restic备份结果: $configSuccess")
+
+                            // 检查Restic备份是否都成功
+                            if (!tarSuccess || !configSuccess) {
+                                Log.e("ResticFlow", "Restic备份失败，标记为错误状态")
+                                media.update(state = OperationState.ERROR)
+                                mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
+                                return@executeAtLeast
+                            }
+
+                            // S3云端config文件备份
+                            if (mTaskEntity.cloud.isNotEmpty()) {
+                                val cloudConfigSuccess = backupConfigToCloud(configFile, m)
+                                if (!cloudConfigSuccess) {
+                                    Log.e("ResticFlow", "云端config文件备份失败")
+                                    media.update(state = OperationState.ERROR)
+                                    mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
+                                    return@executeAtLeast
+                                }
+                            }
                         } else {
-                            Log.d("ResticFlow", "文件缺失，跳过Restic备份")
+                            Log.e("ResticFlow", "必需文件缺失，备份失败")
+                            Log.e("ResticFlow", "tar文件存在: ${tarFile.exists()}, 配置文件存在: ${configFile.exists()}")
+                            media.update(state = OperationState.ERROR)
+                            mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
+                            return@executeAtLeast
                         }
 
                         mTaskEntity.update(successCount = mTaskEntity.successCount + 1)

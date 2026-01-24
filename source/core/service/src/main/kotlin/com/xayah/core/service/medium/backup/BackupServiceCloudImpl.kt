@@ -125,9 +125,8 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
             }
 
             if (result.isSuccess && t.mediaInfo.state != OperationState.SKIP) {
-                // 查找压缩文件和配置文件
+                // 查找压缩文件
                 val compressedFile = findCompressedFile(dstDir)
-                val configFile = findConfigFile(dstDir)
 
                 if (compressedFile != null) {
                     Log.d(mTAG, "Found compressed file: ${compressedFile.absolutePath}")
@@ -139,7 +138,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                                 Log.d(mTAG, "Using Restic S3 backup for ${m.name}")
                                 val s3Extra = json.decodeFromString<S3Extra>(mCloudEntity.extra)
 
-                                // 备份媒体文件
+                                // 只备份媒体文件
                                 val mediaSuccess = backupFileWithResticToS3(
                                     mediaName = m.name,
                                     compressedFile = compressedFile,
@@ -148,22 +147,12 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                                     remotePath = "${m.archivesRelativeDir}"
                                 )
 
-                                // 备份配置文件
-                                var configSuccess = true
-                                if (configFile != null) {
-                                    configSuccess = backupFileWithResticToS3(
-                                        mediaName = m.name,
-                                        compressedFile = configFile,
-                                        dataType = DataType.PACKAGE_CONFIG,
-                                        s3Extra = s3Extra,
-                                        remotePath = "${m.archivesRelativeDir}"
-                                    )
-                                }
-
-                                if (mediaSuccess && configSuccess) {
+                                if (mediaSuccess) {
                                     Log.d(mTAG, "Restic S3 backup successful for ${m.name}")
                                 } else {
                                     Log.e(mTAG, "Restic S3 backup failed for ${m.name}")
+                                    t.update(state = OperationState.ERROR, log = "S3 Restic备份失败")
+                                    return
                                 }
                             }
                             CloudType.FTP -> {
@@ -229,6 +218,24 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
             Log.e(mTAG, "Backup failed for ${m.name}", e)
             t.update(state = OperationState.ERROR, log = e.message)
             throw e
+        }
+    }
+
+    override suspend fun backupConfigToCloud(configFile: File, media: MediaEntity): Boolean {
+        return try {
+            val s3Extra = json.decodeFromString<S3Extra>(mCloudEntity.extra)
+            val configSuccess = backupFileWithResticToS3(
+                mediaName = media.name,
+                compressedFile = configFile,
+                dataType = DataType.PACKAGE_CONFIG,
+                s3Extra = s3Extra,
+                remotePath = "${media.archivesRelativeDir}"
+            )
+            Log.d(mTAG, "云端config文件备份结果: $configSuccess")
+            configSuccess
+        } catch (e: Exception) {
+            Log.e(mTAG, "云端config文件备份异常", e)
+            false
         }
     }
 
