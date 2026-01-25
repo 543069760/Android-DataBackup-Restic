@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="manage_external_storage_permission">管理所有文件权限</string>
+    <string name="manage_external_storage_permission_desc">用于访问和管理设备上的所有文件，确保备份和恢复功能正常工作</string>
+    <string name="battery_optimization_permission">电池优化白名单</string>
+    <string name="battery_optimization_permission_desc">将应用加入电池优化白名单，确保备份和恢复服务在后台稳定运行</string>
+    <string name="go_to_settings">前往设置</string>
+    <string name="permission_granted">权限已授予</string>
+    <string name="permission_not_granted">权限未授予</string>
+    <string name="_continue">继续</string>
+</resources>

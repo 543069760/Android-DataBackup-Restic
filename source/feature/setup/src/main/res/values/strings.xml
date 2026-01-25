@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+<string name="manage_external_storage_permission">Manage All Files Permission</string>
+<string name="manage_external_storage_permission_desc">Used to access and manage all files on the device, ensuring backup and restore functions work properly</string>
+<string name="battery_optimization_permission">Battery Optimization Whitelist</string>
+<string name="battery_optimization_permission_desc">Add the app to the battery optimization whitelist to ensure backup and restore services run stably in the background</string>
+<string name="go_to_settings">Go to Settings</string>
+<string name="permission_granted">Permission Granted</string>
+<string name="permission_not_granted">Permission Not Granted</string>
+</resources>

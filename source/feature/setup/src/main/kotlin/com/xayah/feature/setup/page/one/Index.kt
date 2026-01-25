@@ -1,5 +1,9 @@
 package com.xayah.feature.setup.page.one
 
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +55,8 @@ fun PageOne() {
     val rootState by viewModel.rootState.collectAsStateWithLifecycle()
     val abiState by viewModel.abiState.collectAsStateWithLifecycle()
     val notificationState by viewModel.notificationState.collectAsStateWithLifecycle()
+    val manageExternalStorageState by viewModel.manageExternalStorageState.collectAsStateWithLifecycle()
+    val batteryOptimizationState by viewModel.batteryOptimizationState.collectAsStateWithLifecycle()
     val allRequiredValidated by viewModel.allRequiredValidated.collectAsStateWithLifecycle()
     val allOptionalValidated by viewModel.allOptionalValidated.collectAsStateWithLifecycle()
     val dialogState = LocalSlotScope.current!!.dialogSlot
@@ -68,6 +74,8 @@ fun PageOne() {
                             viewModel.emitIntent(IndexUiIntent.ValidateRoot)
                             viewModel.emitIntent(IndexUiIntent.ValidateAbi)
                             viewModel.emitIntent(IndexUiIntent.ValidateNotification(context = context))
+                            viewModel.emitIntent(IndexUiIntent.ValidateManageExternalStorage)
+                            viewModel.emitIntent(IndexUiIntent.ValidateBatteryOptimization)
                         }
                     }
                 ) {
@@ -85,8 +93,7 @@ fun PageOne() {
             verticalArrangement = Arrangement.spacedBy(SizeTokens.Level24)
         ) {
             Column(
-                modifier = Modifier
-                    .paddingTop(SizeTokens.Level100),
+                modifier = Modifier.paddingTop(SizeTokens.Level100),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 AppIcon()
@@ -109,24 +116,18 @@ fun PageOne() {
                                 label = context.getString(R.string.name),
                                 desc = context.getString(R.string.restart_to_take_effect)
                             )
-                            if (state.isConfirm) {
-                                context.saveCustomSUFile(su)
-                            }
+                            if (state.isConfirm) context.saveCustomSUFile(su)
                         }
                     }
                 ) {
-                    viewModel.launchOnIO {
-                        viewModel.emitIntent(IndexUiIntent.ValidateRoot)
-                    }
+                    viewModel.launchOnIO { viewModel.emitIntent(IndexUiIntent.ValidateRoot) }
                 }
                 PermissionButton(
                     title = stringResource(id = R.string.abi_validation),
                     desc = uiState.abiErr.ifEmpty { context.getString(R.string.abi_validation_desc) },
                     envState = abiState,
                 ) {
-                    viewModel.launchOnIO {
-                        viewModel.emitIntent(IndexUiIntent.ValidateAbi)
-                    }
+                    viewModel.launchOnIO { viewModel.emitIntent(IndexUiIntent.ValidateAbi) }
                 }
             }
 
@@ -136,9 +137,44 @@ fun PageOne() {
                     desc = stringResource(id = R.string.notification_permission_desc),
                     envState = notificationState,
                 ) {
-                    viewModel.launchOnIO {
-                        viewModel.emitIntent(IndexUiIntent.ValidateNotification(context = context))
+                    viewModel.launchOnIO { viewModel.emitIntent(IndexUiIntent.ValidateNotification(context = context)) }
+                }
+
+                PermissionButton(
+                    title = stringResource(id = R.string.manage_external_storage_permission),
+                    desc = stringResource(id = R.string.manage_external_storage_permission_desc),
+                    envState = manageExternalStorageState,
+                    onSetting = {
+                        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            // 这种方式会直接打开属于你应用的那个开关页，而不是列表页
+                            Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                data = Uri.parse("package:${context.packageName}")
+                            }
+                        } else {
+                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = Uri.parse("package:${context.packageName}")
+                            }
+                        }
+                        runCatching { context.startActivity(intent) }.onFailure {
+                            // 备用方案：万一某些魔改系统不支持直达，回退到列表页
+                            val fallbackIntent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+                            context.startActivity(fallbackIntent)
+                        }
                     }
+                ) {
+                    viewModel.launchOnIO { viewModel.emitIntent(IndexUiIntent.ValidateManageExternalStorage) }
+                }
+
+                PermissionButton(
+                    title = stringResource(id = R.string.battery_optimization_permission),
+                    desc = stringResource(id = R.string.battery_optimization_permission_desc),
+                    envState = batteryOptimizationState,
+                    onSetting = {
+                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply { data = Uri.parse("package:${context.packageName}") }
+                        context.startActivity(intent)
+                    }
+                ) {
+                    viewModel.launchOnIO { viewModel.emitIntent(IndexUiIntent.ValidateBatteryOptimization) }
                 }
             }
         }
