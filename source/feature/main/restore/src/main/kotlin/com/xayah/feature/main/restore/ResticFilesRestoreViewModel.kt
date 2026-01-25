@@ -254,18 +254,28 @@ class ResticFilesRestoreViewModel @Inject constructor(
         try {
             Log.d("ResticFilesRestore", "=== 开始计算激活媒体的大小 ===")
             val backupDir = "${context.localBackupSaveDir()}/restore/"
-            // 修改：只查询激活的媒体，与第二阶段保持一致
             val activatedMedia = mediaDao.queryActivated(OpType.RESTORE, "", backupDir)
 
             Log.d("ResticFilesRestore", "找到 ${activatedMedia.size} 个已激活媒体")
             activatedMedia.forEach { media ->
-                Log.d("ResticFilesRestore", "计算媒体大小: ${media.name}")
-                filesRepo.calculateLocalFileArchiveSize(media)
+                Log.d("ResticFilesRestore", "计算媒体大小: ${media.name}, 路径: ${media.path}")
+
+                // 直接计算实际恢复文件的大小
+                val mediaFile = File("${backupDir}files/${media.name}/media.tar")
+                Log.d("ResticFilesRestore", "媒体文件存在: ${mediaFile.exists()}, 大小: ${mediaFile.length()}")
+
+                if (mediaFile.exists()) {
+                    media.mediaInfo.displayBytes = mediaFile.length()
+                    mediaDao.upsert(media)
+                    Log.d("ResticFilesRestore", "大小计算完成: ${media.displayStatsBytes}")
+                } else {
+                    Log.w("ResticFilesRestore", "媒体文件不存在: ${mediaFile.absolutePath}")
+                }
             }
 
             Log.d("ResticFilesRestore", "=== 激活媒体大小计算完成 ===")
         } catch (e: Exception) {
-            Log.e("ResticFilesRestore", "计算媒体大小失败", e)
+            Log.e("ResticFilesRestore", "计算大小失败", e)
         }
     }
 
@@ -305,43 +315,72 @@ class ResticFilesRestoreViewModel @Inject constructor(
     }
 
     fun loadBackedUpFiles() {
+        Log.d("ResticFilesRestore", "=== loadBackedUpFiles 开始 ===")
+
         viewModelScope.launch {
+            val startTime = System.currentTimeMillis()
             _uiState.value = ResticFilesRestoreUiState.Loading
-
-            val repoPath = context.readResticRepoPath()
-            val password = context.readResticPassword()
-
-            if (repoPath.isNullOrEmpty() || password.isNullOrEmpty()) {
-                _uiState.value = ResticFilesRestoreUiState.Error("Restic not configured")
-                return@launch
-            }
+            Log.d("ResticFilesRestore", "UI状态设置为Loading")
 
             try {
-                val files = resticRepo.listBackedUpFiles(repoPath, password)
+                Log.d("ResticFilesRestore", "读取本地 Restic 配置")
+                val repoPath = context.readResticRepoPath()
+                val password = context.readResticPassword()
 
-                // 按媒体名称+前缀路径+时间戳分组
-                val groupedByPath = files
+                if (repoPath.isNullOrEmpty() || password.isNullOrEmpty()) {
+                    Log.e("ResticFilesRestore", "Restic配置不完整")
+                    _uiState.value = ResticFilesRestoreUiState.Error("Restic not configured")
+                    return@launch
+                }
+                Log.d("ResticFilesRestore", "Restic配置读取成功")
+
+                Log.d("ResticFilesRestore", "开始调用 listBackedUpFiles")
+                val files = resticRepo.listBackedUpFiles(repoPath, password)
+                Log.d("ResticFilesRestore", "listBackedUpFiles 返回 ${files.size} 个文件备份项")
+
+                if (files.isEmpty()) {
+                    Log.w("ResticFilesRestore", "未找到任何本地文件备份")
+                    _uiState.value = ResticFilesRestoreUiState.Success(emptyList())
+                    return@launch
+                }
+
+                Log.d("ResticFilesRestore", "开始分组文件备份")
+                val groupedBackups = files
                     .groupBy {
-                        // 提取前缀路径（去掉最后一层）
                         val prefixPath = it.fullPath.substringBeforeLast("/")
                         Triple(it.mediaName, prefixPath, it.timestamp)
                     }
-                    .map { (groupKey, backups) ->
+                    .map { (groupKey, backupsInGroup) ->
                         val (mediaName, prefixPath, timestamp) = groupKey
-                        ResticFileBackupGroup(
+                        Log.d("ResticFilesRestore", "处理分组: $mediaName-$prefixPath-$timestamp, 包含 ${backupsInGroup.size} 个备份项")
+
+                        val group = ResticFileBackupGroup(
                             mediaName = mediaName,
-                            fullPath = prefixPath, // 使用前缀路径用于分组逻辑
+                            fullPath = prefixPath,
                             timestamp = timestamp,
-                            backups = backups, // 直接使用backups
+                            backups = backupsInGroup.sortedBy { backup ->
+                                when (backup.dataType) {
+                                    DataType.PACKAGE_MEDIA -> 0
+                                    DataType.PACKAGE_CONFIG -> 1
+                                    else -> 2
+                                }
+                            },
                             mediaLabel = mediaName
                         )
+                        Log.d("ResticFilesRestore", "创建备份组: ${group.mediaName}, 时间戳: ${group.timestamp}, 备份数量: ${group.backups.size}")
+                        group
                     }
                     .sortedByDescending { it.timestamp }
 
-                _uiState.value = ResticFilesRestoreUiState.Success(groupedByPath)
+                val duration = System.currentTimeMillis() - startTime
+                Log.d("ResticFilesRestore", "文件备份分组完成，共 ${groupedBackups.size} 个组，耗时: ${duration}ms")
+                _uiState.value = ResticFilesRestoreUiState.Success(groupedBackups)
+
             } catch (e: Exception) {
-                _uiState.value = ResticFilesRestoreUiState.Error(e.message ?: "Unknown error")
+                Log.e("ResticFilesRestore", "加载本地文件备份时发生异常", e)
+                _uiState.value = ResticFilesRestoreUiState.Error("加载失败: ${e.message}")
             }
         }
+        Log.d("ResticFilesRestore", "=== loadBackedUpFiles 结束 ===")
     }
 }

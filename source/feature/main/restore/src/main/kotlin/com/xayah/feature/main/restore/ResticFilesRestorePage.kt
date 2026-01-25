@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,12 +31,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.Icons.Default
-import android.content.Context
 import androidx.compose.material.icons.filled.Folder
-import com.xayah.feature.main.restore.ResticFilesRestoreViewModel
+import android.content.Context
 import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
 import com.xayah.core.ui.theme.value
 import com.xayah.core.util.DateUtil
@@ -81,7 +78,7 @@ fun ResticFileBackupGroupItem(
                 )
 
                 BodyMediumText(
-                    text = group.fullPath,  // 显示完整路径
+                    text = group.fullPath,
                     color = ThemedColorSchemeKeyTokens.Outline.value,
                     maxLines = 2
                 )
@@ -137,6 +134,9 @@ fun ResticFilesRestorePage(
                 }
 
                 is ResticFilesRestoreUiState.Success -> {
+                    // ✅ 关键修正：在 LazyColumn 外部获取 context
+                    val context = LocalContext.current
+
                     if (currentState.groups.isEmpty()) {
                         Box(
                             modifier = Modifier.fillMaxSize(),
@@ -148,19 +148,20 @@ fun ResticFilesRestorePage(
                         LazyColumn(
                             verticalArrangement = Arrangement.spacedBy(SizeTokens.Level8)
                         ) {
-                            items(
-                                currentState.groups,
-                                key = { item: ResticFileBackupGroup -> "${item.fullPath}-${item.timestamp}" }
-                            ) { group: ResticFileBackupGroup ->
+                            itemsIndexed(
+                                items = currentState.groups,
+                                // ✅ 明确 Lambda 参数名，增强编译器推断稳定性
+                                key = { index, group -> "${group.fullPath}-${group.timestamp}-$index" }
+                            ) { index, group ->
                                 ResticFileBackupGroupItem(
                                     group = group,
+                                    context = context, // ✅ 使用上面获取好的 context 变量
                                     onClick = {
                                         val groupJson = Json.encodeToString(group)
                                         val encodedJson = URLEncoder.encode(groupJson, "UTF-8")
                                         val url = MainRoutes.ResticFilesBackupDetail.getRoute(encodedJson)
                                         navController.navigateSingle(url)
-                                    },
-                                    context = LocalContext.current
+                                    }
                                 )
                             }
                         }

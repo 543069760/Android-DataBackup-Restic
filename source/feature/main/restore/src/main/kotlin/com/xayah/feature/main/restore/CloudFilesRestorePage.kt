@@ -1,6 +1,7 @@
 package com.xayah.feature.main.restore
 
 import android.util.Log
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -121,9 +122,7 @@ fun CloudFilesRestorePage(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(key1 = accountName) {
-        Log.d("CloudFilesRestore", "LaunchedEffect 触发，账户名: $accountName")
         if (accountName.isNotEmpty()) {
-            Log.d("CloudFilesRestore", "调用 viewModel.setCloudEntity")
             viewModel.setCloudEntity(accountName)
         }
     }
@@ -137,65 +136,50 @@ fun CloudFilesRestorePage(
                 .fillMaxSize()
                 .padding(SizeTokens.Level16)
         ) {
-            val currentState = uiState
-            when (currentState) {
+            when (val currentState = uiState) {
                 is CloudFilesRestoreUiState.Loading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
                 }
 
                 is CloudFilesRestoreUiState.Success -> {
+                    // ✅ 关键修正：在 LazyColumn 外部获取 context
+                    val context = LocalContext.current
+
                     if (currentState.groups.isEmpty()) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             TitleLargeText(text = "没有找到云端文件备份")
                         }
                     } else {
                         LazyColumn(
                             verticalArrangement = Arrangement.spacedBy(SizeTokens.Level8)
                         ) {
-                            items(
-                                currentState.groups,
-                                key = { item: ResticFileBackupGroup -> "${item.fullPath}-${item.timestamp}" }
-                            ) { group: ResticFileBackupGroup ->
+                            itemsIndexed(
+                                items = currentState.groups,
+                                // ✅ 明确 Lambda 参数名，增强编译器推断稳定性
+                                key = { index, group -> "${group.fullPath}-${group.timestamp}-$index" }
+                            ) { index, group ->
                                 CloudFileBackupGroupItem(
                                     group = group,
+                                    context = context, // ✅ 使用上面获取好的 context 变量
                                     onClick = {
                                         try {
-                                            Log.d("CloudFilesRestorePage", "开始处理点击事件")
-                                            Log.d("CloudFilesRestorePage", "备份项被点击: ${group.mediaName}")
-
-                                            // 1. JSON 序列化 group 对象
+                                            // 序列化逻辑...
                                             val groupJson = Json.encodeToString(group)
                                             val encodedJson = URLEncoder.encode(groupJson, "UTF-8")
-                                            Log.d("CloudFilesRestorePage", "JSON序列化成功: ${encodedJson.take(100)}...")
-
-                                            // 2. URL 编码账户名称
                                             val cleanAccountName = accountName.replace("accountName=", "")
                                             val encodedAccountName = URLEncoder.encode(cleanAccountName, "UTF-8")
-                                            Log.d("CloudFilesRestorePage", "账户名编码: $encodedAccountName")
 
-                                            // 3. 构建导航路由
                                             val url = MainRoutes.CloudFilesBackupDetail.getRoute(
                                                 encodedJson,
                                                 encodedAccountName
                                             )
-                                            Log.d("CloudFilesRestorePage", "构建路由: $url")
-
-                                            // 4. 执行导航
                                             navController.navigateSingle(url)
-                                            Log.d("CloudFilesRestorePage", "导航调用完成")
                                         } catch (e: Exception) {
                                             Log.e("CloudFilesRestorePage", "点击事件处理失败", e)
                                         }
-                                    },
-                                    context = LocalContext.current
+                                    }
                                 )
                             }
                         }
@@ -203,10 +187,7 @@ fun CloudFilesRestorePage(
                 }
 
                 is CloudFilesRestoreUiState.Error -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(SizeTokens.Level16)

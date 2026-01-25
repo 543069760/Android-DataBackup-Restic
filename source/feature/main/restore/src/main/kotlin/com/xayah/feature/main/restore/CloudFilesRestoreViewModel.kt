@@ -287,18 +287,30 @@ class CloudFilesRestoreViewModel @Inject constructor(
         try {
             Log.d(TAG, "=== 开始计算激活媒体的大小 ===")
             val backupDir = "${context.localBackupSaveDir()}/restore/"
-            // 只查询激活的媒体，与第二阶段保持一致
             val activatedMedia = mediaDao.queryActivated(OpType.RESTORE, "", backupDir)
 
             Log.d(TAG, "找到 ${activatedMedia.size} 个已激活媒体")
             activatedMedia.forEach { media ->
                 Log.d(TAG, "计算媒体大小: ${media.name}")
-                filesRepo.calculateLocalFileArchiveSize(media)
+                Log.d(TAG, "原始路径: ${media.path}")
+
+                // 直接计算实际恢复文件的大小
+                val mediaFile = File("${backupDir}files/${media.name}/media.tar")
+                Log.d(TAG, "恢复文件路径: ${mediaFile.absolutePath}")
+                Log.d(TAG, "媒体文件存在: ${mediaFile.exists()}, 大小: ${mediaFile.length()}")
+
+                if (mediaFile.exists()) {
+                    media.mediaInfo.displayBytes = mediaFile.length()
+                    mediaDao.upsert(media)
+                    Log.d(TAG, "大小计算完成: ${media.displayStatsBytes}")
+                } else {
+                    Log.w(TAG, "媒体文件不存在: ${mediaFile.absolutePath}")
+                }
             }
 
             Log.d(TAG, "=== 激活媒体大小计算完成 ===")
         } catch (e: Exception) {
-            Log.e(TAG, "计算媒体大小失败", e)
+            Log.e(TAG, "计算大小失败", e)
         }
     }
 
