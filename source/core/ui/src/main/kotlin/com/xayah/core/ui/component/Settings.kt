@@ -268,7 +268,7 @@ fun Switchable(
                 modifier = Modifier,
                 enabled = enabled,
                 checked = checked,
-                onCheckedChange = { onCheckedChange.invoke(checked) }
+                onCheckedChange = { onCheckedChange.invoke(it) }
             )
         },
         onClick = {

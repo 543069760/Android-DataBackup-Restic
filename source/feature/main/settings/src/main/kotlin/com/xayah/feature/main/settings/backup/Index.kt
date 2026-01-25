@@ -126,10 +126,11 @@ fun PageBackupSettings() {
                     checkedText = stringResource(id = R.string.backup_itself_desc),
                 )
                 Switchable(
-                    key = KeyBackupConfigs,
-                    defValue = true,
+                    enabled = false, // 置灰色，不可编辑
+                    checked = true,  // ✅ 直接使用手动模式，强制设为 true
                     title = stringResource(id = R.string.backup_configs),
                     checkedText = stringResource(id = R.string.backup_configs_desc),
+                    onCheckedChange = {} // 手动模式下提供空回调即可
                 )
                 /**
                  * Switchable(
