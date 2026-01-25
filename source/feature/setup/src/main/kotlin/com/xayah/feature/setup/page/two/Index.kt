@@ -17,7 +17,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.xayah.core.datastore.KeyCheckKeystore
 import com.xayah.core.datastore.KeyLoadSystemApps
 import com.xayah.core.datastore.readBackupSavePath
 import com.xayah.core.datastore.readBackupSavePathSaved
@@ -82,13 +81,16 @@ fun PageTwo() {
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(SizeTokens.Level24)
         ) {
+            // 备份目录 - 移除选择功能，只显示当前路径
             Clickable(
                 title = stringResource(id = R.string.backup_dir),
                 value = if (backupSavePathSaved) backupSavePath else context.getString(R.string.not_selected),
                 desc = if (backupSavePathSaved) null else stringResource(id = R.string.setup_backup_dir_desc),
+                enabled = false // 禁用点击
             ) {
-                navController.navigateSingle(SetupRoutes.Directory.route)
+                // 移除导航逻辑
             }
+
             Title(title = stringResource(id = R.string.optional)) {
                 AnimatedVisibility(visible = backupSavePathSaved) {
                     Clickable(
@@ -105,14 +107,7 @@ fun PageTwo() {
                     checkedText = stringResource(id = R.string.enabled),
                     notCheckedText = stringResource(id = R.string.not_enabled),
                 )
-                Switchable(
-                    key = KeyCheckKeystore,
-                    defValue = true,
-                    title = stringResource(id = R.string.check_keystore),
-                    checkedText = stringResource(id = R.string.enabled),
-                    notCheckedText = stringResource(id = R.string.not_enabled),
-                    desc = stringResource(id = R.string.set_them_later_in_settings)
-                )
+                // 已删除检查密钥选项
             }
         }
     }

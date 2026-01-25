@@ -3,6 +3,7 @@ package com.xayah.feature.main.directory
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,16 +17,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.xayah.core.ui.component.ContentWithActions
 import com.xayah.core.ui.component.paddingHorizontal
-import com.xayah.core.ui.model.getActionMenuDeleteItem
-import com.xayah.core.ui.model.getActionMenuReturnItem
 import com.xayah.core.ui.token.SizeTokens
-import com.xayah.core.util.getActivity
 
 @ExperimentalFoundationApi
 @ExperimentalLayoutApi
@@ -33,15 +30,12 @@ import com.xayah.core.util.getActivity
 @ExperimentalMaterial3Api
 @Composable
 fun PageDirectory() {
-    val context = LocalContext.current
     val viewModel = hiltViewModel<IndexViewModel>()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val internalDirectoriesState by viewModel.internalDirectoriesState.collectAsStateWithLifecycle()
-    val externalDirectoriesState by viewModel.externalDirectoriesState.collectAsStateWithLifecycle()
-    val customDirectoriesState by viewModel.customDirectoriesState.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
 
-    LaunchedEffect(null) {
+    LaunchedEffect(Unit) {
         viewModel.emitIntentOnIO(IndexUiIntent.Update)
     }
 
@@ -62,38 +56,15 @@ fun PageDirectory() {
             }
 
             items(items = internalDirectoriesState) { item ->
-                DirectoryCard(item = item) {
-                    viewModel.emitIntentOnIO(IndexUiIntent.Select(entity = item))
-                }
-            }
+                val isUser0 = item.path.contains("/emulated/0") || item.path.contains("/user/0")
 
-            items(items = externalDirectoriesState) { item ->
-                DirectoryCard(item = item) {
-                    viewModel.emitIntentOnIO(IndexUiIntent.Select(entity = item))
-                }
-            }
-
-            items(items = customDirectoriesState) { item ->
-                ContentWithActions(
-                    actions = { expanded ->
-                        listOf(
-                            getActionMenuReturnItem(context) { expanded.value = false },
-                            getActionMenuDeleteItem(context) {
-                                viewModel.emitIntent(IndexUiIntent.Delete(entity = item))
-                                expanded.value = false
-                            }
-                        )
-                    },
-                ) {
-                    DirectoryCard(item = item, performHapticFeedback = true, onLongClick = { it.value = true }) {
-                        viewModel.emitIntentOnIO(IndexUiIntent.Select(entity = item))
+                // 修复点：通过 Box 应用 Modifier
+                Box(modifier = Modifier.alpha(if (isUser0) 1f else 0.5f)) {
+                    DirectoryCard(item = item) {
+                        if (isUser0) {
+                            viewModel.emitIntentOnIO(IndexUiIntent.Select(entity = item))
+                        }
                     }
-                }
-            }
-
-            item {
-                CustomDirectoryCard(enabled = uiState.updating.not()) {
-                    viewModel.emitIntentOnIO(IndexUiIntent.Add(context = context.getActivity()))
                 }
             }
 

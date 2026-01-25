@@ -435,8 +435,7 @@ class AppsRepo @Inject constructor(
             val uid = info.applicationInfo?.uid ?: -1
             updateEntity.extraInfo.uid = uid
             updateEntity.extraInfo.permissions = rootService.getPermissions(packageInfo = info)
-            updateEntity.extraInfo.hasKeystore =
-                PackageUtil.hasKeystore(context.readCustomSUFile().first(), uid)
+            updateEntity.extraInfo.hasKeystore = false
             updateEntity.extraInfo.ssaid = rootService.getPackageSsaidAsUser(
                 packageName = info.packageName, uid = uid, userId = userId
             )

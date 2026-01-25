@@ -23,8 +23,6 @@ import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xayah.core.datastore.KeyBackupConfigs
-import com.xayah.core.datastore.KeyBackupItself
-import com.xayah.core.datastore.KeyCheckKeystore
 import com.xayah.core.datastore.KeyFollowSymlinks
 import com.xayah.core.datastore.readResticCompressionLevel
 import com.xayah.core.datastore.readKillAppOption
@@ -113,18 +111,6 @@ fun PageBackupSettings() {
                     }
                 }
 
-                Switchable(
-                    key = KeyCheckKeystore,
-                    defValue = true,
-                    title = stringResource(id = R.string.check_keystore),
-                    checkedText = stringResource(id = R.string.check_keystore_desc),
-                )
-                Switchable(
-                    key = KeyBackupItself,
-                    defValue = true,
-                    title = stringResource(id = R.string.backup_itself),
-                    checkedText = stringResource(id = R.string.backup_itself_desc),
-                )
                 Switchable(
                     enabled = false, // 置灰色，不可编辑
                     checked = true,  // ✅ 直接使用手动模式，强制设为 true

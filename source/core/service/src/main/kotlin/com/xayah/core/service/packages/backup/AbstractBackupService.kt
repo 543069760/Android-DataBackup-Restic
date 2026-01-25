@@ -405,18 +405,7 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                     mContext.getString(R.string.backing_up),
                     mContext.getString(R.string.backup_itself)
                 )
-                if (mContext.readBackupItself().first()) {
-                    log { "Backup itself enabled." }
-                    mCommonBackupUtil.backupItself(dstDir = mRootDir).apply {
-                        entity.set(state = if (isSuccess) OperationState.DONE else OperationState.ERROR, log = outString)
-                        if (isSuccess) {
-                            onItselfSaved(path = mCommonBackupUtil.getItselfDst(mRootDir), entity = entity)
-                        }
-                    }
-                    entity.update(progress = 1f)
-                } else {
-                    entity.update(progress = 1f, state = OperationState.SKIP)
-                }
+                entity.update(progress = 1f, state = OperationState.SKIP)
             }
             ProcessingInfoType.SAVE_ICONS -> {
                 NotificationUtil.notify(
