@@ -85,8 +85,8 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                 TaskDetailMediaEntity(
                     taskId = mTaskEntity.id,
                     mediaEntity = media,
-                    mediaInfo = Info(title = mContext.getString(R.string.args_backup, DataType.PACKAGE_MEDIA.type.uppercase())),
-                ).apply {
+                    mediaInfo = Info(title = mContext.getString(com.xayah.core.data.R.string.args_backup, DataType.PACKAGE_MEDIA.type.uppercase())),
+                    ).apply {
                     id = mTaskDao.upsert(this)
                 })
         }

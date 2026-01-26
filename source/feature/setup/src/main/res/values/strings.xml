@@ -1,10 +1,43 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
-<string name="manage_external_storage_permission">Manage All Files Permission</string>
-<string name="manage_external_storage_permission_desc">Used to access and manage all files on the device, ensuring backup and restore functions work properly</string>
-<string name="battery_optimization_permission">Battery Optimization Whitelist</string>
-<string name="battery_optimization_permission_desc">Add the app to the battery optimization whitelist to ensure backup and restore services run stably in the background</string>
-<string name="go_to_settings">Go to Settings</string>
-<string name="permission_granted">Permission Granted</string>
-<string name="permission_not_granted">Permission Not Granted</string>
+    <string name="manage_external_storage_permission">Manage External Storage</string>
+    <string name="manage_external_storage_permission_desc">Used to access and manage all files on the device to ensure backup and restore functions work properly.</string>
+    <string name="battery_optimization_permission">Battery Optimization Whitelist</string>
+    <string name="battery_optimization_permission_desc">Add the app to the battery optimization whitelist to ensure backup and restore services run stably in the background.</string>
+    <string name="go_to_settings">Go to Settings</string>
+    <string name="permission_granted">Permission granted</string>
+    <string name="permission_not_granted">Permission not granted</string>
+
+    <string name="_continue">Continue</string>
+    <string name="welcome_to_use">Welcome to use</string>
+    <string name="app_short_desc">App short description</string>
+    <string name="setup">Setup</string>
+    <string name="finish">Finish</string>
+    <string name="name">Name</string>
+    <string name="restart_to_take_effect">Restart to take effect</string>
+
+    <string name="select_target_directory">Select target directory</string>
+    <string name="grant_all">Grant all</string>
+    <string name="backup_dir">Backup Directory</string>
+    <string name="not_selected">Not selected</string>
+    <string name="setup_backup_dir_desc">Choose a location to store your backups.</string>
+    <string name="enabled">Enabled</string>
+    <string name="not_enabled">Not enabled</string>
+    <string name="skip_setup">Skip Setup</string>
+    <string name="skip_setup_alert">Are you sure you want to skip the setup?</string>
+    <string name="configurations">Configurations</string>
+    <string name="configurations_desc">Manage your app configurations.</string>
+
+    <string name="this_version_only_supports_but_your_device_is_please_install_version">This version only supports %1$s, but your device architecture is %2$s. Please install %3$s version.</string>
+    <string name="required">Required</string>
+    <string name="root_permission">Root Permission</string>
+    <string name="root_permission_desc">Application requires root access to function properly.</string>
+    <string name="abi_validation">ABI Validation</string>
+    <string name="abi_validation_desc">Check device architecture compatibility.</string>
+    <string name="optional">Optional</string>
+    <string name="notification_permission">Notification Permission</string>
+    <string name="notification_permission_desc">Enable notifications to stay updated.</string>
+    <string name="check_keystore">Check Keystore</string>
+    <string name="load_system_apps">Load System Apps</string>
+    <string name="set_them_later_in_settings">You can set these later in settings.</string>
+    <string name="custom_su_file">Custom SU File</string>
 </resources>
