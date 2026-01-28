@@ -183,10 +183,11 @@ fun PageMediumBackupProcessingSetup(localNavController: NavHostController, viewM
                     checkedText = stringResource(id = R.string.reset_backup_list_desc),
                 )
                 Switchable(
-                    key = KeyBackupConfigs,
-                    defValue = true,
+                    enabled = false,  // 禁用编辑
+                    checked = true,   // 强制打开
                     title = stringResource(id = R.string.backup_configs),
                     checkedText = stringResource(id = R.string.backup_configs_desc),
+                    onCheckedChange = {}  // 空回调
                 )
             }
         }
