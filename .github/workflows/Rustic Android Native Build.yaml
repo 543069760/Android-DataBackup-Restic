@@ -1,15 +1,3 @@
-这次的错误是因为 Bash 变量名的限制：环境变量名中不能包含横杠 (-)。
-
-在执行 export "CC_aarch64-linux-android=..." 时，Bash 认为这是一个非法的标识符。Rust 的 cc-rs 库实际上支持两种环境变量格式，而我们应该使用全大写且带下划线的标准格式（即 CC_AARCH64_LINUX_ANDROID）。
-
-核心修复方案
-移除带横杠的变量名：只保留符合 Shell 规范的 TARGET_UPPER 变量（全大写 + 下划线）。
-
-修复矩阵引用：确保所有 export 语句都指向有效的标识符。
-
-以下是修复后的最终完整 YAML：
-
-YAML
 name: Build Rustic for Android
 
 on:
