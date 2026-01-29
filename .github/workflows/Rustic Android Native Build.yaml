@@ -1,17 +1,19 @@
-name: Rustic Android Native Build
+name: Build Rustic for Android
 
 on:
   workflow_dispatch:
     inputs:
       rustic_version:
-        description: 'Rustic 版本 (例如: 0.10.3)'
+        description: 'Rustic 版本号 (例如: 0.10.3)'
         required: true
         default: '0.10.3'
 
 jobs:
   build-android:
+    name: build-android (${{ matrix.arch }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: arm64
@@ -33,34 +35,40 @@ jobs:
         with:
           targets: ${{ matrix.rust_target }}
 
-      - name: Set up NDK & Build
+      - name: Build Binary
         env:
           ANDROID_API: 24
         run: |
+          # 开启严谨模式
           set -euo pipefail
 
-          # 1. 定位 NDK 路径
+          # 1. 自动定位 Android NDK 环境
           NDK_DIR="${ANDROID_NDK_LATEST_HOME}"
           TOOLCHAIN="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
           
-          # 2. 配置环境变量 (Rust 交叉编译的关键)
-          # 将 target 字符串转换为大写并替换横杠，如 AARCH64_LINUX_ANDROID
+          # 2. 计算 Rust 环境变量名 (例如 aarch64-linux-android -> AARCH64_LINUX_ANDROID)
           TARGET_ENV=$(echo ${{ matrix.rust_target }} | tr '[:lower:]' '[:upper:]' | tr '-' '_')
           
-          # 设置链接器，Android NDK 23+ 的路径格式如下
-          export CARGO_TARGET_${TARGET_ENV}_LINKER="$TOOLCHAIN/bin/${{ matrix.ndk_target }}${ANDROID_API}-clang"
-          export CC_${TARGET_ENV}="$TOOLCHAIN/bin/${{ matrix.ndk_target }}${ANDROID_API}-clang"
+          # 3. 指定 Android 专用的链接器 (Clang)
+          # 注意：armv7 在 NDK 中对应的编译器前缀是 armv7a
+          CLANG_PATH="$TOOLCHAIN/bin/${{ matrix.ndk_target }}${ANDROID_API}-clang"
           
-          echo "Using Linker: $CARGO_TARGET_${TARGET_ENV}_LINKER"
+          echo "Building for Architecture: ${{ matrix.arch }}"
+          echo "Using Linker: $CLANG_PATH"
 
-          # 3. 编译 release 版本
+          # 4. 导出环境变量 (使用引号包裹以修复 unbound variable 错误)
+          export "CARGO_TARGET_${TARGET_ENV}_LINKER=$CLANG_PATH"
+          export "CC_${TARGET_ENV}=$CLANG_PATH"
+
+          # 5. 执行编译
           cargo build --release --target ${{ matrix.rust_target }} --bin rustic
 
-          # 4. Strip 二进制（减小体积，去掉调试符号）
+          # 6. 裁剪体积 (对应 Go 的 -s -w，移除调试符号)
+          echo "Stripping binary to reduce size..."
           "$TOOLCHAIN/bin/llvm-strip" target/${{ matrix.rust_target }}/release/rustic
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rustic-android-${{ matrix.arch }}
+          name: rustic-v${{ github.event.inputs.rustic_version }}-${{ matrix.arch }}-android
           path: target/${{ matrix.rust_target }}/release/rustic
