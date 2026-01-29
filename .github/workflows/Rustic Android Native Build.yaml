@@ -39,32 +39,38 @@ jobs:
         env:
           ANDROID_API: 24
         run: |
-          # 开启严谨模式
           set -euo pipefail
 
-          # 1. 自动定位 Android NDK 环境
+          # 1. 定位 NDK 工具链路径
           NDK_DIR="${ANDROID_NDK_LATEST_HOME}"
           TOOLCHAIN="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
           
-          # 2. 计算 Rust 环境变量名 (例如 aarch64-linux-android -> AARCH64_LINUX_ANDROID)
-          TARGET_ENV=$(echo ${{ matrix.rust_target }} | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+          # 2. 准备变量
+          TARGET_UPPER=$(echo ${{ matrix.rust_target }} | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+          CLANG_BIN="$TOOLCHAIN/bin/${{ matrix.ndk_target }}${ANDROID_API}-clang"
+          AR_BIN="$TOOLCHAIN/bin/llvm-ar"
           
-          # 3. 指定 Android 专用的链接器 (Clang)
-          # 注意：armv7 在 NDK 中对应的编译器前缀是 armv7a
-          CLANG_PATH="$TOOLCHAIN/bin/${{ matrix.ndk_target }}${ANDROID_API}-clang"
+          echo "Using Clang: $CLANG_BIN"
+          echo "Using AR: $AR_BIN"
+
+          # 3. 注入环境变量 (覆盖所有可能的编译器查找方式)
+          # 修复 ring 库找不到编译器的问题
+          export "CC_${{ matrix.rust_target }}=$CLANG_BIN"
+          export "CC_$TARGET_UPPER=$CLANG_BIN"
+          export "AR_${{ matrix.rust_target }}=$AR_BIN"
+          export "AR_$TARGET_UPPER=$AR_BIN"
+          export "CARGO_TARGET_${TARGET_UPPER}_LINKER=$CLANG_BIN"
           
-          echo "Building for Architecture: ${{ matrix.arch }}"
-          echo "Using Linker: $CLANG_PATH"
+          # 额外增加通用变量作为保底
+          export CC="$CLANG_BIN"
+          export AR="$AR_BIN"
 
-          # 4. 导出环境变量 (使用引号包裹以修复 unbound variable 错误)
-          export "CARGO_TARGET_${TARGET_ENV}_LINKER=$CLANG_PATH"
-          export "CC_${TARGET_ENV}=$CLANG_PATH"
-
-          # 5. 执行编译
+          # 4. 执行编译
+          # 使用 --locked 确保依赖版本与原始项目一致
           cargo build --release --target ${{ matrix.rust_target }} --bin rustic
 
-          # 6. 裁剪体积 (对应 Go 的 -s -w，移除调试符号)
-          echo "Stripping binary to reduce size..."
+          # 5. 裁剪体积
+          echo "Stripping binary..."
           "$TOOLCHAIN/bin/llvm-strip" target/${{ matrix.rust_target }}/release/rustic
 
       - name: Upload Artifact
