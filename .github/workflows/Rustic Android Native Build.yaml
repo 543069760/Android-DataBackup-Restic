@@ -1,3 +1,15 @@
+这次的错误是因为 Bash 变量名的限制：环境变量名中不能包含横杠 (-)。
+
+在执行 export "CC_aarch64-linux-android=..." 时，Bash 认为这是一个非法的标识符。Rust 的 cc-rs 库实际上支持两种环境变量格式，而我们应该使用全大写且带下划线的标准格式（即 CC_AARCH64_LINUX_ANDROID）。
+
+核心修复方案
+移除带横杠的变量名：只保留符合 Shell 规范的 TARGET_UPPER 变量（全大写 + 下划线）。
+
+修复矩阵引用：确保所有 export 语句都指向有效的标识符。
+
+以下是修复后的最终完整 YAML：
+
+YAML
 name: Build Rustic for Android
 
 on:
@@ -41,32 +53,34 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 1. 定位 NDK 工具链路径
+          # 1. 定位 NDK 工具链
           NDK_DIR="${ANDROID_NDK_LATEST_HOME}"
           TOOLCHAIN="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
           
-          # 2. 准备变量
+          # 2. 构造符合 Shell 规范的变量名 (aarch64-linux-android -> AARCH64_LINUX_ANDROID)
+          # 这样可以绕过 "not a valid identifier" 的错误
           TARGET_UPPER=$(echo ${{ matrix.rust_target }} | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+          
           CLANG_BIN="$TOOLCHAIN/bin/${{ matrix.ndk_target }}${ANDROID_API}-clang"
           AR_BIN="$TOOLCHAIN/bin/llvm-ar"
           
+          echo "Building for: ${{ matrix.rust_target }}"
           echo "Using Clang: $CLANG_BIN"
-          echo "Using AR: $AR_BIN"
 
-          # 3. 注入环境变量 (覆盖所有可能的编译器查找方式)
-          # 修复 ring 库找不到编译器的问题
-          export "CC_${{ matrix.rust_target }}=$CLANG_BIN"
+          # 3. 注入环境变量
+          # CC_<target> 和 AR_<target> 是 cc-rs 识别的标准格式
           export "CC_$TARGET_UPPER=$CLANG_BIN"
-          export "AR_${{ matrix.rust_target }}=$AR_BIN"
           export "AR_$TARGET_UPPER=$AR_BIN"
+          
+          # Cargo 寻找链接器的标准格式
           export "CARGO_TARGET_${TARGET_UPPER}_LINKER=$CLANG_BIN"
           
-          # 额外增加通用变量作为保底
+          # 备用全局变量
           export CC="$CLANG_BIN"
           export AR="$AR_BIN"
 
           # 4. 执行编译
-          # 使用 --locked 确保依赖版本与原始项目一致
+          # --locked 确保依赖锁定，避免环境差异导致编译失败
           cargo build --release --target ${{ matrix.rust_target }} --bin rustic
 
           # 5. 裁剪体积
