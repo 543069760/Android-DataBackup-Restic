@@ -1,0 +1,67 @@
+name: Rustic Android Native Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      rustic_version:
+        description: 'Rustic version (e.g., 0.10.3 or master)'
+        required: true
+        default: '0.10.3'
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            rust_target: aarch64-linux-android
+            ndk_target: aarch64-linux-android
+          - arch: armv7
+            rust_target: armv7-linux-androideabi
+            ndk_target: armv7a-linux-androideabi
+
+    steps:
+      - name: Checkout Rustic
+        uses: actions/checkout@v4
+        with:
+          repository: rustic-rs/rustic
+          # 逻辑一致：如果是 master 走分支，否则走 tag
+          ref: ${{ github.event.inputs.rustic_version == 'master' && 'master' || format('v{0}', github.event.inputs.rustic_version) }}
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Set up NDK & Build
+        env:
+          API: 24
+        run: |
+          set -euo pipefail
+
+          # 1. 定位 NDK (与你的 Go 逻辑一致)
+          NDK_DIR="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}}"
+          TOOLCHAIN="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
+          
+          # 2. 配置 Rust 交叉编译器环境变量
+          # 注意：Rust 使用特定的前缀来识别各 target 的链接器
+          TARGET_UPPER=$(echo ${{ matrix.rust_target }} | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+          
+          export CC_${TARGET_UPPER}="$TOOLCHAIN/bin/${{ matrix.ndk_target }}${API}-clang"
+          export AR_${TARGET_UPPER}="$TOOLCHAIN/bin/llvm-ar"
+          export CARGO_TARGET_${TARGET_UPPER}_LINKER="$TOOLCHAIN/bin/${{ matrix.ndk_target }}${API}-clang"
+
+          echo "Using CC: ${CC_${TARGET_UPPER}}"
+
+          # 3. 执行编译
+          # 逻辑一致：-ldflags "-s -w" 在 Rust 中通过 --release + strip 实现
+          cargo build --release \
+            --target ${{ matrix.rust_target }} \
+            --bin rustic
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustic-android-${{ matrix.arch }}
+          path: target/${{ matrix.rust_target }}/release/rustic
