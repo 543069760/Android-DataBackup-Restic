@@ -1,4 +1,4 @@
-name: Build Rustic for Android
+name: Build Rustic-Sql
 
 on:
   workflow_dispatch:
@@ -43,7 +43,7 @@ jobs:
       - name: Checkout Rustic
         uses: actions/checkout@v4
         with:
-          repository: rustic-rs/rustic
+          repository: 543069760/rustic
           ref: v${{ github.event.inputs.rustic_version }}
 
       - name: Install Rust Toolchain
@@ -113,7 +113,7 @@ jobs:
       - name: Checkout Rustic
         uses: actions/checkout@v4
         with:
-          repository: rustic-rs/rustic
+          repository: 543069760/rustic
           ref: v${{ github.event.inputs.rustic_version }}
 
       - name: Install Rust Toolchain
@@ -160,7 +160,7 @@ jobs:
       - name: Checkout Rustic
         uses: actions/checkout@v4
         with:
-          repository: rustic-rs/rustic
+          repository: 543069760/rustic
           ref: v${{ github.event.inputs.rustic_version }}
 
       - name: Install Rust Toolchain
