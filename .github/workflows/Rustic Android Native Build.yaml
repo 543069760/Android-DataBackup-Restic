@@ -79,3 +79,83 @@ jobs:
         with:
           name: rustic-v${{ github.event.inputs.rustic_version }}-${{ matrix.arch }}-android
           path: target/${{ matrix.rust_target }}/release/rustic
+
+  build-linux:
+    name: build-linux (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86
+            rust_target: i686-unknown-linux-gnu
+          - arch: x64
+            rust_target: x86_64-unknown-linux-gnu
+
+    steps:
+      - name: Checkout Rustic
+        uses: actions/checkout@v4
+        with:
+          repository: rustic-rs/rustic
+          ref: v${{ github.event.inputs.rustic_version }}
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib
+
+      - name: Build Binary
+        run: |
+          set -euo pipefail
+
+          # 执行编译
+          cargo build --release --target ${{ matrix.rust_target }} --bin rustic
+
+          # 裁剪体积
+          echo "Stripping binary..."
+          strip target/${{ matrix.rust_target }}/release/rustic
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustic-v${{ github.event.inputs.rustic_version }}-${{ matrix.arch }}-linux
+          path: target/${{ matrix.rust_target }}/release/rustic
+
+  build-windows:
+    name: build-windows (${{ matrix.arch }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86
+            rust_target: i686-pc-windows-msvc
+          - arch: x64
+            rust_target: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout Rustic
+        uses: actions/checkout@v4
+        with:
+          repository: rustic-rs/rustic
+          ref: v${{ github.event.inputs.rustic_version }}
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Build Binary
+        run: |
+          cargo build --release --target ${{ matrix.rust_target }} --bin rustic
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustic-v${{ github.event.inputs.rustic_version }}-${{ matrix.arch }}-windows
+          path: target/${{ matrix.rust_target }}/release/rustic.exe
