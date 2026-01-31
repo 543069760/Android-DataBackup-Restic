@@ -1,4 +1,4 @@
-name: Build Rustic for Android
+name: Build Rustic-Sql for Multi-platform
 
 on:
   workflow_dispatch:
@@ -9,73 +9,70 @@ on:
         default: '0.10.3'
 
 jobs:
-  build-android:
-    name: build-android (${{ matrix.arch }})
-    runs-on: ubuntu-latest
+  build:
+    name: Build (${{ matrix.job.target }})
+    runs-on: ${{ matrix.job.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: arm64
-            rust_target: aarch64-linux-android
-            ndk_target: aarch64-linux-android
-          - arch: armv7
-            rust_target: armv7-linux-androideabi
-            ndk_target: armv7a-linux-androideabi
+        job:
+          # --- Android 平台 (使用 NDK) ---
+          - { os: ubuntu-latest, target: aarch64-linux-android, arch: android-arm64, use_ndk: true, ndk_target: aarch64-linux-android }
+          - { os: ubuntu-latest, target: armv7-linux-androideabi, arch: android-armv7, use_ndk: true, ndk_target: armv7a-linux-androideabi }
+          
+          # --- 桌面平台 ---
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, arch: windows-x64, use_ndk: false }
+          - { os: ubuntu-latest,  target: x86_64-unknown-linux-gnu, arch: linux-x64, use_ndk: false }
+          - { os: macos-latest,   target: x86_64-apple-darwin, arch: macos-x64, use_ndk: false }
+          - { os: macos-latest,   target: aarch64-apple-darwin, arch: macos-arm64, use_ndk: false }
 
     steps:
       - name: Checkout Rustic
         uses: actions/checkout@v4
         with:
-          repository: rustic-rs/rustic
+          repository: 543069760/rustic
           ref: v${{ github.event.inputs.rustic_version }}
 
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.rust_target }}
+          targets: ${{ matrix.job.target }}
 
-      - name: Build Binary
+      - name: Build Binary (Android NDK)
+        if: matrix.job.use_ndk == true
         env:
           ANDROID_API: 24
         run: |
           set -euo pipefail
-
-          # 1. 定位工具链
           NDK_DIR="${ANDROID_NDK_LATEST_HOME}"
           TOOLCHAIN="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
-          TARGET_UPPER=$(echo ${{ matrix.rust_target }} | tr '[:lower:]' '[:upper:]' | tr '-' '_')
-          CLANG_BIN="$TOOLCHAIN/bin/${{ matrix.ndk_target }}${ANDROID_API}-clang"
+          TARGET_UPPER=$(echo ${{ matrix.job.target }} | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+          CLANG_BIN="$TOOLCHAIN/bin/${{ matrix.job.ndk_target }}${ANDROID_API}-clang"
           AR_BIN="$TOOLCHAIN/bin/llvm-ar"
 
-          # 2. 注入环境变量
           export "CC_$TARGET_UPPER=$CLANG_BIN"
           export "AR_$TARGET_UPPER=$AR_BIN"
           export "CARGO_TARGET_${TARGET_UPPER}_LINKER=$CLANG_BIN"
-          export CC="$CLANG_BIN"
-          export AR="$AR_BIN"
-
-          # 3. 针对 armv7 (32位) 的类型兼容性补丁
-          if [[ "${{ matrix.rust_target }}" == *"armv7"* ]]; then
-            echo "Applying precision 32-bit compatibility patch for rustic_core..."
-            cargo fetch --target ${{ matrix.rust_target }}
-            
-            # 使用更精确的匹配防止误伤，同时修复 S_IFBLK 和 S_IFCHR 两个位置
+          
+          # 32位兼容性补丁
+          if [[ "${{ matrix.job.target }}" == *"armv7"* ]]; then
+            cargo fetch --target ${{ matrix.job.target }}
             find /home/runner/.cargo/registry/src -name local_destination.rs -exec \
               sed -i 's/Mode::empty(), device)/Mode::empty(), device as u32)/g' {} +
-            echo "Patch applied successfully."
           fi
 
-          # 4. 执行编译
-          # 使用 --bin rustic 确保只编译主程序
-          cargo build --release --target ${{ matrix.rust_target }} --bin rustic
+          cargo build --release --target ${{ matrix.job.target }} --bin rustic
+          "$TOOLCHAIN/bin/llvm-strip" target/${{ matrix.job.target }}/release/rustic
 
-          # 5. 裁剪体积
-          echo "Stripping binary..."
-          "$TOOLCHAIN/bin/llvm-strip" target/${{ matrix.rust_target }}/release/rustic
+      - name: Build Binary (Desktop)
+        if: matrix.job.use_ndk == false
+        run: |
+          cargo build --release --target ${{ matrix.job.target }} --bin rustic
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rustic-v${{ github.event.inputs.rustic_version }}-${{ matrix.arch }}-android
-          path: target/${{ matrix.rust_target }}/release/rustic
+          name: rustic-v${{ github.event.inputs.rustic_version }}-${{ matrix.job.arch }}
+          path: |
+            target/${{ matrix.job.target }}/release/rustic
+            target/${{ matrix.job.target }}/release/rustic.exe
