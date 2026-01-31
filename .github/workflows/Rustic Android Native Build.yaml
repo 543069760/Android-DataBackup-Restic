@@ -1,4 +1,4 @@
-name: Build Rustic for Android
+name: Build Rustic-Sql
 
 on:
   workflow_dispatch:
