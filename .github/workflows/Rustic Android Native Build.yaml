@@ -67,13 +67,11 @@ jobs:
           export CC="$CLANG_BIN"
           export AR="$AR_BIN"
           if [[ "${{ matrix.rust_target }}" == *"armv7"* ]]; then
-            echo "Applying precision 32-bit compatibility patch for rustic_core..."
             cargo fetch --target ${{ matrix.rust_target }}
             find /home/runner/.cargo/registry/src -name local_destination.rs -exec \
               sed -i 's/Mode::empty(), device)/Mode::empty(), device as u32)/g' {} +
           fi
           cargo build --release --target ${{ matrix.rust_target }} --bin rustic
-          echo "Stripping binary..."
           "$TOOLCHAIN/bin/llvm-strip" target/${{ matrix.rust_target }}/release/rustic
 
       - name: Upload Artifact
@@ -90,17 +88,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # GNU 版本 (依赖较新 GLIBC)
-          - arch: x64
-            rust_target: x86_64-unknown-linux-gnu
+          # --- x86_64 (64-bit) ---
+          - rust_target: x86_64-unknown-linux-gnu
             target_name: x64-gnu
-          # MUSL 版本 (静态链接，几乎兼容所有 Linux)
-          - arch: x64
-            rust_target: x86_64-unknown-linux-musl
+          - rust_target: x86_64-unknown-linux-musl
             target_name: x64-musl
-          - arch: x86
-            rust_target: i686-unknown-linux-gnu
+          # --- i686 (32-bit) ---
+          - rust_target: i686-unknown-linux-gnu
             target_name: x86-gnu
+          - rust_target: i686-unknown-linux-musl
+            target_name: x86-musl
 
     steps:
       - name: Checkout Rustic
@@ -123,7 +120,6 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --release --target ${{ matrix.rust_target }} --bin rustic
-          echo "Stripping binary..."
           strip target/${{ matrix.rust_target }}/release/rustic
 
       - name: Upload Artifact
