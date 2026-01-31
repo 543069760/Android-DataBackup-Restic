@@ -1,110 +1,81 @@
-name: Build Rustic-Sql for Android and Linux  
-  
-on:  
-  workflow_dispatch:  
-    inputs:  
-      rustic_version:  
-        description: 'Rustic 版本号 (例如: 0.10.3)'  
-        required: true  
-        default: '0.10.3'  
-  
-jobs:  
-  build-android:  
-    name: build-${{ matrix.platform }} (${{ matrix.arch }})  
-    runs-on: ubuntu-latest  
-    strategy:  
-      fail-fast: false  
-      matrix:  
-        include:  
-          # Android 构建目标  
-          - platform: android  
-            arch: arm64  
-            rust_target: aarch64-linux-android  
-            ndk_target: aarch64-linux-android  
-          - platform: android  
-            arch: armv7  
-            rust_target: armv7-linux-androideabi  
-            ndk_target: armv7a-linux-androideabi  
+name: Build Rustic for Android
+
+on:
+  workflow_dispatch:
+    inputs:
+      rustic_version:
+        description: 'Rustic 版本号 (例如: 0.10.3)'
+        required: true
+        default: '0.10.3'
+
+jobs:
+  build-android:
+    name: build-android (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            rust_target: aarch64-linux-android
+            ndk_target: aarch64-linux-android
+          - arch: armv7
+            rust_target: armv7-linux-androideabi
+            ndk_target: armv7a-linux-androideabi
+
+    steps:
+      - name: Checkout Rustic
+        uses: actions/checkout@v4
+        with:
+          repository: rustic-rs/rustic
+          ref: v${{ github.event.inputs.rustic_version }}
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Build Binary
+        env:
+          ANDROID_API: 24
+        run: |
+          set -euo pipefail
+
+          # 1. 定位工具链
+          NDK_DIR="${ANDROID_NDK_LATEST_HOME}"
+          TOOLCHAIN="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"
+          TARGET_UPPER=$(echo ${{ matrix.rust_target }} | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+          CLANG_BIN="$TOOLCHAIN/bin/${{ matrix.ndk_target }}${ANDROID_API}-clang"
+          AR_BIN="$TOOLCHAIN/bin/llvm-ar"
+
+          # 2. 注入环境变量
+          export "CC_$TARGET_UPPER=$CLANG_BIN"
+          export "AR_$TARGET_UPPER=$AR_BIN"
+          export "CARGO_TARGET_${TARGET_UPPER}_LINKER=$CLANG_BIN"
+          export CC="$CLANG_BIN"
+          export AR="$AR_BIN"
+
+          # 3. 针对 armv7 (32位) 的类型兼容性补丁
+          if [[ "${{ matrix.rust_target }}" == *"armv7"* ]]; then
+            echo "Applying precision 32-bit compatibility patch for rustic_core..."
+            cargo fetch --target ${{ matrix.rust_target }}
             
-          # Linux 构建目标  
-          - platform: linux  
-            arch: x86_64  
-            rust_target: x86_64-unknown-linux-gnu  
-          - platform: linux  
-            arch: i686  
-            rust_target: i686-unknown-linux-gnu  
-  
-    steps:  
-      - name: Checkout Rustic  
-        uses: actions/checkout@v4  
-        with:  
-          repository: 543069760/rustic  
-          ref: v${{ github.event.inputs.rustic_version }}  
-  
-      - name: Install Rust Toolchain  
-        uses: dtolnay/rust-toolchain@stable  
-        with:  
-          targets: ${{ matrix.rust_target }}  
-  
-      - name: Build Binary (Android)  
-        if: matrix.platform == 'android'  
-        env:  
-          ANDROID_API: 24  
-        run: |  
-          set -euo pipefail  
-  
-          # 1. 定位工具链  
-          NDK_DIR="${ANDROID_NDK_LATEST_HOME}"  
-          TOOLCHAIN="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64"  
-          TARGET_UPPER=$(echo ${{ matrix.rust_target }} | tr '[:lower:]' '[:upper:]' | tr '-' '_')  
-          CLANG_BIN="$TOOLCHAIN/bin/${{ matrix.ndk_target }}${ANDROID_API}-clang"  
-          AR_BIN="$TOOLCHAIN/bin/llvm-ar"  
-  
-          # 2. 注入环境变量  
-          export "CC_$TARGET_UPPER=$CLANG_BIN"  
-          export "AR_$TARGET_UPPER=$AR_BIN"  
-          export "CARGO_TARGET_${TARGET_UPPER}_LINKER=$CLANG_BIN"  
-          export CC="$CLANG_BIN"  
-          export AR="$AR_BIN"  
-  
-          # 3. 针对 armv7 (32位) 的类型兼容性补丁  
-          if [[ "${{ matrix.rust_target }}" == *"armv7"* ]]; then  
-            echo "Applying precision 32-bit compatibility patch for rustic_core..."  
-            cargo fetch --target ${{ matrix.rust_target }}  
-              
-            # 使用更精确的匹配防止误伤，同时修复 S_IFBLK 和 S_IFCHR 两个位置  
-            find /home/runner/.cargo/registry/src -name local_destination.rs -exec \  
-              sed -i 's/Mode::empty(), device)/Mode::empty(), device as u32)/g' {} +  
-            echo "Patch applied successfully."  
-          fi  
-  
-          # 4. 执行编译  
-          cargo build --release --target ${{ matrix.rust_target }} --bin rustic  
-  
-          # 5. 裁剪体积  
-          echo "Stripping binary..."  
-          "$TOOLCHAIN/bin/llvm-strip" target/${{ matrix.rust_target }}/release/rustic  
-  
-      - name: Build Binary (Linux)  
-        if: matrix.platform == 'linux'  
-        run: |  
-          set -euo pipefail  
-  
-          # 对于 i686 目标,需要安装额外的依赖  
-          if [[ "${{ matrix.rust_target }}" == "i686-unknown-linux-gnu" ]]; then  
-            sudo apt-get update  
-            sudo apt-get install -y gcc-multilib g++-multilib  
-          fi  
-  
-          # 执行编译  
-          cargo build --release --target ${{ matrix.rust_target }} --bin rustic  
-  
-          # 裁剪体积  
-          echo "Stripping binary..."  
-          strip target/${{ matrix.rust_target }}/release/rustic  
-  
-      - name: Upload Artifact  
-        uses: actions/upload-artifact@v4  
-        with:  
-          name: rustic-v${{ github.event.inputs.rustic_version }}-${{ matrix.arch }}-${{ matrix.platform }}  
+            # 使用更精确的匹配防止误伤，同时修复 S_IFBLK 和 S_IFCHR 两个位置
+            find /home/runner/.cargo/registry/src -name local_destination.rs -exec \
+              sed -i 's/Mode::empty(), device)/Mode::empty(), device as u32)/g' {} +
+            echo "Patch applied successfully."
+          fi
+
+          # 4. 执行编译
+          # 使用 --bin rustic 确保只编译主程序
+          cargo build --release --target ${{ matrix.rust_target }} --bin rustic
+
+          # 5. 裁剪体积
+          echo "Stripping binary..."
+          "$TOOLCHAIN/bin/llvm-strip" target/${{ matrix.rust_target }}/release/rustic
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustic-v${{ github.event.inputs.rustic_version }}-${{ matrix.arch }}-android
           path: target/${{ matrix.rust_target }}/release/rustic
