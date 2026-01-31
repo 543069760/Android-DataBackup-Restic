@@ -1,4 +1,4 @@
-name: Build Rustic-Sql
+name: Build Rustic for Android
 
 on:
   workflow_dispatch:
@@ -7,9 +7,25 @@ on:
         description: 'Rustic 版本号 (例如: 0.10.3)'
         required: true
         default: '0.10.3'
+      build_android:
+        description: '是否构建 Android'
+        required: true
+        type: boolean
+        default: true
+      build_linux:
+        description: '是否构建 Linux'
+        required: true
+        type: boolean
+        default: false
+      build_windows:
+        description: '是否构建 Windows'
+        required: true
+        type: boolean
+        default: false
 
 jobs:
   build-android:
+    if: github.event.inputs.build_android == 'true'
     name: build-android (${{ matrix.arch }})
     runs-on: ubuntu-latest
     strategy:
@@ -27,7 +43,7 @@ jobs:
       - name: Checkout Rustic
         uses: actions/checkout@v4
         with:
-          repository: 543069760/rustic
+          repository: rustic-rs/rustic
           ref: v${{ github.event.inputs.rustic_version }}
 
       - name: Install Rust Toolchain
@@ -81,6 +97,7 @@ jobs:
           path: target/${{ matrix.rust_target }}/release/rustic
 
   build-linux:
+    if: github.event.inputs.build_linux == 'true'
     name: build-linux (${{ matrix.arch }})
     runs-on: ubuntu-latest
     strategy:
@@ -96,7 +113,7 @@ jobs:
       - name: Checkout Rustic
         uses: actions/checkout@v4
         with:
-          repository: 543069760/rustic
+          repository: rustic-rs/rustic
           ref: v${{ github.event.inputs.rustic_version }}
 
       - name: Install Rust Toolchain
@@ -127,6 +144,7 @@ jobs:
           path: target/${{ matrix.rust_target }}/release/rustic
 
   build-windows:
+    if: github.event.inputs.build_windows == 'true'
     name: build-windows (${{ matrix.arch }})
     runs-on: windows-latest
     strategy:
@@ -142,7 +160,7 @@ jobs:
       - name: Checkout Rustic
         uses: actions/checkout@v4
         with:
-          repository: 543069760/rustic
+          repository: rustic-rs/rustic
           ref: v${{ github.event.inputs.rustic_version }}
 
       - name: Install Rust Toolchain
