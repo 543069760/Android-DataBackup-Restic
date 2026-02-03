@@ -371,28 +371,24 @@ class ResticRepository @Inject constructor(
         includePath: String? = null,
         progressCallback: ResticProgressCallback? = null
     ): Boolean {
-        Log.d(TAG, "=== 开始云端快照恢复 ===")
+        Log.d(TAG, "=== 开始云端快照恢复(Rustic) ===")
         Log.d(TAG, "快照ID: $snapshotId")
         Log.d(TAG, "目标路径: $targetPath")
         Log.d(TAG, "快照子路径: $snapshotSubPath")
         Log.d(TAG, "包含文件: $includePath")
+
         val extra = json.decodeFromString<S3Extra>(cloudEntity.extra) ?: return false
-        Log.d(TAG, "S3配置: endpoint=${extra.endpoint}, bucket=${extra.bucket}, region=${extra.region}")
+        Log.d(TAG, "S3配置: endpoint=${extra.endpoint}, bucket=${extra.bucket}")
 
-        // 使用统一的 URL 构建方法
-        val s3Url = buildS3ResticUrl(extra, cloudEntity.remote)
-        Log.d(TAG, "构建的 S3 URL: $s3Url")
-
+        // 使用 OpenDAL 环境变量(与 listBackedUpAppsFromS3WithSql 一致)
         val env = mutableMapOf(
-            "AWS_ACCESS_KEY_ID" to extra.accessKeyId,
-            "AWS_SECRET_ACCESS_KEY" to extra.secretAccessKey,
-            "RESTIC_PASSWORD" to password
+            "OPENDAL_BUCKET" to extra.bucket,
+            "OPENDAL_ROOT" to formatOpenDALRoot(cloudEntity.remote),
+            "OPENDAL_ENDPOINT" to buildOpenDALEndpoint(extra),
+            "OPENDAL_SECRET_ID" to extra.accessKeyId,
+            "OPENDAL_SECRET_KEY" to extra.secretAccessKey,
+            "RUSTIC_PASSWORD" to password
         )
-
-        // 添加区域配置
-        if (extra.region.isNotEmpty()) {
-            env["AWS_DEFAULT_REGION"] = extra.region
-        }
 
         val fullSnapshotId = if (!snapshotSubPath.isNullOrEmpty()) {
             "$snapshotId:$snapshotSubPath"
@@ -400,20 +396,21 @@ class ResticRepository @Inject constructor(
             snapshotId
         }
 
+        // Rustic 命令格式: restore <SNAPSHOT> <DESTINATION> -r <REPO>
         val args = mutableListOf(
-            "restore", fullSnapshotId,
-            "--repo", "\"$s3Url\"",
-            "--target", "\"$targetPath\"",
-            "--json",
-            "-o", "s3.bucket-lookup=dns"
+            "restore",
+            fullSnapshotId,      // 快照ID作为第一个位置参数
+            targetPath,          // 目标路径作为第二个位置参数(不再用--target)
+            "-r", "opendal:cos", // 使用OpenDAL协议
+            "--progress-interval", "1s"             // 输出用于进度解析
         )
 
         if (!includePath.isNullOrEmpty()) {
-            args.addAll(listOf("--include", "\"$includePath\""))
+            args.addAll(listOf("--glob", includePath))  // 改用--glob替代--include
         }
 
         Log.d(TAG, "即将执行恢复命令...")
-        val result = executeRestic(*args.toTypedArray(), env = env)
+        val result = executeRestic(*args.toTypedArray(), env = env, usePty = true)
 
         Log.d(TAG, "恢复命令执行完成，退出码: ${result.code}")
         if (result.code != 0) {
@@ -437,9 +434,9 @@ class ResticRepository @Inject constructor(
     // --- 其他方法 (保持 libsu 优化版) ---
 
     suspend fun getVersion(): String? {
-        val result = executeRestic("version")
+        val result = executeRestic("-V")
         return if (result.isSuccess) {
-            result.out.firstOrNull()?.substringAfter("restic ")?.substringBefore(" ")
+            result.out.firstOrNull()?.substringAfter("rustic ")?.substringBefore(" ")
         } else null
     }
 
@@ -450,10 +447,12 @@ class ResticRepository @Inject constructor(
     suspend fun initRepository(repoPath: String, password: String): Result<String> {
         return withContext(Dispatchers.IO) {
             try {
+                // 使用 RUSTIC_PASSWORD 替代 RESTIC_PASSWORD
                 val result = executeRestic(
                     "init",
-                    "--repo", "\"$repoPath\"",
-                    env = mapOf("RESTIC_PASSWORD" to password)
+                    "-r", repoPath,  // Rustic 使用 -r 而非 --repo
+                    env = mapOf("RUSTIC_PASSWORD" to password),
+                    usePty = true  // 启用 PTY 以支持 Rustic 的终端输出
                 )
 
                 val output = if (result.isSuccess) {
@@ -465,7 +464,7 @@ class ResticRepository @Inject constructor(
                 if (result.isSuccess) {
                     Result.success(output)
                 } else {
-                    Result.failure(Exception(output.ifEmpty { "Unknown error during restic init" }))
+                    Result.failure(Exception(output.ifEmpty { "Unknown error during rustic init" }))
                 }
             } catch (e: Exception) {
                 Result.failure(e)
@@ -474,21 +473,107 @@ class ResticRepository @Inject constructor(
     }
 
     suspend fun listSnapshots(repoPath: String, password: String): List<ResticSnapshot> {
-        val result = executeRestic("snapshots", "--repo", "\"$repoPath\"", "--json", env = mapOf("RESTIC_PASSWORD" to password))
-        return if (result.isSuccess) {
+        return withContext(Dispatchers.IO) {
             try {
-                // 过滤：仅保留看起来像 JSON 内容的行（以 [ 或 { 开头），防止 Shell 杂质干扰
-                val jsonStr = result.out
-                    .filter { it.trim().startsWith("[") || it.trim().startsWith("{") }
-                    .joinToString("")
+                // 创建 cache/sql/ 目录
+                val sqlDir = File(context.cacheDir, "sql")
+                if (!sqlDir.exists()) {
+                    sqlDir.mkdirs()
+                }
 
-                if (jsonStr.isEmpty()) return emptyList()
-                json.decodeFromString<List<ResticSnapshot>>(jsonStr)
+                // SQL 文件保存到 cache/sql/ 目录
+                val sqlFile = File(sqlDir, "snapshots_local_${System.currentTimeMillis()}.sql")
+
+                val args = mutableListOf(
+                    "--no-progress",
+                    "snapshots",
+                    "-r", repoPath,
+                    "--sql",
+                    "--sql-output", sqlFile.absolutePath
+                )
+
+                Log.d(TAG, "执行本地 Rustic SQL 查询,输出路径: ${sqlFile.absolutePath}")
+                val result = executeRestic(*args.toTypedArray(), env = mapOf("RUSTIC_PASSWORD" to password), usePty = true)
+
+                if (!result.isSuccess) {
+                    Log.e(TAG, "本地 SQL 生成失败 (Exit Code: ${result.code})")
+                    return@withContext emptyList()
+                }
+
+                if (!sqlFile.exists() || sqlFile.length() == 0L) {
+                    Log.e(TAG, "SQL 文件未生成或为空")
+                    return@withContext emptyList()
+                }
+
+                // 解析 SQL 文件
+                val snapshots = parseSqlFileForSnapshots(sqlFile)
+                sqlFile.delete()  // 清理临时文件
+
+                Log.d(TAG, "SQL 模式成功提取 ${snapshots.size} 个快照")
+                snapshots
             } catch (e: Exception) {
-                Log.e(TAG, "JSON 解析快照失败: ${e.message}")
+                Log.e(TAG, "listSnapshots SQL 模式异常", e)
                 emptyList()
             }
-        } else emptyList()
+        }
+    }
+
+    /**
+     * 从 SQL 文件解析快照信息
+     */
+    private fun parseSqlFileForSnapshots(sqlFile: File): List<ResticSnapshot> {
+        val db = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(":memory:", null)
+        try {
+            // 执行 SQL 文件中的所有语句
+            sqlFile.readText().split(";").forEach { stmt ->
+                val trimmed = stmt.trim()
+                if (trimmed.isNotEmpty()) {
+                    try {
+                        db.execSQL(trimmed + ";")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "SQL 语句执行警告: ${e.message}")
+                    }
+                }
+            }
+
+            // 从视图查询快照信息
+            val query = """  
+            SELECT   
+                id,  
+                time,  
+                hostname,  
+                paths_flat,  
+                tags_flat  
+            FROM v_snapshots_full  
+        """
+
+            val cursor = db.rawQuery(query, null)
+            val snapshots = mutableListOf<ResticSnapshot>()
+
+            while (cursor.moveToNext()) {
+                val id = cursor.getString(0)
+                val time = cursor.getString(1)
+                val hostname = cursor.getString(2)
+                val pathsFlat = cursor.getString(3) ?: ""
+                val tagsFlat = cursor.getString(4) ?: ""
+
+                // paths_flat 和 tags_flat 使用 char(31) 作为分隔符
+                val paths = pathsFlat.split(31.toChar()).filter { it.isNotEmpty() }
+                val tags = tagsFlat.split(31.toChar()).filter { it.isNotEmpty() }
+
+                snapshots.add(ResticSnapshot(
+                    id = id,
+                    time = time,
+                    hostname = hostname,
+                    paths = paths,
+                    tags = tags
+                ))
+            }
+            cursor.close()
+            return snapshots
+        } finally {
+            db.close()
+        }
     }
 
     suspend fun listBackedUpFiles(repoPath: String, password: String): List<ResticBackupFiles> {
@@ -796,31 +881,33 @@ class ResticRepository @Inject constructor(
         tags: List<String>,
         progressCallback: ResticProgressCallback? = null
     ): Pair<Int, String> {
-        // 读取压缩级别配置
-        val compressionLevel = context.readResticCompressionLevel().first() ?: "auto"
+        return withContext(Dispatchers.IO) {
+            try {
+                // 使用 RUSTIC_PASSWORD 替代 RESTIC_PASSWORD
+                val env = mapOf("RUSTIC_PASSWORD" to password)
 
-        val args = mutableListOf(
-            "backup", "--repo", "\"$repoPath\"", "\"$filePath\"",
-            "--tag", "\"${tags.joinToString(",")}\"", "--json",
-            "--compression", compressionLevel
-        )
-
-        val result = executeRestic(*args.toTypedArray(), env = mapOf("RESTIC_PASSWORD" to password))
-
-        // 解析进度信息
-        result.out.forEach { line ->
-            parseBackupProgress(line)?.let { p ->
-                progressCallback?.onBackupProgress(
-                    p.percent_done ?: 0f,
-                    p.bytes_done ?: 0,
-                    p.total_bytes ?: 0,
-                    p.files_done ?: 0,
-                    p.total_files ?: 0
+                // Rustic 命令格式: backup <SOURCE> -r <REPO> --tag <TAGS>
+                val args = mutableListOf(
+                    "backup",
+                    filePath,
+                    "-r", repoPath,
+                    "--progress-interval", "1s"
                 )
+
+                // 添加标签
+                tags.forEach { tag ->
+                    args.add("--tag")
+                    args.add(tag)
+                }
+
+                val result = executeRestic(*args.toTypedArray(), env = env, usePty = true)
+
+                Pair(result.code, result.out.joinToString("\n"))
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during local Rustic backup", e)
+                Pair(1, e.message ?: "Unknown error")
             }
         }
-
-        return Pair(result.code, result.out.joinToString("\n"))
     }
 
     /**
@@ -881,56 +968,40 @@ class ResticRepository @Inject constructor(
         remotePath: String,
         password: String
     ): Result<String> {
-        val repoUrl = buildS3ResticUrl(extra, remotePath)
+        return withContext(Dispatchers.IO) {
+            try {
+                // 使用 OpenDAL 环境变量(与 listBackedUpAppsFromS3WithSql 一致)
+                val env = mutableMapOf(
+                    "OPENDAL_BUCKET" to extra.bucket,
+                    "OPENDAL_ROOT" to formatOpenDALRoot(remotePath),
+                    "OPENDAL_ENDPOINT" to buildOpenDALEndpoint(extra),
+                    "OPENDAL_SECRET_ID" to extra.accessKeyId,
+                    "OPENDAL_SECRET_KEY" to extra.secretAccessKey,
+                    "RUSTIC_PASSWORD" to password
+                )
 
-        // 完整的环境变量设置
-        val env = mutableMapOf(
-            "AWS_ACCESS_KEY_ID" to extra.accessKeyId,
-            "AWS_SECRET_ACCESS_KEY" to extra.secretAccessKey,
-            "RESTIC_PASSWORD" to password
-        )
+                // Rustic 命令格式: init -r opendal:cos
+                val args = mutableListOf(
+                    "init",
+                    "-r", "opendal:cos"
+                )
 
-        // 根据文档添加必要的配置
-        val options = mutableListOf<String>()
+                val result = executeRestic(*args.toTypedArray(), env = env, usePty = true)
 
-        if (extra.endpoint.isNotEmpty()) {
-            // 自定义endpoint的S3兼容存储
-            if (extra.region.isNotEmpty()) {
-                env["AWS_DEFAULT_REGION"] = extra.region
-                options.add("-o")
-                options.add("s3.region=${extra.region}")
+                val output = if (result.isSuccess) {
+                    result.out.joinToString("\n")
+                } else {
+                    result.err.joinToString("\n")
+                }
+
+                if (result.isSuccess) {
+                    Result.success(output)
+                } else {
+                    Result.failure(Exception(output.ifEmpty { "Unknown error during rustic init" }))
+                }
+            } catch (e: Exception) {
+                Result.failure(e)
             }
-
-            // 对于非AWS存储，可能需要指定bucket-lookup模式
-            if (!extra.endpoint.contains("amazonaws.com")) {
-                options.add("-o")
-                options.add("s3.bucket-lookup=dns")
-            }
-        } else {
-            // AWS S3特定配置
-            env["AWS_DEFAULT_REGION"] = extra.region
-        }
-
-        // 构建完整的命令参数
-        val args = mutableListOf("init", "--repo", "\"$repoUrl\"")
-        args.addAll(options)
-
-        // 直接调用executeRestic而不是initRepository
-        val result = executeRestic(
-            *args.toTypedArray(),
-            env = env
-        )
-
-        val output = if (result.isSuccess) {
-            result.out.joinToString("\n")
-        } else {
-            result.err.joinToString("\n")
-        }
-
-        return if (result.isSuccess) {
-            Result.success(output)
-        } else {
-            Result.failure(Exception(output.ifEmpty { "Unknown error during restic init" }))
         }
     }
 
@@ -952,47 +1023,48 @@ class ResticRepository @Inject constructor(
         password: String,
         progressCallback: ResticProgressCallback? = null
     ): Pair<Int, String> {
-        val repoUrl = buildS3ResticUrl(extra, remotePath)
-
-        val env = mutableMapOf(
-            "AWS_ACCESS_KEY_ID" to extra.accessKeyId,
-            "AWS_SECRET_ACCESS_KEY" to extra.secretAccessKey,
-            "RESTIC_PASSWORD" to password
-        )
-
-        // S3 特定选项
-        val options = mutableListOf<String>()
-        if (extra.endpoint.isNotEmpty() && extra.region.isNotEmpty()) {
-            options.add("-o")
-            options.add("s3.region=${extra.region}")
-        }
-
-        val compressionLevel = context.readResticCompressionLevel().first() ?: "auto"
-
-        val args = mutableListOf(
-            "backup", "--repo", "\"$repoUrl\"", "\"$filePath\"",
-            "--tag", "\"${tags.joinToString(",")}\"", "--json",
-            "--compression", compressionLevel,
-            "-o", "s3.bucket-lookup=dns"
-        )
-        args.addAll(options)
-
-        val result = executeRestic(*args.toTypedArray(), env = env)
-
-        // 解析进度
-        result.out.forEach { line ->
-            parseBackupProgress(line)?.let { p ->
-                progressCallback?.onBackupProgress(
-                    p.percent_done ?: 0f,
-                    p.bytes_done ?: 0,
-                    p.total_bytes ?: 0,
-                    p.files_done ?: 0,
-                    p.total_files ?: 0
+        return withContext(Dispatchers.IO) {
+            try {
+                // 使用 OpenDAL 环境变量(与 restoreSnapshotFromS3 一致)
+                val env = mutableMapOf(
+                    "OPENDAL_BUCKET" to extra.bucket,
+                    "OPENDAL_ROOT" to formatOpenDALRoot(remotePath),
+                    "OPENDAL_ENDPOINT" to buildOpenDALEndpoint(extra),
+                    "OPENDAL_SECRET_ID" to extra.accessKeyId,
+                    "OPENDAL_SECRET_KEY" to extra.secretAccessKey,
+                    "RUSTIC_PASSWORD" to password
                 )
+
+                // Rustic 命令格式: backup <SOURCE> -r opendal:cos --tag <TAGS>
+                val args = mutableListOf(
+                    "backup",
+                    filePath,            // 源文件作为位置参数
+                    "-r", "opendal:cos", // 使用 OpenDAL 协议
+                    "--progress-interval", "1s"             // 输出用于进度解析
+                )
+
+                // 添加标签
+                tags.forEach { tag ->
+                    args.add("--tag")
+                    args.add(tag)
+                }
+
+                val result = executeRestic(*args.toTypedArray(), env = env, usePty = true)
+
+                // 注意: Rustic backup 可能也不支持 --json,需要移除进度解析
+                // 如果支持,保留以下代码:
+                // result.out.forEach { line ->
+                //     parseBackupProgress(line)?.let { p ->
+                //         progressCallback?.onBackupProgress(...)
+                //     }
+                // }
+
+                Pair(result.code, result.out.joinToString("\n"))
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during S3 Rustic backup", e)
+                Pair(1, e.message ?: "Unknown error")
             }
         }
-
-        return Pair(result.code, result.out.joinToString("\n"))
     }
 
     /**
