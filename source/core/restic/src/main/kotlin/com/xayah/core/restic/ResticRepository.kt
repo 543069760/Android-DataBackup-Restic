@@ -41,31 +41,45 @@ class ResticRepository @Inject constructor(
     }
 
     /**
-     * 核心执行方法：使用 libsu 执行 Root 命令
+     * 核心执行方法:使用 libsu 执行 Root 命令
+     * @param usePty 是否使用 PTY 模拟(用于需要终端的命令,如 --sql)
      */
     private suspend fun executeRestic(
         vararg args: String,
-        env: Map<String, String> = emptyMap()
+        env: Map<String, String> = emptyMap(),
+        usePty: Boolean = false
     ): Shell.Result = withContext(Dispatchers.IO) {
         val defaultEnv = mutableMapOf(
             "HOME" to context.filesDir.absolutePath,
             "XDG_CACHE_HOME" to File(context.cacheDir, "restic").absolutePath
         )
+
+        if (usePty) {
+            defaultEnv["TERM"] = "xterm-256color"
+        }
+
         defaultEnv.putAll(env)
 
-        // 详细日志记录
+        val envExports = defaultEnv.map { "export ${it.key}=\"${it.value}\"" }
+        val resticCommand = "$resticPath ${args.joinToString(" ")}"
+
+        val finalCommand = if (usePty) {
+            val busyboxPath = "${context.filesDir.absolutePath}/bin/busybox"
+            // 重定向 stdin, stdout, stderr 避免 script 挂起
+            envExports.joinToString(" && ") +
+                    " && $busyboxPath script -qc \"$resticCommand 2>&1\" /dev/null < /dev/null 2>&1"
+        } else {
+            envExports.joinToString(" && ") + " && $resticCommand"
+        }
+
         Log.d(TAG, "=== Restic Command Debug ===")
         Log.d(TAG, "Command: restic ${args.joinToString(" ")}")
+        Log.d(TAG, "Use PTY: $usePty")
         Log.d(TAG, "Environment: ${defaultEnv.entries.joinToString(", ") { "${it.key}=${it.value}" }}")
+        Log.d(TAG, "Full command: $finalCommand")
 
-        val envExports = defaultEnv.map { "export ${it.key}=\"${it.value}\"" }
-        val command = envExports.joinToString(" && ") + " && $resticPath ${args.joinToString(" ")}"
+        val result = Shell.cmd(finalCommand).exec()
 
-        Log.d(TAG, "Full command: $command")
-
-        val result = Shell.cmd(command).exec()
-
-        // 详细输出日志
         Log.d(TAG, "Exit code: ${result.code}")
         if (result.out.isNotEmpty()) {
             Log.d(TAG, "STDOUT:\n${result.out.joinToString("\n")}")
@@ -76,6 +90,181 @@ class ResticRepository @Inject constructor(
         Log.d(TAG, "==============================")
 
         result
+    }
+
+    /**
+     * 使用 Rustic OpenDAL SQL 模式从 S3 获取应用备份列表
+     */
+    suspend fun listBackedUpAppsFromS3WithSql(
+        cloudEntity: CloudEntity,
+        password: String
+    ): List<ResticBackupApp> = withContext(Dispatchers.IO) {
+        try {
+            val extra = json.decodeFromString<S3Extra>(cloudEntity.extra) ?: return@withContext emptyList()
+
+            // 创建 cache/sql/ 目录
+            val sqlDir = File(context.cacheDir, "sql")
+            if (!sqlDir.exists()) {
+                sqlDir.mkdirs()
+            }
+
+            // SQL 文件保存到 cache/sql/ 目录
+            val sqlFile = File(sqlDir, "snapshots_${System.currentTimeMillis()}.sql")
+
+            val env = mutableMapOf(
+                "OPENDAL_BUCKET" to extra.bucket,
+                "OPENDAL_ROOT" to formatOpenDALRoot(cloudEntity.remote),
+                "OPENDAL_ENDPOINT" to buildOpenDALEndpoint(extra),
+                "OPENDAL_SECRET_ID" to extra.accessKeyId,
+                "OPENDAL_SECRET_KEY" to extra.secretAccessKey,
+                "RUSTIC_PASSWORD" to password
+            )
+
+            val args = mutableListOf(
+                "--no-progress",
+                "snapshots",
+                "-r", "opendal:cos",
+                "--sql",
+                "--sql-output", sqlFile.absolutePath
+            )
+
+            Log.d(TAG, "执行 Rustic SQL 查询,输出路径: ${sqlFile.absolutePath}")
+            val result = executeRestic(*args.toTypedArray(), env = env, usePty = true)
+
+            if (!result.isSuccess) {
+                Log.e(TAG, "SQL 生成失败 (Exit Code: ${result.code})")
+                Log.e(TAG, "标准输出: ${result.out.joinToString("\n")}")
+                Log.e(TAG, "错误输出: ${result.err.joinToString("\n")}")
+                return@withContext emptyList()
+            }
+
+            if (!sqlFile.exists()) {
+                Log.e(TAG, "SQL 文件未生成: ${sqlFile.absolutePath}")
+                return@withContext emptyList()
+            }
+
+            if (sqlFile.length() == 0L) {
+                Log.e(TAG, "SQL 文件为空")
+                return@withContext emptyList()
+            }
+
+            val apps = parseSqlFileForApps(sqlFile)
+            sqlFile.delete()  // 清理临时文件
+
+            Log.d(TAG, "SQL 模式成功提取 ${apps.size} 个应用备份项")
+            apps
+        } catch (e: Exception) {
+            Log.e(TAG, "listBackedUpAppsFromS3WithSql 异常", e)
+            emptyList()
+        }
+    }
+
+    /**
+     * 格式化 OpenDAL Root 路径
+     * 确保以 / 开头,以 / 结尾(与您的命令示例一致)
+     */
+    private fun formatOpenDALRoot(remotePath: String): String {
+        val trimmed = remotePath.trim()
+        if (trimmed.isEmpty() || trimmed == "/") {
+            return "/"
+        }
+        val withLeading = if (trimmed.startsWith("/")) trimmed else "/$trimmed"
+        return if (withLeading.endsWith("/")) withLeading else "$withLeading/"
+    }
+
+    /**
+     * 构建 OpenDAL Endpoint
+     * 格式: protocol://endpoint (不包含 bucket)
+     */
+    private fun buildOpenDALEndpoint(extra: S3Extra): String {
+        val protocol = when (extra.protocol) {
+            S3Protocol.HTTP -> "http"
+            S3Protocol.HTTPS -> "https"
+        }
+        return "$protocol://${extra.endpoint.trim().removeSuffix("/")}"
+    }
+
+    /**
+     * 从 SQL 文件解析应用备份信息(使用 v_snapshots_full 视图)
+     */
+    private fun parseSqlFileForApps(sqlFile: File): List<ResticBackupApp> {
+        val db = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(":memory:", null)
+        try {
+            // 执行 SQL 文件中的所有语句
+            sqlFile.readText().split(";").forEach { stmt ->
+                val trimmed = stmt.trim()
+                if (trimmed.isNotEmpty()) {
+                    try {
+                        db.execSQL(trimmed + ";")
+                    } catch (e: Exception) {
+                        // 忽略 COMMIT 等可能的语法差异
+                        Log.w(TAG, "SQL 语句执行警告: ${e.message}")
+                    }
+                }
+            }
+
+            // 直接从视图查询,tags_flat 包含所有标签(用 char(31) 分隔)
+            val query = """  
+            SELECT   
+                id,  
+                time,  
+                tags_flat  
+            FROM v_snapshots_full  
+            WHERE tags_flat IS NOT NULL  
+        """
+
+            val cursor = db.rawQuery(query, null)
+            val apps = mutableListOf<ResticBackupApp>()
+
+            while (cursor.moveToNext()) {
+                val snapshotId = cursor.getString(0)
+                val snapshotTime = cursor.getString(1)
+                val tagsFlat = cursor.getString(2) ?: continue
+
+                // tags_flat 使用 char(31) 作为分隔符
+                val tags = tagsFlat.split(31.toChar()).filter { it.isNotEmpty() }
+
+                tags.forEach { tag ->
+                    val parts = tag.split("-")
+                    // 标签格式: user_0-com.package.name-1768755852316-apk
+                    if (parts.size >= 4 && parts[0].startsWith("user_")) {
+                        try {
+                            val userId = parts[0].split("_").lastOrNull()?.toIntOrNull() ?: 0
+                            val packageName = parts[1]
+                            val timestamp = parts[2].toLongOrNull() ?: 0L
+                            val dataType = when (parts[3]) {
+                                "apk" -> DataType.PACKAGE_APK
+                                "user" -> DataType.PACKAGE_USER
+                                "user_de" -> DataType.PACKAGE_USER_DE
+                                "data" -> DataType.PACKAGE_DATA
+                                "obb" -> DataType.PACKAGE_OBB
+                                "media" -> DataType.PACKAGE_MEDIA
+                                "config" -> DataType.PACKAGE_CONFIG
+                                else -> null
+                            }
+
+                            if (dataType != null) {
+                                apps.add(ResticBackupApp(
+                                    packageName = packageName,
+                                    userId = userId,
+                                    timestamp = timestamp,
+                                    dataType = dataType,
+                                    snapshotId = snapshotId,
+                                    snapshotTime = snapshotTime,
+                                    tags = tags
+                                ))
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "解析标签出错: $tag", e)
+                        }
+                    }
+                }
+            }
+            cursor.close()
+            return apps
+        } finally {
+            db.close()
+        }
     }
 
     // --- 恢复快照（包含详细诊断逻辑） ---

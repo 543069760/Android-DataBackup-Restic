@@ -56,13 +56,13 @@ class CloudRestoreViewModel @Inject constructor(
     fun setCloudEntity(accountName: String) {
         val cleanAccountName = accountName.replace("accountName=", "")
         this.accountName = cleanAccountName // 存储账户名
-        Log.e("CloudRestore", "setCloudEntity 被调用，账户名: $accountName")
+        Log.d("CloudRestore", "setCloudEntity 被调用，账户名: $accountName")
         viewModelScope.launch {
-            Log.e("CloudRestore", "开始查询云端账户: $cleanAccountName")
+            Log.d("CloudRestore", "开始查询云端账户: $cleanAccountName")
             val cloudEntity = cloudRepo.queryByName(cleanAccountName)
             if (cloudEntity != null) {
-                Log.e("CloudRestore", "找到云端账户: ${cloudEntity.name}, 类型: ${cloudEntity.type}")
-                Log.e("CloudRestore", "准备调用 loadCloudBackedUpApps")
+                Log.d("CloudRestore", "找到云端账户: ${cloudEntity.name}, 类型: ${cloudEntity.type}")
+                Log.d("CloudRestore", "准备调用 loadCloudBackedUpApps")
                 loadCloudBackedUpApps(cloudEntity)
             } else {
                 Log.e("CloudRestore", "云端账户查询失败: $cleanAccountName")
@@ -72,7 +72,7 @@ class CloudRestoreViewModel @Inject constructor(
     }
 
     fun loadCloudBackedUpApps(cloudEntity: CloudEntity) {
-        Log.e("CloudRestore", "=== loadCloudBackedUpApps 开始 ===")
+        Log.d("CloudRestore", "=== loadCloudBackedUpApps 开始 ===")
         viewModelScope.launch {
             _uiState.value = CloudRestoreUiState.Loading
             val password = context.readS3ResticPassword()
@@ -82,7 +82,14 @@ class CloudRestoreViewModel @Inject constructor(
             }
             try {
                 // 明确指定类型，消除歧义
-                val apps: List<ResticBackupApp> = resticRepo.listBackedUpAppsFromS3(cloudEntity, password)
+                val apps: List<ResticBackupApp> = try {
+                    // 优先使用 SQL 模式(性能更好)
+                    resticRepo.listBackedUpAppsFromS3WithSql(cloudEntity, password)
+                } catch (e: Exception) {
+                    Log.w("CloudRestore", "SQL 模式失败,回退到 JSON 模式", e)
+                    // Fallback 到现有 JSON 模式
+                    resticRepo.listBackedUpAppsFromS3(cloudEntity, password)
+                }
 
                 val groupedBackups = apps
                     .groupBy { "${it.userId}-${it.packageName}-${it.timestamp}" }
