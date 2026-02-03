@@ -155,24 +155,26 @@ class ResticViewModel @Inject constructor(
                 val repoPath = getRepoPath()
                 _repoPathState.value = repoPath
 
-                // 6. 检查仓库初始化状态与快照
                 val password = getResticPassword()
                 val isInitialized = resticRepo.checkRepository(repoPath, password)
 
                 _resticInitializedState.value = isInitialized
-                _resticRepoPathState.value = if (isInitialized) repoPath else ""
 
-                if (isInitialized) {
+                if (!isInitialized) {
+                    // 仓库不存在,清除已保存的路径
+                    context.saveResticRepoPath("")
+                    _resticRepoPathState.value = ""
+                    _resticSnapshotCountState.value = 0
+                } else {
+                    _resticRepoPathState.value = repoPath
                     val snapshots = resticRepo.listSnapshots(repoPath, password)
                     _resticSnapshotCountState.value = snapshots.size
-                } else {
-                    _resticSnapshotCountState.value = 0
                 }
-
             } catch (e: Exception) {
-                Log.e(TAG, "DEBUG: checkResticStatus 异常", e)
+                Log.e(TAG, "checkResticStatus 异常", e)
                 _resticVersionState.value = null
                 _resticInitializedState.value = false
+                _resticRepoPathState.value = ""
             }
         }
     }

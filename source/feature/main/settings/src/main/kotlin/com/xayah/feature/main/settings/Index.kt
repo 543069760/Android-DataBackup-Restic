@@ -192,7 +192,7 @@ fun PageSettings() {
                         else -> stringResource(id = R.string.restic_initialized_at, repoPath ?: "")
                     }
                 ) {
-                    if (resticVersion != null && !resticInitialized && resticError == null) {
+                    if (resticVersion != null && !resticInitialized) {
                         navController.navigateSingle(MainRoutes.ResticInitialization.route)
                     }
                 }

@@ -102,9 +102,16 @@ class CloudFilesRestoreViewModel @Inject constructor(
                 }
                 Log.d(TAG, "S3 Restic密码配置已读取 (长度: ${password.length})")
 
-                Log.d(TAG, "开始调用 listBackedUpFilesFromS3")
-                val files: List<ResticBackupFiles> = resticRepo.listBackedUpFilesFromS3(cloudEntity, password)
-                Log.d(TAG, "listBackedUpFilesFromS3 返回 ${files.size} 个文件备份项")
+                // 优先使用 SQL 模式,失败时回退到 JSON 模式
+                Log.d(TAG, "开始调用 listBackedUpFilesFromS3WithSql (SQL 模式)")
+                val files: List<ResticBackupFiles> = try {
+                    resticRepo.listBackedUpFilesFromS3WithSql(cloudEntity, password)
+                } catch (e: Exception) {
+                    Log.w(TAG, "SQL 模式失败,回退到 JSON 模式", e)
+                    resticRepo.listBackedUpFilesFromS3(cloudEntity, password)
+                }
+
+                Log.d(TAG, "获取到 ${files.size} 个文件备份项")
 
                 if (files.isEmpty()) {
                     Log.w(TAG, "未找到任何云端文件备份")

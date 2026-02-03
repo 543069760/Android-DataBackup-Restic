@@ -279,7 +279,7 @@ class ResticRepository @Inject constructor(
     ): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                Log.d(TAG, "开始恢复快照: $snapshotId -> $targetPath")
+                Log.d(TAG, "开始恢复快照(Rustic): $snapshotId -> $targetPath")
 
                 val fullSnapshotId = if (!snapshotSubPath.isNullOrEmpty()) {
                     "$snapshotId:$snapshotSubPath"
@@ -287,21 +287,25 @@ class ResticRepository @Inject constructor(
                     snapshotId
                 }
 
+                // Rustic 命令格式
                 val args = mutableListOf(
-                    "restore", fullSnapshotId,
-                    "--repo", "\"$repoPath\"",
-                    "--target", "\"$targetPath\"",
-                    "--json"
+                    "restore",
+                    fullSnapshotId,
+                    targetPath,
+                    "-r", repoPath,
+                    "--progress-interval", "1s"
                 )
 
                 if (!includePath.isNullOrEmpty()) {
-                    args.addAll(listOf("--include", "\"$includePath\""))
+                    args.addAll(listOf("--glob", includePath))
                 }
 
-                // 执行命令
-                val result = executeRestic(*args.toTypedArray(), env = mapOf("RESTIC_PASSWORD" to password))
-                val output = result.out.joinToString("\n")
-                val exitCode = result.code
+                // 使用 RUSTIC_PASSWORD 和 PTY 模式
+                val result = executeRestic(
+                    *args.toTypedArray(),
+                    env = mapOf("RUSTIC_PASSWORD" to password),
+                    usePty = true
+                )
 
                 // 处理进度回调
                 result.out.forEach { line ->
@@ -314,45 +318,15 @@ class ResticRepository @Inject constructor(
                     }
                 }
 
-                // === 详细恢复过程诊断 (原始逻辑回归) ===
-                Log.d(TAG, "========== Restic 恢复过程详情 ==========")
-                Log.d(TAG, "命令参数: ${args.joinToString(" ")}")
-                Log.d(TAG, "退出码: $exitCode")
-                Log.d(TAG, "标准输出长度: ${output.length} 字符")
-
-                if (output.isNotEmpty()) {
-                    Log.d(TAG, "=== 标准输出内容 ===")
-                    result.out.forEachIndexed { index, line ->
-                        Log.d(TAG, "stdout[$index]: $line")
-                    }
+                // 诊断日志
+                Log.d(TAG, "恢复命令执行完成，退出码: ${result.code}")
+                if (result.code != 0) {
+                    Log.e(TAG, "恢复失败，错误输出: ${result.err.joinToString("\n")}")
                 }
 
-                // 分析失败原因
-                if (exitCode != 0) {
-                    Log.w(TAG, "=== 退出码分析 ===")
-                    when {
-                        output.contains("warning", ignoreCase = true) -> Log.w(TAG, "✓ 检测到警告信息")
-                        output.contains("error", ignoreCase = true) -> Log.e(TAG, "✗ 检测到错误信息")
-                        output.contains("file not found", ignoreCase = true) -> Log.e(TAG, "✗ 文件未找到")
-                        output.contains("permission denied", ignoreCase = true) -> Log.e(TAG, "✗ 权限被拒绝 (SELinux 或 文件系统只读)")
-                        output.contains("restoring", ignoreCase = true) -> Log.w(TAG, "✓ 检测到恢复操作记录，但命令未成功完成")
-                        else -> Log.w(TAG, "? 未知原因的非零退出码")
-                    }
-
-                    // 检查物理文件是否存在
-                    val targetFile = File(targetPath, includePath ?: "")
-                    Log.w(TAG, "目标文件检查: ${targetFile.absolutePath}")
-                    Log.w(TAG, "文件物理存在: ${targetFile.exists()}")
-                    if (targetFile.exists()) {
-                        Log.w(TAG, "文件大小: ${targetFile.length()} bytes")
-                        Log.w(TAG, "最后修改时间: ${targetFile.lastModified()}")
-                    }
-                }
-                Log.d(TAG, "========================================")
-
-                exitCode == 0
+                result.code == 0
             } catch (e: Exception) {
-                Log.e(TAG, "Restic restore process exception", e)
+                Log.e(TAG, "Rustic restore process exception", e)
                 logger.logCommandFailed(e)
                 false
             }
@@ -577,74 +551,248 @@ class ResticRepository @Inject constructor(
     }
 
     suspend fun listBackedUpFiles(repoPath: String, password: String): List<ResticBackupFiles> {
-        val snapshots = listSnapshots(repoPath, password)
-        val files = mutableListOf<ResticBackupFiles>()
-        snapshots.forEach { snapshot ->
-            snapshot.tags.forEach { tag ->
-                val parts = tag.split("-")
-                if (parts.size >= 3) {
-                    val mediaName = parts.dropLast(2).joinToString("-")
-                    val timestamp = parts[parts.size - 2].toLongOrNull() ?: 0L
-                    val dataType = when (parts.last()) {
-                        "filesbackup" -> DataType.PACKAGE_MEDIA
-                        "filesconfig" -> DataType.PACKAGE_CONFIG
-                        else -> null
-                    }
-                    if (dataType != null) {
-                        val fullPath = snapshot.paths.firstOrNull() ?: ""
-                        files.add(ResticBackupFiles(
-                            mediaName = mediaName,
-                            fullPath = fullPath,
-                            timestamp = timestamp,
-                            dataType = dataType,
-                            snapshotId = snapshot.id,
-                            snapshotTime = snapshot.time,
-                            tags = snapshot.tags
-                        ))
+        return withContext(Dispatchers.IO) {
+            try {
+                val sqlDir = File(context.cacheDir, "sql")
+                if (!sqlDir.exists()) {
+                    sqlDir.mkdirs()
+                }
+
+                val sqlFile = File(sqlDir, "snapshots_files_${System.currentTimeMillis()}.sql")
+
+                val args = mutableListOf(
+                    "--no-progress",
+                    "snapshots",
+                    "-r", repoPath,
+                    "--sql",
+                    "--sql-output", sqlFile.absolutePath
+                )
+
+                Log.d(TAG, "执行本地文件备份 SQL 查询")
+                val result = executeRestic(*args.toTypedArray(), env = mapOf("RUSTIC_PASSWORD" to password), usePty = true)
+
+                if (!result.isSuccess || !sqlFile.exists() || sqlFile.length() == 0L) {
+                    Log.e(TAG, "SQL 生成失败")
+                    return@withContext emptyList()
+                }
+
+                val files = parseSqlFileForFiles(sqlFile)
+                sqlFile.delete()
+
+                Log.d(TAG, "SQL 模式成功提取 ${files.size} 个文件备份项")
+                files
+            } catch (e: Exception) {
+                Log.e(TAG, "listBackedUpFiles SQL 模式异常", e)
+                emptyList()
+            }
+        }
+    }
+
+    /**
+     * 从 SQL 文件解析文件备份信息
+     */
+    private fun parseSqlFileForFiles(sqlFile: File): List<ResticBackupFiles> {
+        val db = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(":memory:", null)
+        try {
+            // 执行 SQL 文件
+            sqlFile.readText().split(";").forEach { stmt ->
+                val trimmed = stmt.trim()
+                if (trimmed.isNotEmpty()) {
+                    try {
+                        db.execSQL(trimmed + ";")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "SQL 语句执行警告: ${e.message}")
                     }
                 }
             }
+
+            val query = """    
+            SELECT     
+                id,    
+                time,    
+                paths_flat,  
+                tags_flat    
+            FROM v_snapshots_full    
+            WHERE tags_flat IS NOT NULL    
+        """
+
+            val cursor = db.rawQuery(query, null)
+            val files = mutableListOf<ResticBackupFiles>()
+
+            while (cursor.moveToNext()) {
+                val snapshotId = cursor.getString(0)
+                val snapshotTime = cursor.getString(1)
+                val pathsFlat = cursor.getString(2) ?: ""
+                val tagsFlat = cursor.getString(3) ?: continue
+
+                val paths = pathsFlat.split(31.toChar()).filter { it.isNotEmpty() }
+                val tags = tagsFlat.split(31.toChar()).filter { it.isNotEmpty() }
+
+                tags.forEach { tag ->
+                    val parts = tag.split("-")
+                    // 标签格式: mediaName-timestamp-filesbackup/filesconfig
+                    if (parts.size >= 3) {
+                        try {
+                            val mediaName = parts.dropLast(2).joinToString("-")
+                            val timestamp = parts[parts.size - 2].toLongOrNull() ?: 0L
+                            val dataType = when (parts.last()) {
+                                "filesbackup" -> DataType.PACKAGE_MEDIA
+                                "filesconfig" -> DataType.PACKAGE_CONFIG
+                                else -> null
+                            }
+
+                            if (dataType != null) {
+                                val fullPath = paths.firstOrNull() ?: ""
+                                files.add(ResticBackupFiles(
+                                    mediaName = mediaName,
+                                    fullPath = fullPath,
+                                    timestamp = timestamp,
+                                    dataType = dataType,
+                                    snapshotId = snapshotId,
+                                    snapshotTime = snapshotTime,
+                                    tags = tags
+                                ))
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "解析文件标签出错: $tag", e)
+                        }
+                    }
+                }
+            }
+            cursor.close()
+            return files
+        } finally {
+            db.close()
         }
-        return files
     }
 
     suspend fun validateRepository(repoPath: String, password: String): Boolean =
-        executeRestic("snapshots", "--repo", "\"$repoPath\"", "--json", env = mapOf("RESTIC_PASSWORD" to password)).isSuccess
+        executeRestic("check", "-r", repoPath,
+            env = mapOf("RUSTIC_PASSWORD" to password),
+            usePty = true).isSuccess
 
     suspend fun deleteRepository(repoPath: String): Boolean = withContext(Dispatchers.IO) {
         try { File(repoPath).deleteRecursively() } catch (e: Exception) { false }
     }
 
-    suspend fun checkRepository(repoPath: String, password: String): Boolean =
-        executeRestic("check", "--repo", "\"$repoPath\"", env = mapOf("RESTIC_PASSWORD" to password)).isSuccess
+    suspend fun checkRepository(repoPath: String, password: String): Boolean {
+        val result = executeRestic("check", "-r", repoPath,
+            env = mapOf("RUSTIC_PASSWORD" to password),
+            usePty = true)
+
+        // 检查是否包含 "No repository config file found" 错误
+        val hasRepoError = result.out.any {
+            it.contains("No repository config file found") ||
+                    it.contains("rustic_core") && it.contains("configuration")
+        }
+
+        return result.isSuccess && !hasRepoError
+    }
 
     suspend fun listBackedUpApps(repoPath: String, password: String): List<ResticBackupApp> {
-        val snapshots = listSnapshots(repoPath, password)
-        val apps = mutableListOf<ResticBackupApp>()
-        snapshots.forEach { snapshot ->
-            snapshot.tags.forEach { tag ->
-                val parts = tag.split("-")
-                if (parts.size >= 4) {
-                    val userId = parts[0].split("_").lastOrNull()?.toIntOrNull() ?: 0
-                    val packageName = parts[1]
-                    val timestamp = parts[2].toLongOrNull() ?: 0L
-                    val dataType = when (parts[3]) {
-                        "apk" -> DataType.PACKAGE_APK
-                        "user" -> DataType.PACKAGE_USER
-                        "user_de" -> DataType.PACKAGE_USER_DE
-                        "data" -> DataType.PACKAGE_DATA
-                        "obb" -> DataType.PACKAGE_OBB
-                        "media" -> DataType.PACKAGE_MEDIA
-                        "config" -> DataType.PACKAGE_CONFIG
-                        else -> null
-                    }
-                    if (dataType != null) {
-                        apps.add(ResticBackupApp(packageName, userId, timestamp, dataType, snapshot.id, snapshot.time, snapshot.tags))
-                    }
+        return withContext(Dispatchers.IO) {
+            try {
+                // 创建 cache/sql/ 目录
+                val sqlDir = File(context.cacheDir, "sql")
+                if (!sqlDir.exists()) {
+                    sqlDir.mkdirs()
                 }
+
+                val sqlFile = File(sqlDir, "snapshots_apps_${System.currentTimeMillis()}.sql")
+
+                val args = mutableListOf(
+                    "--no-progress",
+                    "snapshots",
+                    "-r", repoPath,
+                    "--sql",
+                    "--sql-output", sqlFile.absolutePath
+                )
+
+                Log.d(TAG, "执行本地应用备份 SQL 查询")
+                val result = executeRestic(*args.toTypedArray(), env = mapOf("RUSTIC_PASSWORD" to password), usePty = true)
+
+                if (!result.isSuccess || !sqlFile.exists() || sqlFile.length() == 0L) {
+                    Log.e(TAG, "SQL 生成失败")
+                    return@withContext emptyList()
+                }
+
+                val apps = parseSqlFileForApps(sqlFile)
+                sqlFile.delete()
+
+                Log.d(TAG, "SQL 模式成功提取 ${apps.size} 个应用备份项")
+                apps
+            } catch (e: Exception) {
+                Log.e(TAG, "listBackedUpApps SQL 模式异常", e)
+                emptyList()
             }
         }
-        return apps
+    }
+
+    /**
+     * 使用 Rustic OpenDAL SQL 模式从 S3 获取文件备份列表
+     */
+    suspend fun listBackedUpFilesFromS3WithSql(
+        cloudEntity: CloudEntity,
+        password: String
+    ): List<ResticBackupFiles> = withContext(Dispatchers.IO) {
+        try {
+            val extra = json.decodeFromString<S3Extra>(cloudEntity.extra) ?: return@withContext emptyList()
+
+            // 创建 cache/sql/ 目录
+            val sqlDir = File(context.cacheDir, "sql")
+            if (!sqlDir.exists()) {
+                sqlDir.mkdirs()
+            }
+
+            // SQL 文件保存到 cache/sql/ 目录
+            val sqlFile = File(sqlDir, "snapshots_files_${System.currentTimeMillis()}.sql")
+
+            val env = mutableMapOf(
+                "OPENDAL_BUCKET" to extra.bucket,
+                "OPENDAL_ROOT" to formatOpenDALRoot(cloudEntity.remote),
+                "OPENDAL_ENDPOINT" to buildOpenDALEndpoint(extra),
+                "OPENDAL_SECRET_ID" to extra.accessKeyId,
+                "OPENDAL_SECRET_KEY" to extra.secretAccessKey,
+                "RUSTIC_PASSWORD" to password
+            )
+
+            val args = mutableListOf(
+                "--no-progress",
+                "snapshots",
+                "-r", "opendal:cos",
+                "--sql",
+                "--sql-output", sqlFile.absolutePath
+            )
+
+            Log.d(TAG, "执行 Rustic SQL 查询(文件备份),输出路径: ${sqlFile.absolutePath}")
+            val result = executeRestic(*args.toTypedArray(), env = env, usePty = true)
+
+            if (!result.isSuccess) {
+                Log.e(TAG, "SQL 生成失败 (Exit Code: ${result.code})")
+                Log.e(TAG, "标准输出: ${result.out.joinToString("\n")}")
+                Log.e(TAG, "错误输出: ${result.err.joinToString("\n")}")
+                return@withContext emptyList()
+            }
+
+            if (!sqlFile.exists()) {
+                Log.e(TAG, "SQL 文件未生成: ${sqlFile.absolutePath}")
+                return@withContext emptyList()
+            }
+
+            if (sqlFile.length() == 0L) {
+                Log.e(TAG, "SQL 文件为空")
+                return@withContext emptyList()
+            }
+
+            val files = parseSqlFileForFiles(sqlFile)
+            sqlFile.delete()  // 清理临时文件
+
+            Log.d(TAG, "SQL 模式成功提取 ${files.size} 个文件备份项")
+            files
+        } catch (e: Exception) {
+            Log.e(TAG, "listBackedUpFilesFromS3WithSql 异常", e)
+            emptyList()
+        }
     }
 
     suspend fun listBackedUpFilesFromS3(cloudEntity: CloudEntity, password: String): List<ResticBackupFiles> {
@@ -666,7 +814,7 @@ class ResticRepository @Inject constructor(
             val env = mutableMapOf(
                 "AWS_ACCESS_KEY_ID" to extra.accessKeyId,
                 "AWS_SECRET_ACCESS_KEY" to extra.secretAccessKey,
-                "RESTIC_PASSWORD" to password
+                "RUSTIC_PASSWORD" to password
             )
             if (extra.region.isNotEmpty()) {
                 env["AWS_DEFAULT_REGION"] = extra.region
@@ -675,7 +823,7 @@ class ResticRepository @Inject constructor(
             // 4. 构建命令行参数
             val args = mutableListOf(
                 "snapshots",
-                "--repo", "\"$repoUrl\"",
+                "-r", repoUrl,
                 "--json",
                 "-o", "s3.bucket-lookup=dns"
             )
@@ -775,7 +923,7 @@ class ResticRepository @Inject constructor(
             val env = mutableMapOf(
                 "AWS_ACCESS_KEY_ID" to extra.accessKeyId,
                 "AWS_SECRET_ACCESS_KEY" to extra.secretAccessKey,
-                "RESTIC_PASSWORD" to password
+                "RUSTIC_PASSWORD" to password
             )
             if (extra.region.isNotEmpty()) {
                 env["AWS_DEFAULT_REGION"] = extra.region
@@ -784,7 +932,7 @@ class ResticRepository @Inject constructor(
             // 4. 构建命令行参数
             val args = mutableListOf(
                 "snapshots",
-                "--repo", "\"$repoUrl\"",
+                "-r", repoUrl,
                 "--json",
                 "-o", "s3.bucket-lookup=dns"
             )
