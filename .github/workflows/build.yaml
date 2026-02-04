@@ -3,6 +3,11 @@ name: Build
 on:
   workflow_dispatch:
     inputs:
+      branch:
+        description: 'Target Branch to Build'
+        required: true
+        default: 's3'
+        type: string
       Alpha:
         description: 'Alpha'
         required: true
@@ -44,7 +49,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
       with:
-        ref: s3
+        ref: ${{ github.event.inputs.branch }}
 
     - name: Validate gradle wrapper
       uses: gradle/wrapper-validation-action@v1
@@ -56,8 +61,7 @@ jobs:
         java-version: 17
 
     - name: Setup gradle
-      uses: gradle/gradle-build-action@v2
-
+      uses: gradle/actions/setup-gradle@v3
     - name: Change to source directory
       run: cd source
 
@@ -121,13 +125,8 @@ jobs:
     - name: Move and rename APKs
       run: |
         mkdir -p ../build-output
-        
-        # 查找所有debug APK文件
         find . -name "*-debug.apk" -exec cp {} ../build-output/ \;
-        
         cd ../build-output
-        
-        # 重命名文件，移除"-debug"后缀
         for file in *-debug.apk; do
           if [ -f "$file" ]; then
             new_name=$(echo "$file" | sed 's/-debug//g')
@@ -135,15 +134,12 @@ jobs:
             echo "Renamed: $file -> $new_name"
           fi
         done
-        
-        echo "Final APK files:"
-        ls -la
       working-directory: source
 
     - name: Upload APKs as artifact
       uses: actions/upload-artifact@v4
       with:
-        name: APKs
+        name: APKs-${{ github.event.inputs.branch }}
         path: build-output/*.apk
 
     - name: Create Release
