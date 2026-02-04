@@ -4,10 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: 'Target Branch to Build'
+        description: 'Target Branch'
         required: true
-        default: 's3'
-        type: string
+        default: 'feature/restic-integration'
       Alpha:
         description: 'Alpha'
         required: true
@@ -15,11 +14,11 @@ on:
       Premium:
         description: 'Premium'
         required: true
-        default: 'false'
+        default: 'true'
       Foss:
         description: 'Foss'
         required: true
-        default: 'false'
+        default: 'true'
       release_type:
         description: 'Release Type'
         required: true
@@ -29,11 +28,7 @@ on:
           - release
         default: 'pre-release'
       version_name:
-        description: 'Version Name (e.g., 2.0.13-S3)'
-        required: false
-        default: ''
-      version_code:
-        description: 'Version Code (e.g., 3501200)'
+        description: 'Version Name (e.g., 3.0.1-S3)'
         required: false
         default: ''
 
@@ -44,134 +39,111 @@ jobs:
     permissions:
       contents: write
     timeout-minutes: 60
-
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ github.event.inputs.branch }}
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+          fetch-depth: 0 # 获取完整提交历史以统计 commit 数量
 
-    - name: Validate gradle wrapper
-      uses: gradle/wrapper-validation-action@v1
+      - name: Validate gradle wrapper
+        uses: gradle/wrapper-validation-action@v1
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'zulu'
-        java-version: 17
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: 17
 
-    - name: Setup gradle
-      uses: gradle/actions/setup-gradle@v3
-    - name: Change to source directory
-      run: cd source
+      - name: Setup gradle
+        uses: gradle/gradle-build-action@v3
 
-    - name: Setup gradlew
-      run: chmod +x gradlew
-      working-directory: source
-
-    - name: Check build-logic
-      run: ./gradlew check -p build-logic
-      working-directory: source
-
-    - name: Get version info
-      id: version
-      run: |
-        if [ -n "${{ github.event.inputs.version_name }}" ]; then
-          VERSION="${{ github.event.inputs.version_name }}"
-        else
-          VERSION=$(grep "versionName" gradle/libs.versions.toml | awk -F'"' '{print $2}')
-        fi
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-        
-        if [ -n "${{ github.event.inputs.version_code }}" ]; then
-          CODE="${{ github.event.inputs.version_code }}"
-        else
-          CODE=$(grep "versionCode" gradle/libs.versions.toml | awk -F'"' '{print $2}')
-        fi
-        echo "code=$CODE" >> $GITHUB_OUTPUT
-      working-directory: source
-
-    - name: Build with gradle (Debug variants with version override)
-      id: gradle
-      env:
-        BUILD_ALPHA: ${{ github.event.inputs.Alpha }}
-        BUILD_PREMIUM: ${{ github.event.inputs.Premium }}
-        BUILD_FOSS: ${{ github.event.inputs.Foss }}
-        VERSION_NAME: ${{ steps.version.outputs.version }}
-        VERSION_CODE: ${{ steps.version.outputs.code }}
-      run: |
-        echo "Building debug variants (without signing)"
-        echo "Version Name: $VERSION_NAME"
-        echo "Version Code: $VERSION_CODE"
-        
-        TASKS=""
-        if [ "${BUILD_ALPHA}" = 'true' ]; then
-          TASKS="$TASKS assembleArm64-v8aAlphaDebug assembleArmeabi-v7aAlphaDebug assembleX86AlphaDebug assembleX86_64AlphaDebug"
-        fi
-        if [ "${BUILD_PREMIUM}" = 'true' ]; then
-          TASKS="$TASKS assembleArm64-v8aPremiumDebug assembleArmeabi-v7aPremiumDebug assembleX86PremiumDebug assembleX86_64PremiumDebug"
-        fi
-        if [ "${BUILD_FOSS}" = 'true' ]; then
-          TASKS="$TASKS assembleArm64-v8aFossDebug assembleArmeabi-v7aFossDebug assembleX86FossDebug assembleX86_64FossDebug"
-        fi
-        if [ -z "${TASKS}" ]; then
-          TASKS="assembleDebug"
-        fi
-        
-        echo "Running tasks: $TASKS"
-        ./gradlew $TASKS -PversionName="$VERSION_NAME" -PversionCode="$VERSION_CODE" --daemon --parallel
-      working-directory: source
-
-    - name: Move and rename APKs
-      run: |
-        mkdir -p ../build-output
-        find . -name "*-debug.apk" -exec cp {} ../build-output/ \;
-        cd ../build-output
-        for file in *-debug.apk; do
-          if [ -f "$file" ]; then
-            new_name=$(echo "$file" | sed 's/-debug//g')
-            mv "$file" "$new_name"
-            echo "Renamed: $file -> $new_name"
+      - name: Calculate Dynamic Version
+        id: calc_version
+        run: |
+          # 核心逻辑：基础 30000 + Commit 总数
+          COMMITS=$(git rev-list --count HEAD)
+          BASE_CODE=30000
+          DYNAMIC_CODE=$((BASE_CODE + COMMITS))
+          echo "code=$DYNAMIC_CODE" >> $GITHUB_OUTPUT
+          
+          # 确定版本名称
+          if [ -n "${{ github.event.inputs.version_name }}" ]; then
+            VERSION_NAME="${{ github.event.inputs.version_name }}"
+          else
+            VERSION_NAME=$(grep "versionName" gradle/libs.versions.toml | cut -d'"' -f2)
           fi
-        done
-      working-directory: source
+          echo "name=$VERSION_NAME" >> $GITHUB_OUTPUT
+          
+          echo "Final Version Code: $DYNAMIC_CODE"
+          echo "Final Version Name: $VERSION_NAME"
+        working-directory: source
 
-    - name: Upload APKs as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: APKs-${{ github.event.inputs.branch }}
-        path: build-output/*.apk
+      - name: Build with gradle (Dynamic Version Injection)
+        id: gradle
+        env:
+          BUILD_ALPHA: ${{ github.event.inputs.Alpha }}
+          BUILD_PREMIUM: ${{ github.event.inputs.Premium }}
+          BUILD_FOSS: ${{ github.event.inputs.Foss }}
+        run: |
+          TASKS=""
+          if [ "${BUILD_ALPHA}" = 'true' ]; then
+            TASKS="$TASKS assembleArm64-v8aAlphaDebug assembleArmeabi-v7aAlphaDebug assembleX86AlphaDebug assembleX86_64AlphaDebug"
+          fi
+          if [ "${BUILD_PREMIUM}" = 'true' ]; then
+            TASKS="$TASKS assembleArm64-v8aPremiumDebug assembleArmeabi-v7aPremiumDebug assembleX86PremiumDebug assembleX86_64PremiumDebug"
+          fi
+          if [ "${BUILD_FOSS}" = 'true' ]; then
+            TASKS="$TASKS assembleArm64-v8aFossDebug assembleArmeabi-v7aFossDebug assembleX86FossDebug assembleX86_64FossDebug"
+          fi
+          
+          if [ -z "${TASKS}" ]; then
+            TASKS="assembleDebug"
+          fi
+          
+          chmod +x gradlew
+          # 注入版本参数，对应 build.gradle.kts 中的 project.hasProperty 逻辑
+          ./gradlew $TASKS \
+            -PversionCode=${{ steps.calc_version.outputs.code }} \
+            -PversionName="${{ steps.calc_version.outputs.name }}" \
+            --daemon --parallel
+        working-directory: source
 
-    - name: Create Release
-      if: github.event.inputs.release_type != ''
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: v${{ steps.version.outputs.version }}
-        name: v${{ steps.version.outputs.version }}
-        prerelease: ${{ github.event.inputs.release_type == 'pre-release' }}
-        files: build-output/*.apk
-        body: |
-          ## What's New in v${{ steps.version.outputs.version }}
-          
-          ### Version Info
-          - Version Name: ${{ steps.version.outputs.version }}
-          - Version Code: ${{ steps.version.outputs.code }}
-          
-          ### Build Configuration
-          - Build type: ${{ github.event.inputs.release_type }}
-          - Alpha: ${{ github.event.inputs.Alpha }}
-          - Premium: ${{ github.event.inputs.Premium }}
-          - Foss: ${{ github.event.inputs.Foss }}
-          - Branch: s3 (S3-specific features)
-          
-          ### Note
-          ⚠️ This is a DEBUG build without signing, for testing purposes only.
-          
-          ### Download
-          Choose the APK file matching your device architecture:
-          - arm64-v8a (recommended for most modern devices)
-          - armeabi-v7a (for older 32-bit ARM devices)
-          - x86_64 (for x86 64-bit devices)
-          - x86 (for x86 32-bit devices)
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Move APKs to root
+        run: |
+          mkdir -p ../build-output
+          find . -name "*.apk" -exec mv {} ../build-output/ \;
+          echo "Collected APKs:"
+          ls -R ../build-output/
+        working-directory: source
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: APKs-v${{ steps.calc_version.outputs.name }}-b${{ steps.calc_version.outputs.code }}
+          path: build-output/*.apk
+
+      - name: Create Release
+        if: github.event.inputs.release_type != ''
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.calc_version.outputs.name }}.${{ steps.calc_version.outputs.code }}
+          name: v${{ steps.calc_version.outputs.name }} (Build ${{ steps.calc_version.outputs.code }})
+          prerelease: ${{ github.event.inputs.release_type == 'pre-release' }}
+          files: build-output/*.apk
+          body: |
+            ## Release Info
+            - **Version:** `${{ steps.calc_version.outputs.name }}`
+            - **Build Code:** `${{ steps.calc_version.outputs.code }}` (Base 30000 + Commits)
+            - **Branch:** `feature/restic-integration`
+            
+            ### Included Variants
+            - Alpha: ${{ github.event.inputs.Alpha }}
+            - Premium: ${{ github.event.inputs.Premium }}
+            - Foss: ${{ github.event.inputs.Foss }}
+            
+            ### Note
+            ⚠️ This is a **DEBUG** build without formal signing, created for testing purposes.
+            All ABIs in this build share the same Version Code.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
