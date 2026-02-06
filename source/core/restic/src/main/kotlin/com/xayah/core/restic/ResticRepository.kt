@@ -208,7 +208,8 @@ class ResticRepository @Inject constructor(
             SELECT   
                 id,  
                 time,  
-                tags_flat  
+                tags_flat,
+                total_bytes_processed
             FROM v_snapshots_full  
             WHERE tags_flat IS NOT NULL  
         """
@@ -220,6 +221,7 @@ class ResticRepository @Inject constructor(
                 val snapshotId = cursor.getString(0)
                 val snapshotTime = cursor.getString(1)
                 val tagsFlat = cursor.getString(2) ?: continue
+                val totalBytesProcessed = cursor.getLong(3)
 
                 // tags_flat 使用 char(31) 作为分隔符
                 val tags = tagsFlat.split(31.toChar()).filter { it.isNotEmpty() }
@@ -251,7 +253,8 @@ class ResticRepository @Inject constructor(
                                     dataType = dataType,
                                     snapshotId = snapshotId,
                                     snapshotTime = snapshotTime,
-                                    tags = tags
+                                    tags = tags,
+                                    totalBytesProcessed = totalBytesProcessed
                                 ))
                             }
                         } catch (e: Exception) {
@@ -611,7 +614,8 @@ class ResticRepository @Inject constructor(
                 id,    
                 time,    
                 paths_flat,  
-                tags_flat    
+                tags_flat,
+                total_bytes_processed    
             FROM v_snapshots_full    
             WHERE tags_flat IS NOT NULL    
         """
@@ -624,6 +628,7 @@ class ResticRepository @Inject constructor(
                 val snapshotTime = cursor.getString(1)
                 val pathsFlat = cursor.getString(2) ?: ""
                 val tagsFlat = cursor.getString(3) ?: continue
+                val totalBytesProcessed = cursor.getLong(4)
 
                 val paths = pathsFlat.split(31.toChar()).filter { it.isNotEmpty() }
                 val tags = tagsFlat.split(31.toChar()).filter { it.isNotEmpty() }
@@ -650,7 +655,8 @@ class ResticRepository @Inject constructor(
                                     dataType = dataType,
                                     snapshotId = snapshotId,
                                     snapshotTime = snapshotTime,
-                                    tags = tags
+                                    tags = tags,
+                                    totalBytesProcessed = totalBytesProcessed
                                 ))
                             }
                         } catch (e: Exception) {
@@ -877,7 +883,8 @@ class ResticRepository @Inject constructor(
                                             dataType = dataType,
                                             snapshotId = snapshot.id,
                                             snapshotTime = snapshot.time,
-                                            tags = snapshot.tags
+                                            tags = snapshot.tags,
+                                            totalBytesProcessed = snapshot.summary?.total_bytes_processed ?: 0L
                                         )
                                     )
                                 }
@@ -991,7 +998,8 @@ class ResticRepository @Inject constructor(
                                             dataType = dataType,
                                             snapshotId = snapshot.id,
                                             snapshotTime = snapshot.time,
-                                            tags = snapshot.tags
+                                            tags = snapshot.tags,
+                                            totalBytesProcessed = snapshot.summary?.total_bytes_processed ?: 0L
                                         )
                                     )
                                 }
@@ -1275,5 +1283,22 @@ data class ResticSnapshot(
     val time: String,
     val hostname: String,
     val paths: List<String>,
-    val tags: List<String>
+    val tags: List<String>,
+    val summary: SnapshotSummary? = null
+)
+
+@Serializable
+data class SnapshotSummary(
+    val total_bytes_processed: Long? = null,
+    val files_new: Long? = null,
+    val files_changed: Long? = null,
+    val files_unmodified: Long? = null,
+    val total_files_processed: Long? = null,
+    val dirs_new: Long? = null,
+    val dirs_changed: Long? = null,
+    val dirs_unmodified: Long? = null,
+    val data_blobs: Long? = null,
+    val tree_blobs: Long? = null,
+    val data_added: Long? = null,
+    val data_added_packed: Long? = null
 )

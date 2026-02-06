@@ -226,6 +226,11 @@ fun ResticFilesBackupDetailPage(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                Text(
+                                    text = "快照大小: ${backup.totalBytesProcessed.formatSize()}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                         if (sortedBackups.last() != backup) {
@@ -243,8 +248,8 @@ fun ResticFilesBackupDetailPage(
 private fun Long.formatSize(): String {
     return when {
         this < 1024 -> "$this B"
-        this < 1024 * 1024 -> "${this / 1024} KiB"
-        this < 1024 * 1024 * 1024 -> "${this / (1024 * 1024)} MiB"
-        else -> "${this / (1024 * 1024 * 1024)} GiB"
+        this < 1024 * 1024 -> String.format("%.2f KiB", this / 1024.0)
+        this < 1024 * 1024 * 1024 -> String.format("%.2f MiB", this / (1024.0 * 1024))
+        else -> String.format("%.2f GiB", this / (1024.0 * 1024 * 1024))
     }
 }

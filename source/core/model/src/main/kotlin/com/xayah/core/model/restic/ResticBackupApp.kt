@@ -11,5 +11,6 @@ data class ResticBackupApp(
     val dataType: DataType,
     val snapshotId: String,
     val snapshotTime: String,
-    val tags: List<String>
+    val tags: List<String>,
+    val totalBytesProcessed: Long = 0
 )
