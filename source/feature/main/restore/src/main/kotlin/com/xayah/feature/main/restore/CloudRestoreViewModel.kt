@@ -229,6 +229,73 @@ class CloudRestoreViewModel @Inject constructor(
         }
     }
 
+    suspend fun deleteCloudSnapshots(group: ResticBackupGroup): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val cloudEntity = cloudRepo.queryByName(accountName) ?: return@withContext false
+            val password = context.readS3ResticPassword() ?: return@withContext false
+
+            val sortedBackups = group.backups.sortedBy { backup ->
+                when (backup.dataType) {
+                    DataType.PACKAGE_APK -> 0
+                    DataType.PACKAGE_USER -> 1
+                    DataType.PACKAGE_USER_DE -> 2
+                    DataType.PACKAGE_DATA -> 3
+                    DataType.PACKAGE_OBB -> 4
+                    DataType.PACKAGE_MEDIA -> 5
+                    DataType.PACKAGE_CONFIG -> 6
+                    else -> 7
+                }
+            }
+
+            // 总步骤 = 快照数量 + 1 (prune)
+            val totalSteps = sortedBackups.size + 1
+
+            // 初始化删除进度状态
+            _resticProgress.value = ResticProgressState(
+                totalDataTypes = totalSteps,
+                currentDataTypeIndex = 0,
+                isDeleting = true
+            )
+
+            // 逐个删除快照
+            sortedBackups.forEachIndexed { index, backup ->
+                Log.d("CloudRestore", "删除第 ${index + 1}/${sortedBackups.size} 个快照: ${backup.dataType.type}")
+
+                _resticProgress.value = _resticProgress.value.copy(
+                    currentDataTypeIndex = index
+                )
+
+                val success = resticRepo.forgetSnapshotFromS3(
+                    cloudEntity = cloudEntity,
+                    password = password,
+                    snapshotId = backup.snapshotId
+                )
+
+                if (!success) {
+                    _resticProgress.value = ResticProgressState()
+                    return@withContext false
+                }
+            }
+
+            // 最后一步: 执行 prune
+            Log.d("CloudRestore", "执行 prune 清理 (步骤 ${totalSteps}/${totalSteps})")
+            _resticProgress.value = _resticProgress.value.copy(
+                currentDataTypeIndex = sortedBackups.size  // 最后一步
+            )
+
+            val pruneSuccess = resticRepo.pruneS3Repository(cloudEntity, password)
+
+            // 重置进度状态
+            _resticProgress.value = ResticProgressState()
+
+            pruneSuccess
+        } catch (e: Exception) {
+            Log.e("CloudRestore", "删除快照异常: ${e.message}", e)
+            _resticProgress.value = ResticProgressState()
+            false
+        }
+    }
+
     suspend fun refreshLocalDatabase(backupDir: String) {
         Log.d("CloudRestore", "=== 开始刷新本地数据库 ===")
         try {

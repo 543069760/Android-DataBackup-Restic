@@ -672,6 +672,73 @@ class ResticRepository @Inject constructor(
         }
     }
 
+    /**
+     * 从 S3 删除单个快照
+     */
+    suspend fun forgetSnapshotFromS3(
+        cloudEntity: CloudEntity,
+        password: String,
+        snapshotId: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val extra = json.decodeFromString<S3Extra>(cloudEntity.extra) ?: return@withContext false
+
+            val env = mutableMapOf(
+                "OPENDAL_BUCKET" to extra.bucket,
+                "OPENDAL_ROOT" to formatOpenDALRoot(cloudEntity.remote),
+                "OPENDAL_ENDPOINT" to buildOpenDALEndpoint(extra),
+                "OPENDAL_SECRET_ID" to extra.accessKeyId,
+                "OPENDAL_SECRET_KEY" to extra.secretAccessKey,
+                "RUSTIC_PASSWORD" to password
+            )
+
+            val args = arrayOf("forget", snapshotId, "-r", "opendal:cos")
+            val result = executeRestic(*args, env = env, usePty = false)
+
+            Log.d(TAG, "Forget snapshot 结果: exitCode=${result.code}")
+            result.code == 0
+        } catch (e: Exception) {
+            Log.e(TAG, "删除快照失败: ${e.message}", e)
+            false
+        }
+    }
+
+    /**
+     * 清理 S3 仓库中未引用的数据
+     */
+    suspend fun pruneS3Repository(
+        cloudEntity: CloudEntity,
+        password: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val extra = json.decodeFromString<S3Extra>(cloudEntity.extra) ?: return@withContext false
+
+            val env = mutableMapOf(
+                "OPENDAL_BUCKET" to extra.bucket,
+                "OPENDAL_ROOT" to formatOpenDALRoot(cloudEntity.remote),
+                "OPENDAL_ENDPOINT" to buildOpenDALEndpoint(extra),
+                "OPENDAL_SECRET_ID" to extra.accessKeyId,
+                "OPENDAL_SECRET_KEY" to extra.secretAccessKey,
+                "RUSTIC_PASSWORD" to password
+            )
+
+            val args = mutableListOf(
+                "prune",
+                "-r", "opendal:cos",
+                "--max-unused", "unlimited"  // 关键修改:避免重组
+            )
+
+            Log.d(TAG, "执行 S3 仓库 prune (unlimited 模式)")
+            val result = executeRestic(*args.toTypedArray(), env = env, usePty = false)
+
+            Log.d(TAG, "Prune 结果: exitCode=${result.code}")
+            result.code == 0
+        } catch (e: Exception) {
+            Log.e(TAG, "Prune 失败: ${e.message}", e)
+            false
+        }
+    }
+
     suspend fun validateRepository(repoPath: String, password: String): Boolean =
         executeRestic("check", "-r", repoPath,
             env = mapOf("RUSTIC_PASSWORD" to password),
