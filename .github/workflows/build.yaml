@@ -135,7 +135,7 @@ jobs:
             ## Release Info
             - **Version:** `${{ steps.calc_version.outputs.name }}`
             - **Build Code:** `${{ steps.calc_version.outputs.code }}` (Base 30000 + Commits)
-            - **Branch:** `feature/restic-integration`
+            - **Branch:** `${{ github.event.inputs.branch }}`
             
             ### Included Variants
             - Alpha: ${{ github.event.inputs.Alpha }}
