@@ -33,6 +33,8 @@ import com.xayah.core.ui.route.MainRoutes
 import com.xayah.core.model.OpType
 import com.xayah.core.util.navigateSingle
 import com.xayah.core.model.Target
+import com.xayah.core.ui.component.LocalSlotScope
+import com.xayah.core.ui.component.confirm
 import com.xayah.core.ui.component.BodyMediumText
 import com.xayah.core.ui.component.PackageIconImage
 import com.xayah.core.ui.component.ProgressButton
@@ -55,14 +57,29 @@ fun ResticBackupDetailPage(
     viewModel: ResticRestoreViewModel = hiltViewModel()
 ) {
     val resticProgress by viewModel.resticProgress.collectAsStateWithLifecycle()
+    val dialogState = LocalSlotScope.current!!.dialogSlot  // 新增
+    val coroutineScope = rememberCoroutineScope()
+
+    // 新增删除状态变量
+    val isDeleting = resticProgress.isDeleting
     val isRestoring = resticProgress.totalDataTypes > 0 &&
-            resticProgress.currentDataTypeIndex < resticProgress.totalDataTypes
+            resticProgress.currentDataTypeIndex < resticProgress.totalDataTypes &&
+            !isDeleting  // 排除删除状态
 
-    val isCompleted = resticProgress.isCompleted
+    val isCompleted = resticProgress.isCompleted && !isDeleting
+    val deleteButtonEnabled = !isRestoring && !isCompleted && !isDeleting
+    val restoreButtonEnabled = !isRestoring && !isCompleted && !isDeleting  // 修改原有的 buttonEnabled
 
-// 按钮禁用条件：正在恢复 或 已完成
-    val buttonEnabled = !isRestoring && !isCompleted
+    // 新增删除进度相关变量
+    val totalSnapshots = group.backups.size
+    val totalSteps = totalSnapshots + 1  // 快照数量 + 1 (prune)
+    val currentStep = if (isDeleting) {
+        resticProgress.currentDataTypeIndex + 1
+    } else {
+        0
+    }
 
+    // 保留原有的 getCurrentDataTypeName 函数
     fun getCurrentDataTypeName(group: ResticBackupGroup, index: Int): String {
         val sortedBackups = group.backups.sortedBy { backup ->
             when (backup.dataType) {
@@ -78,12 +95,10 @@ fun ResticBackupDetailPage(
         }
         return if (index < sortedBackups.size) {
             sortedBackups[index].dataType.type.uppercase()
-        } else {
-            ""
-        }
+        } else ""
     }
 
-    // 计算进度信息
+    // 保留原有的进度计算变量
     val currentProgress = if (resticProgress.bytesTotal > 0) {
         resticProgress.bytesWritten.toFloat() / resticProgress.bytesTotal
     } else 0f
@@ -92,72 +107,98 @@ fun ResticBackupDetailPage(
     val totalCount = resticProgress.totalDataTypes
     val speed = resticProgress.speed
     val progressSize = "${resticProgress.bytesWritten.formatSize()}/${resticProgress.bytesTotal.formatSize()}"
-    val coroutineScope = rememberCoroutineScope()
     RestoreScaffold(
         scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
             rememberTopAppBarState()
         ),
         title = "备份详情",
         actions = {
-            ProgressButton(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                progress = currentProgress,
-                currentIndex = currentIndex,
-                totalCount = totalCount,
-                speed = speed,
-                progressSize = progressSize,
-                enabled = buttonEnabled,
-                text = when {  // 将文本逻辑移到这里
-                    isRestoring -> {
-                        val currentDataType = getCurrentDataTypeName(group, currentIndex)
-                        "正在恢复${currentDataType}快照"
-                    }
-                    isCompleted -> {
-                        "快照恢复已完成"
-                    }
-                    else -> {
-                        "恢复快照备份"
-                    }
-                },
-                onClick = {
-                    if (!isRestoring && !isCompleted) {
-                        Log.d("ResticRestore", "用户点击恢复按钮，开始恢复流程")
-                        coroutineScope.launch {
-                            try {
-                                Log.d("ResticRestore", "调用 ViewModel.restoreFromResticSnapshots")
-                                val success = viewModel.restoreFromResticSnapshots(group)
-                                Log.d("ResticRestore", "恢复结果: $success")
-
-                                if (success) {
-                                    Log.d("ResticRestore", "恢复成功，准备读取备份目录")
-                                    val backupDir = "${viewModel.readBackupDirectory()}/restore/"
-                                    Log.d("ResticRestore", "导航到恢复页面，备份目录: $backupDir")
-                                    viewModel.refreshLocalDatabase(backupDir)
-                                    viewModel.calculateSizesForActivatedApps()
-                                    // 修改为传递备份目录参数
-                                    val route = MainRoutes.PackagesRestoreProcessingGraph.getRoute(
-                                        cloudName = URLEncoder.encode("", "UTF-8"),
-                                        backupDir = URLEncoder.encode(backupDir, "UTF-8"),
-                                        packageName = group.packageName
-                                    )
-                                    Log.d("Navigation", "构建路由: $route")
-                                    navController.navigateSingle(route)
-                                    Log.d("Navigation", "导航完成: ResticBackupDetailPage → PackagesRestoreProcessingGraph")
-                                } else {
-                                    Log.e("ResticRestore", "恢复失败")
-                                }
-                            } catch (e: Exception) {
-                                Log.e("ResticRestore", "恢复流程异常: ${e.message}", e)
-                            }
+                verticalArrangement = Arrangement.spacedBy(SizeTokens.Level8)
+            ) {
+                // 删除按钮
+                ProgressButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    progress = 0f,
+                    currentIndex = if (isDeleting) currentStep else 0,
+                    totalCount = if (isDeleting) totalSteps else 0,
+                    speed = "",
+                    progressSize = "",
+                    enabled = deleteButtonEnabled,
+                    text = if (isDeleting) {
+                        if (currentStep <= totalSnapshots) {
+                            val currentDataType = getCurrentDataTypeName(group, currentIndex)
+                            "正在删除${currentDataType}快照 ($currentStep/$totalSteps)"
+                        } else {
+                            "正在清理存储空间 ($totalSteps/$totalSteps)"
                         }
                     } else {
-                        Log.d("ResticRestore", "恢复正在进行中，忽略点击")
+                        "删除本地快照"
+                    },
+                    onClick = {
+                        if (!isDeleting) {
+                            coroutineScope.launch {
+                                if (dialogState.confirm(
+                                        title = "提示",
+                                        text = "确认删除该应用的所有本地快照?\n共计 ${group.backups.size} 个快照"
+                                    )) {
+                                    val success = viewModel.deleteLocalSnapshots(group)
+                                    if (success) {
+                                        navController.popBackStack()
+                                    }
+                                }
+                            }
+                        }
                     }
-                }
-            )
+                )
+
+                // 恢复按钮 (保持原有逻辑,但修改 enabled 为 restoreButtonEnabled)
+                ProgressButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    progress = currentProgress,
+                    currentIndex = currentIndex,
+                    totalCount = totalCount,
+                    speed = speed,
+                    progressSize = progressSize,
+                    enabled = restoreButtonEnabled,  // 修改这里
+                    text = when {
+                        isRestoring -> {
+                            val currentDataType = getCurrentDataTypeName(group, currentIndex)
+                            "正在恢复${currentDataType}快照"
+                        }
+                        isCompleted -> "快照恢复已完成"
+                        else -> "恢复快照备份"
+                    },
+                    onClick = {
+                        if (!isRestoring && !isCompleted && !isDeleting) {  // 添加 !isDeleting 检查
+                            Log.d("ResticRestore", "用户点击恢复按钮，开始恢复流程")
+                            coroutineScope.launch {
+                                try {
+                                    // 保持原有的恢复逻辑
+                                    val success = viewModel.restoreFromResticSnapshots(group)
+                                    if (success) {
+                                        val backupDir = "${viewModel.readBackupDirectory()}/restore/"
+                                        viewModel.refreshLocalDatabase(backupDir)
+                                        viewModel.calculateSizesForActivatedApps()
+                                        val route = MainRoutes.PackagesRestoreProcessingGraph.getRoute(
+                                            cloudName = URLEncoder.encode("", "UTF-8"),
+                                            backupDir = URLEncoder.encode(backupDir, "UTF-8"),
+                                            packageName = group.packageName
+                                        )
+                                        navController.navigateSingle(route)
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("ResticRestore", "恢复流程异常: ${e.message}", e)
+                                }
+                            }
+                        }
+                    }
+                )
+            }
         }
     ) {
-        Column(
+    Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(SizeTokens.Level16)

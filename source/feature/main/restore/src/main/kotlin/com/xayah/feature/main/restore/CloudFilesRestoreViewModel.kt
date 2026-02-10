@@ -160,6 +160,59 @@ class CloudFilesRestoreViewModel @Inject constructor(
         Log.d(TAG, "=== loadCloudBackedUpFiles 结束 ===")
     }
 
+    suspend fun deleteCloudFileSnapshots(group: ResticFileBackupGroup): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val cloudEntity = cloudRepo.queryByName(accountName) ?: return@withContext false
+            val password = context.readS3ResticPassword() ?: return@withContext false
+
+            val sortedBackups = group.backups.sortedBy { backup ->
+                when (backup.dataType) {
+                    DataType.PACKAGE_MEDIA -> 0
+                    DataType.PACKAGE_CONFIG -> 1
+                    else -> 2
+                }
+            }
+
+            val totalSteps = sortedBackups.size + 1
+
+            _resticProgress.value = ResticProgressState(
+                totalDataTypes = totalSteps,
+                currentDataTypeIndex = 0,
+                isDeleting = true
+            )
+
+            sortedBackups.forEachIndexed { index, backup ->
+                _resticProgress.value = _resticProgress.value.copy(
+                    currentDataTypeIndex = index
+                )
+
+                val success = resticRepo.forgetSnapshotFromS3(
+                    cloudEntity = cloudEntity,
+                    password = password,
+                    snapshotId = backup.snapshotId
+                )
+
+                if (!success) {
+                    _resticProgress.value = ResticProgressState()
+                    return@withContext false
+                }
+            }
+
+            _resticProgress.value = _resticProgress.value.copy(
+                currentDataTypeIndex = sortedBackups.size
+            )
+
+            val pruneSuccess = resticRepo.pruneS3Repository(cloudEntity, password)
+            _resticProgress.value = ResticProgressState()
+
+            pruneSuccess
+        } catch (e: Exception) {
+            Log.e(TAG, "删除文件快照异常: ${e.message}", e)
+            _resticProgress.value = ResticProgressState()
+            false
+        }
+    }
+
     suspend fun restoreFromCloudFileSnapshots(group: ResticFileBackupGroup): Boolean {
         Log.d(TAG, "=== restoreFromCloudFileSnapshots 开始 ===")
         Log.d(TAG, "恢复组: ${group.mediaName}, 时间戳: ${group.timestamp}, 备份数量: ${group.backups.size}")

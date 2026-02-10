@@ -38,6 +38,8 @@ import com.xayah.core.ui.route.MainRoutes
 import com.xayah.core.model.OpType
 import com.xayah.core.util.navigateSingle
 import com.xayah.core.util.localBackupSaveDir
+import com.xayah.core.ui.component.LocalSlotScope
+import com.xayah.core.ui.component.confirm
 import com.xayah.core.ui.component.BodyMediumText
 import com.xayah.core.ui.component.ProgressButton
 import com.xayah.core.ui.component.Title
@@ -60,17 +62,32 @@ fun CloudFilesBackupDetailPage(
     viewModel: CloudFilesRestoreViewModel = hiltViewModel()
 ) {
     val resticProgress by viewModel.resticProgress.collectAsStateWithLifecycle()
-    LaunchedEffect(accountName) {
-        viewModel.setCloudEntity(accountName)
-    }
-    val isRestoring = resticProgress.totalDataTypes > 0 &&
-            resticProgress.currentDataTypeIndex < resticProgress.totalDataTypes
-    val isCompleted = resticProgress.isCompleted
-    val buttonEnabled = !isRestoring && !isCompleted
+    val dialogState = LocalSlotScope.current!!.dialogSlot
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    // 计算进度信息
+    LaunchedEffect(accountName) {
+        viewModel.setCloudEntity(accountName)
+    }
+
+    // 状态变量
+    val isDeleting = resticProgress.isDeleting
+    val isRestoring = resticProgress.totalDataTypes > 0 &&
+            resticProgress.currentDataTypeIndex < resticProgress.totalDataTypes &&
+            !isDeleting
+    val isCompleted = resticProgress.isCompleted && !isDeleting
+    val deleteButtonEnabled = !isRestoring && !isCompleted && !isDeleting
+    val restoreButtonEnabled = !isRestoring && !isCompleted && !isDeleting
+
+    val totalSnapshots = group.backups.size
+    val totalSteps = totalSnapshots + 1
+    val currentStep = if (isDeleting) {
+        resticProgress.currentDataTypeIndex + 1
+    } else {
+        0
+    }
+
+    // 进度信息
     val currentProgress = if (resticProgress.bytesTotal > 0) {
         resticProgress.bytesWritten.toFloat() / resticProgress.bytesTotal
     } else 0f
@@ -99,58 +116,97 @@ fun CloudFilesBackupDetailPage(
         scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState()),
         title = "云端文件备份详情",
         actions = {
-            ProgressButton(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                progress = currentProgress,
-                currentIndex = currentIndex,
-                totalCount = totalCount,
-                speed = speed,
-                progressSize = progressSize,
-                enabled = buttonEnabled,
-                text = when {
-                    isRestoring -> {
-                        val currentDataType = getCurrentDataTypeName(group, currentIndex)
-                        "正在恢复${currentDataType}快照"
-                    }
-                    isCompleted -> "云端文件恢复已完成"
-                    else -> "恢复云端文件快照"
-                },
-                onClick = {
-                    if (!isRestoring && !isCompleted) {
-                        coroutineScope.launch {
-                            try {
-                                Log.d("CloudFilesRestore", "用户点击恢复按钮，开始云端文件恢复流程")
-                                val success = viewModel.restoreFromCloudFileSnapshots(group)
-                                Log.d("CloudFilesRestore", "云端文件恢复结果: $success")
-
-                                if (success) {
-                                    Log.d("CloudFilesRestore", "云端文件恢复成功，准备读取备份目录")
-                                    val backupDir = "${context.localBackupSaveDir()}/restore/"
-                                    Log.d("CloudFilesRestore", "导航到文件恢复页面，备份目录: $backupDir")
-                                    viewModel.refreshLocalDatabase(backupDir)
-
-                                    // 在数据库刷新完成后计算文件大小
-                                    viewModel.calculateSizesForActivatedMedia()
-                                    val route = MainRoutes.MediumRestoreProcessingGraph.getRoute(
-                                        cloudName = URLEncoder.encode("", "UTF-8"),  // 与本地恢复一致
-                                        backupDir = URLEncoder.encode(backupDir, "UTF-8"),
-                                        mediaName = URLEncoder.encode(group.mediaName, "UTF-8")
-                                    )
-                                    Log.d("Navigation", "构建路由: $route")
-                                    navController.navigateSingle(route)
-                                    Log.d("Navigation", "导航完成: CloudFilesBackupDetailPage → MediumRestoreProcessingGraph")
-                                } else {
-                                    Log.e("CloudFilesRestore", "云端文件恢复失败")
-                                }
-                            } catch (e: Exception) {
-                                Log.e("CloudFilesRestore", "云端文件恢复流程异常: ${e.message}", e)
-                            }
+                verticalArrangement = Arrangement.spacedBy(SizeTokens.Level8)
+            ) {
+                // 删除按钮
+                ProgressButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    progress = 0f,
+                    currentIndex = if (isDeleting) currentStep else 0,
+                    totalCount = if (isDeleting) totalSteps else 0,
+                    speed = "",
+                    progressSize = "",
+                    enabled = deleteButtonEnabled,
+                    text = if (isDeleting) {
+                        if (currentStep <= totalSnapshots) {
+                            val currentDataType = getCurrentDataTypeName(group, currentIndex)
+                            "正在删除${currentDataType}快照 ($currentStep/$totalSteps)"
+                        } else {
+                            "正在清理存储空间 ($totalSteps/$totalSteps)"
                         }
                     } else {
-                        Log.d("CloudFilesRestore", "云端文件恢复正在进行中，忽略点击")
+                        "删除云端文件快照"
+                    },
+                    onClick = {
+                        if (!isDeleting) {
+                            coroutineScope.launch {
+                                if (dialogState.confirm(
+                                        title = "提示",
+                                        text = "确认删除该文件的所有云端快照?\n共计 ${group.backups.size} 个快照"
+                                    )) {
+                                    val success = viewModel.deleteCloudFileSnapshots(group)
+                                    if (success) {
+                                        navController.popBackStack()
+                                    }
+                                }
+                            }
+                        }
                     }
-                }
-            )
+                )
+
+                // 恢复按钮
+                ProgressButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    progress = currentProgress,
+                    currentIndex = currentIndex,
+                    totalCount = totalCount,
+                    speed = speed,
+                    progressSize = progressSize,
+                    enabled = restoreButtonEnabled,
+                    text = when {
+                        isRestoring -> {
+                            val currentDataType = getCurrentDataTypeName(group, currentIndex)
+                            "正在恢复${currentDataType}快照"
+                        }
+                        isCompleted -> "云端文件恢复已完成"
+                        else -> "恢复云端文件快照"
+                    },
+                    onClick = {
+                        if (!isRestoring && !isCompleted && !isDeleting) {
+                            coroutineScope.launch {
+                                try {
+                                    Log.d("CloudFilesRestore", "用户点击恢复按钮，开始云端文件恢复流程")
+                                    val success = viewModel.restoreFromCloudFileSnapshots(group)
+                                    Log.d("CloudFilesRestore", "云端文件恢复结果: $success")
+
+                                    if (success) {
+                                        Log.d("CloudFilesRestore", "云端文件恢复成功，准备读取备份目录")
+                                        val backupDir = "${context.localBackupSaveDir()}/restore/"
+                                        Log.d("CloudFilesRestore", "导航到文件恢复页面，备份目录: $backupDir")
+                                        viewModel.refreshLocalDatabase(backupDir)
+
+                                        viewModel.calculateSizesForActivatedMedia()
+                                        val route = MainRoutes.MediumRestoreProcessingGraph.getRoute(
+                                            cloudName = URLEncoder.encode("", "UTF-8"),
+                                            backupDir = URLEncoder.encode(backupDir, "UTF-8"),
+                                            mediaName = URLEncoder.encode(group.mediaName, "UTF-8")
+                                        )
+                                        Log.d("Navigation", "构建路由: $route")
+                                        navController.navigateSingle(route)
+                                        Log.d("Navigation", "导航完成: CloudFilesBackupDetailPage → MediumRestoreProcessingGraph")
+                                    } else {
+                                        Log.e("CloudFilesRestore", "云端文件恢复失败")
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("CloudFilesRestore", "云端文件恢复流程异常: ${e.message}", e)
+                                }
+                            }
+                        }
+                    }
+                )
+            }
         }
     ) {
         Column(

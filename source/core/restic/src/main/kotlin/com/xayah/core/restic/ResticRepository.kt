@@ -739,6 +739,50 @@ class ResticRepository @Inject constructor(
         }
     }
 
+    suspend fun forgetSnapshot(
+        repoPath: String,
+        password: String,
+        snapshotId: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val env = mapOf("RUSTIC_PASSWORD" to password)
+            val args = arrayOf("forget", snapshotId, "-r", repoPath)
+            val result = executeRestic(*args, env = env, usePty = false)
+
+            Log.d(TAG, "Forget snapshot 结果: exitCode=${result.code}")
+            result.code == 0
+        } catch (e: Exception) {
+            Log.e(TAG, "删除快照失败: ${e.message}", e)
+            false
+        }
+    }
+
+    suspend fun pruneRepository(
+        repoPath: String,
+        password: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val env = mapOf("RUSTIC_PASSWORD" to password)
+
+            // 本地仓库使用 --max-unused 10% 以节省空间
+            // 重整速度快,可以接受 repack 开销
+            val args = arrayOf(
+                "prune",
+                "-r", repoPath,
+                "--max-unused", "10%"  // 允许最多 10% 未使用数据
+            )
+
+            Log.d(TAG, "执行本地仓库 prune (10% max-unused 模式)")
+            val result = executeRestic(*args, env = env, usePty = false)
+
+            Log.d(TAG, "Prune 结果: exitCode=${result.code}")
+            result.code == 0
+        } catch (e: Exception) {
+            Log.e(TAG, "Prune 失败: ${e.message}", e)
+            false
+        }
+    }
+
     suspend fun validateRepository(repoPath: String, password: String): Boolean =
         executeRestic("check", "-r", repoPath,
             env = mapOf("RUSTIC_PASSWORD" to password),

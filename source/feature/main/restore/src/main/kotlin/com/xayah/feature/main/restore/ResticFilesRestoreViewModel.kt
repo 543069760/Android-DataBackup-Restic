@@ -23,6 +23,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import javax.inject.Inject
@@ -42,6 +44,10 @@ class ResticFilesRestoreViewModel @Inject constructor(
     private val mediaDao: MediaDao,
     private val filesRepo: FilesRepo
 ) : ViewModel() {
+
+    companion object {
+        private const val TAG = "ResticFilesRestore"
+    }
 
     // 添加进度状态流
     private val _resticProgress = MutableStateFlow(ResticProgressState())
@@ -182,6 +188,65 @@ class ResticFilesRestoreViewModel @Inject constructor(
             true
         } catch (e: Exception) {
             Log.e("ResticFilesRestore", "文件快照恢复异常: ${e.message}", e)
+            false
+        }
+    }
+
+    suspend fun deleteLocalFileSnapshots(group: ResticFileBackupGroup): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val repoPath = context.readResticRepoPath() ?: return@withContext false
+            val password = context.readResticPassword() ?: return@withContext false
+
+            // 文件备份只有 MEDIA 和 CONFIG 两种类型
+            val sortedBackups = group.backups.sortedBy { backup ->
+                when (backup.dataType) {
+                    DataType.PACKAGE_MEDIA -> 0
+                    DataType.PACKAGE_CONFIG -> 1
+                    else -> 2
+                }
+            }
+
+            val totalSteps = sortedBackups.size + 1
+
+            _resticProgress.value = ResticProgressState(
+                totalDataTypes = totalSteps,
+                currentDataTypeIndex = 0,
+                isDeleting = true
+            )
+
+            // 逐个删除快照
+            sortedBackups.forEachIndexed { index, backup ->
+                Log.d("ResticFilesRestore", "删除第 ${index + 1}/${sortedBackups.size} 个快照: ${backup.dataType.type}")
+
+                _resticProgress.value = _resticProgress.value.copy(
+                    currentDataTypeIndex = index
+                )
+
+                val success = resticRepo.forgetSnapshot(
+                    repoPath = repoPath,
+                    password = password,
+                    snapshotId = backup.snapshotId
+                )
+
+                if (!success) {
+                    _resticProgress.value = ResticProgressState()
+                    return@withContext false
+                }
+            }
+
+            // 最后一步: 执行 prune
+            Log.d("ResticFilesRestore", "执行 prune 清理 (步骤 ${totalSteps}/${totalSteps})")
+            _resticProgress.value = _resticProgress.value.copy(
+                currentDataTypeIndex = sortedBackups.size
+            )
+
+            val pruneSuccess = resticRepo.pruneRepository(repoPath, password)
+            _resticProgress.value = ResticProgressState()
+
+            pruneSuccess
+        } catch (e: Exception) {
+            Log.e("ResticFilesRestore", "删除本地文件快照异常: ${e.message}", e)
+            _resticProgress.value = ResticProgressState()
             false
         }
     }
