@@ -328,6 +328,51 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
         }
     }
 
+    // 添加成员变量来跟踪当前正在备份的标签
+    protected var mCurrentProcessingTag: String? = null
+
+    // 重写 cancel 方法
+    override fun cancel() {
+        super.cancel()
+
+        try {
+            val tag = mCurrentProcessingTag ?: run {
+                val currentIndex = mTaskEntity.processingIndex
+                if (currentIndex < mPkgEntities.size) {
+                    val pkg = mPkgEntities[currentIndex]
+                    val p = pkg.packageEntity
+                    val userId = "user_${p.userId}"
+
+                    // 根据当前包的处理进度确定数据类型
+                    val dataType = when (pkg.processingIndex) {
+                        0 -> "apk"
+                        1 -> "user"
+                        2 -> "user_de"
+                        3 -> "data"
+                        4 -> "obb"
+                        5 -> "media"
+                        6 -> "config"
+                        else -> "apk"
+                    }
+
+                    "$userId-${p.packageName}-$mBackupTimestamp-$dataType"
+                } else {
+                    null
+                }
+            }
+
+            if (tag != null) {
+                val stopFile = File(mContext.cacheDir, tag)
+                stopFile.writeText(tag)
+                log { "Stop file created for tag: $tag at ${stopFile.absolutePath}" }
+            } else {
+                log { "No valid tag available, cannot create stop file" }
+            }
+        } catch (e: Exception) {
+            log { "Failed to create stop file: ${e.message}" }
+        }
+    }
+
     // Restic 无状态备份方法
     protected suspend fun backupWithRestic(
         packageName: String,
@@ -338,7 +383,6 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
         val repoPath = getResticRepoPath()
         val password = getResticPassword()
 
-        // 动态检查仓库是否已初始化
         if (!resticRepo.checkRepository(repoPath, password)) {
             log { "Restic repository not initialized, skipping backup for $packageName" }
             return false
@@ -346,17 +390,31 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
 
         return try {
             val filePath = compressedFile.absolutePath
-            // 从路径中提取用户信息,例如 "user_0"
             val userId = extractUserIdFromPath(filePath)
-            // 从 DataType 获取备份类型,例如 "apk", "data" 等
             val backupType = dataType.type
 
-            // 构建单一标签: 用户-包名-备份类型-时间戳
             val tag = "$userId-$packageName-$mBackupTimestamp-$backupType"
             val tags = listOf(tag)
 
+            // 【新增】设置当前处理的标签
+            Log.d("ResticTag", "Setting current tag: $tag")
+            mCurrentProcessingTag = tag
+
+            val additionalEnv = mapOf(
+                "RUSTIC_INSTANCE_LABEL" to tag
+            )
+            Log.d("ResticTag", "Additional env: $additionalEnv")
             log { "Starting Restic backup for $packageName with tag: $tag" }
-            val result = resticRepo.backupWithResticToLocal(repoPath, password, filePath, tags)
+            val result = resticRepo.backupWithResticToLocal(
+                repoPath = repoPath,
+                password = password,
+                filePath = filePath,
+                tags = tags,
+                additionalEnv = additionalEnv
+            )
+
+            // 【新增】清除当前标签
+            mCurrentProcessingTag = null
 
             if (result.first == 0) {
                 log { "Restic backup completed successfully for $packageName" }
@@ -373,6 +431,9 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                 false
             }
         } catch (e: Exception) {
+            // 【新增】异常时也要清除标签
+            mCurrentProcessingTag = null
+
             val baseMessage = "Error during Restic backup"
             log { "$baseMessage for $packageName" }
             log { "Exception type: ${e.javaClass.simpleName}" }

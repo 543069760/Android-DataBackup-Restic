@@ -267,9 +267,14 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                 else -> "filesbackup"
             }
 
-            // 新的文件备份标签格式：mediaName-timestamp-filesbackup/filesconfig
+            // 新的文件备份标签格式:mediaName-timestamp-filesbackup/filesconfig
             val tag = "$mediaName-$mBackupTimestamp-$tagSuffix"
             val tags = listOf(tag)
+
+            // 【新增】设置当前处理标签,用于取消机制
+            Log.d("ResticTag", "Setting current tag: $tag")
+            mCurrentProcessingTag = tag
+
             val unifiedRepoPath = mContext.readS3ResticRepoPath() ?: remotePath
 
             val result = resticRepo.backupFileToS3(
@@ -296,6 +301,9 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                 }
             )
 
+            // 【新增】清除当前处理标签(正常完成)
+            mCurrentProcessingTag = null
+
             if (result.first == 0) {
                 val snapshotId = extractSnapshotIdFromJson(result.second)
                 if (snapshotId != null) {
@@ -307,6 +315,9 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                 false
             }
         } catch (e: Exception) {
+            // 【新增】异常时也要清除标签
+            mCurrentProcessingTag = null
+
             Log.e(mTAG, "Error during S3 file Restic backup", e)
             false
         }

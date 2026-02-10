@@ -253,11 +253,20 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
         remotePath: String
     ): Boolean {
         return try {
+            // 从路径中提取用户信息
             val userId = extractUserIdFromPath(compressedFile.absolutePath)
             val backupType = dataType.type
+
+            // 构建标签: userId-packageName-timestamp-dataType
             val tag = "$userId-$packageName-$mBackupTimestamp-$backupType"
             val tags = listOf(tag)
+
+            // 【关键】设置当前处理标签,用于取消机制
+            Log.d("ResticTag", "Setting current tag: $tag")
+            mCurrentProcessingTag = tag
+
             val unifiedRepoPath = mContext.readS3ResticRepoPath() ?: remotePath
+
             val result = resticRepo.backupFileToS3(
                 extra = s3Extra,
                 remotePath = unifiedRepoPath,
@@ -270,7 +279,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                         bytesWritten: Long, bytesTotal: Long,
                         filesSkipped: Long, bytesSkipped: Long
                     ) {
-                        // 恢复进度，备份时不使用
+                        // 恢复进度,备份时不使用
                     }
 
                     override fun onBackupProgress(
@@ -283,18 +292,24 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                 }
             )
 
+            // 【关键】备份完成后清除标签
+            mCurrentProcessingTag = null
+
             if (result.first == 0) {
                 val snapshotId = extractSnapshotIdFromJson(result.second)
                 if (snapshotId != null) {
-                    // 仅记录日志，不更新数据库
+                    // 仅记录日志,不更新数据库
                     Log.d(mTAG, "Restic S3 backup successful for $packageName, snapshotId: $snapshotId")
-                    updateCloudResticInfo(packageName, snapshotId, remotePath)  // 仅记录日志
+                    updateCloudResticInfo(packageName, snapshotId, remotePath)
                 }
                 true
             } else {
                 false
             }
         } catch (e: Exception) {
+            // 【关键】异常时也要清除标签
+            mCurrentProcessingTag = null
+
             Log.e(mTAG, "Error during S3 Restic backup", e)
             false
         }

@@ -1102,12 +1102,20 @@ class ResticRepository @Inject constructor(
         password: String,
         filePath: String,
         tags: List<String>,
+        additionalEnv: Map<String, String> = emptyMap(),
         progressCallback: ResticProgressCallback? = null
     ): Pair<Int, String> {
         return withContext(Dispatchers.IO) {
             try {
-                // 使用 RUSTIC_PASSWORD 替代 RESTIC_PASSWORD
-                val env = mapOf("RUSTIC_PASSWORD" to password)
+                // 使用标签作为停止文件名
+                val tag = tags.firstOrNull() ?: "default"
+                val stopFilePath = File(context.cacheDir, tag).absolutePath
+
+                val env = mutableMapOf(
+                    "RUSTIC_PASSWORD" to password,
+                    "RUSTIC_STOP_FILE" to stopFilePath  // 每个实例独立的停止文件
+                )
+                env.putAll(additionalEnv)
 
                 // Rustic 命令格式: backup <SOURCE> -r <REPO> --tag <TAGS>
                 val args = mutableListOf(
@@ -1248,22 +1256,26 @@ class ResticRepository @Inject constructor(
     ): Pair<Int, String> {
         return withContext(Dispatchers.IO) {
             try {
-                // 使用 OpenDAL 环境变量(与 restoreSnapshotFromS3 一致)
+                val tag = tags.firstOrNull() ?: "default"
+                val stopFilePath = File(context.cacheDir, tag).absolutePath
+
                 val env = mutableMapOf(
                     "OPENDAL_BUCKET" to extra.bucket,
                     "OPENDAL_ROOT" to formatOpenDALRoot(remotePath),
                     "OPENDAL_ENDPOINT" to buildOpenDALEndpoint(extra),
                     "OPENDAL_SECRET_ID" to extra.accessKeyId,
                     "OPENDAL_SECRET_KEY" to extra.secretAccessKey,
-                    "RUSTIC_PASSWORD" to password
+                    "RUSTIC_PASSWORD" to password,
+                    "RUSTIC_INSTANCE_LABEL" to tag,
+                    "RUSTIC_STOP_FILE" to stopFilePath
                 )
 
                 // Rustic 命令格式: backup <SOURCE> -r opendal:cos --tag <TAGS>
                 val args = mutableListOf(
                     "backup",
-                    filePath,            // 源文件作为位置参数
-                    "-r", "opendal:cos", // 使用 OpenDAL 协议
-                    "--progress-interval", "1s"             // 输出用于进度解析
+                    filePath,
+                    "-r", "opendal:cos",
+                    "--progress-interval", "1s"
                 )
 
                 // 添加标签
@@ -1273,14 +1285,6 @@ class ResticRepository @Inject constructor(
                 }
 
                 val result = executeRestic(*args.toTypedArray(), env = env, usePty = true)
-
-                // 注意: Rustic backup 可能也不支持 --json,需要移除进度解析
-                // 如果支持,保留以下代码:
-                // result.out.forEach { line ->
-                //     parseBackupProgress(line)?.let { p ->
-                //         progressCallback?.onBackupProgress(...)
-                //     }
-                // }
 
                 Pair(result.code, result.out.joinToString("\n"))
             } catch (e: Exception) {

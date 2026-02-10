@@ -142,6 +142,14 @@ internal abstract class AbstractProcessingService : Service() {
     }
 
     /**
+     * 取消当前操作
+     * 子类可以重写此方法来添加额外的取消逻辑(如写入 Rustic 停止文件)
+     */
+    open fun cancel() {
+        requestCancel()
+    }
+
+    /**
      * 检查是否已请求取消
      */
     protected fun isCanceled(): Boolean = mIsCanceled

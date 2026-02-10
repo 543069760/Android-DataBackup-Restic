@@ -120,11 +120,11 @@ abstract class AbstractProcessingViewModel(
                     )
                 )
 
-                // 1. 先请求取消,设置取消标志
+                // 1. 调用 cancel() 而不是 requestCancel()
                 if (state.storageType == StorageMode.Cloud) {
-                    mCloudService.requestCancel()
+                    mCloudService.cancel()
                 } else {
-                    mLocalService.requestCancel()
+                    mLocalService.cancel()
                 }
 
                 // 2. 等待备份循环检测到取消标志并退出

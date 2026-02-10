@@ -105,4 +105,6 @@ abstract class AbstractProcessingServiceProxy {
 
     suspend fun requestCancel() = getService().requestCancel()
 
+    suspend fun cancel() = getService().cancel()
+
 }

@@ -106,7 +106,61 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
         return mContext.readResticPassword() ?: "backup_${mBackupTimestamp}"
     }
 
+    // 添加成员变量
+    protected var mCurrentProcessingTag: String? = null
+
+    // 实现 cancel 方法
+    override fun cancel() {
+        super.cancel()
+
+        try {
+            // 获取当前正在处理的标签
+            val tag = mCurrentProcessingTag ?: run {
+                // 如果标签未设置,从当前处理索引获取
+                val currentIndex = mTaskEntity.processingIndex
+                if (currentIndex < mMediaEntities.size) {
+                    val media = mMediaEntities[currentIndex]
+                    val m = media.mediaEntity
+
+                    // 媒体备份只有两种类型:PACKAGE_MEDIA 和 PACKAGE_CONFIG
+                    // 根据 processingIndex 判断当前阶段
+                    val dataType = when (media.mediaInfo.state) {
+                        OperationState.PROCESSING -> DataType.PACKAGE_MEDIA
+                        else -> DataType.PACKAGE_MEDIA  // 默认为 MEDIA
+                    }
+
+                    val tagSuffix = when (dataType) {
+                        DataType.PACKAGE_MEDIA -> "filesbackup"
+                        DataType.PACKAGE_CONFIG -> "filesconfig"
+                        else -> "filesbackup"
+                    }
+
+                    "${m.name}-$mBackupTimestamp-$tagSuffix"
+                } else {
+                    null
+                }
+            }
+
+            if (tag != null) {
+                val stopFile = File(mContext.cacheDir, tag)
+                stopFile.writeText(tag)
+                Log.d("CancelDebug", "Stop file created for media tag: $tag")
+                Log.d("CancelDebug", "Stop file path: ${stopFile.absolutePath}")
+                Log.d("CancelDebug", "Stop file exists after write: ${stopFile.exists()}")
+            } else {
+                Log.d("CancelDebug", "No current tag available, creating wildcard stop file")
+                val wildcardFile = File(mContext.cacheDir, ".rustic_stop_all")
+                wildcardFile.writeText("*")
+                Log.d("CancelDebug", "Wildcard stop file created at: ${wildcardFile.absolutePath}")
+            }
+        } catch (e: Exception) {
+            log { "Failed to create stop file: ${e.message}" }
+            Log.e("CancelDebug", "Exception creating stop file", e)
+        }
+    }
+
     // Restic 无状态备份方法 - 支持DataType参数
+    // 修改 backupWithRestic 方法
     protected suspend fun backupWithRestic(
         mediaName: String,
         compressedFile: File,
@@ -116,7 +170,6 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
         val repoPath = getResticRepoPath()
         val password = getResticPassword()
 
-        // 动态检查仓库是否已初始化
         if (!resticRepo.checkRepository(repoPath, password)) {
             log { "Restic repository not initialized, skipping backup for $mediaName" }
             return false
@@ -124,19 +177,24 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
 
         return try {
             val filePath = compressedFile.absolutePath
-            // 根据文件类型确定标签后缀
             val tagSuffix = when (dataType) {
                 DataType.PACKAGE_MEDIA -> "filesbackup"
                 DataType.PACKAGE_CONFIG -> "filesconfig"
                 else -> "filesbackup"
             }
 
-            // 新的文件备份标签格式：mediaName-timestamp-filesbackup/filesconfig
             val tag = "$mediaName-$mBackupTimestamp-$tagSuffix"
             val tags = listOf(tag)
 
+            // 【新增】设置当前处理标签
+            Log.d("ResticTag", "Setting current media tag: $tag")
+            mCurrentProcessingTag = tag
+
             log { "Starting Restic backup for $mediaName with tag: $tag" }
             val result = resticRepo.backupWithResticToLocal(repoPath, password, filePath, tags)
+
+            // 【新增】清除标签
+            mCurrentProcessingTag = null
 
             if (result.first == 0) {
                 log { "Restic backup completed successfully for $mediaName" }
@@ -153,6 +211,9 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                 false
             }
         } catch (e: Exception) {
+            // 【新增】异常时也要清除标签
+            mCurrentProcessingTag = null
+
             val baseMessage = "Error during Restic backup"
             log { "$baseMessage for $mediaName" }
             log { "Exception type: ${e.javaClass.simpleName}" }
