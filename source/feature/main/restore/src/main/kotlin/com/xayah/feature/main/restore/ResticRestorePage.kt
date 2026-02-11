@@ -33,6 +33,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
+import com.xayah.core.model.DataType
 import com.xayah.core.ui.component.PackageIconImage
 import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
@@ -157,6 +161,13 @@ fun ResticBackupGroupItem(
     onClick: () -> Unit,
     context: Context
 ) {
+    val hasConfigSnapshot = group.backups.any { it.dataType == DataType.PACKAGE_CONFIG }
+
+    // 定义颜色
+    val containerColor = Color(0xFFFF4D4F).copy(alpha = 0.12f)
+    val contentColor = Color(0xFFD32F2F)
+    val borderColor = Color(0xFFFFCCC7).copy(alpha = 0.5f)
+
     Surface(onClick = onClick) {
         Row(
             modifier = Modifier
@@ -168,10 +179,31 @@ fun ResticBackupGroupItem(
             PackageIconImage(packageName = group.packageName, size = SizeTokens.Level32)
 
             Column(modifier = Modifier.weight(1f)) {
-                TitleLargeText(
-                    text = group.appLabel,
-                    maxLines = 1
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TitleLargeText(
+                        text = group.appLabel,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+
+                    if (!hasConfigSnapshot) {
+                        Surface(
+                            color = containerColor,
+                            shape = RoundedCornerShape(50),
+                            border = BorderStroke(0.5.dp, borderColor) // 添加边框
+                        ) {
+                            Text(
+                                text = "备份不完整",
+                                color = contentColor,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
 
                 BodyMediumText(
                     text = group.packageName,

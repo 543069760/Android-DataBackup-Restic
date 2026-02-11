@@ -45,6 +45,11 @@ import android.content.Context
 import androidx.compose.runtime.remember
 import androidx.compose.material3.contentColorFor
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import com.xayah.core.model.DataType
 import com.xayah.feature.main.restore.RestoreScaffold
 import com.xayah.core.ui.component.BodyMediumText
 import com.xayah.core.ui.component.TitleLargeText
@@ -66,6 +71,14 @@ fun CloudFileBackupGroupItem(
     onClick: () -> Unit,
     context: Context
 ) {
+    // 检查是否有 CONFIG 快照
+    val hasConfigSnapshot = group.backups.any { it.dataType == DataType.PACKAGE_CONFIG }
+
+    // 定义颜色
+    val containerColor = Color(0xFFFF4D4F).copy(alpha = 0.12f)
+    val contentColor = Color(0xFFD32F2F)
+    val borderColor = Color(0xFFFFCCC7).copy(alpha = 0.5f)
+
     Surface(onClick = onClick) {
         Row(
             modifier = Modifier
@@ -82,10 +95,33 @@ fun CloudFileBackupGroupItem(
             )
 
             Column(modifier = Modifier.weight(1f)) {
-                TitleLargeText(
-                    text = group.mediaName,
-                    maxLines = 1
-                )
+                // 第1行: 文件名 + 胶囊标签
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TitleLargeText(
+                        text = group.mediaName,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+
+                    // 胶囊标签
+                    if (!hasConfigSnapshot) {
+                        Surface(
+                            color = containerColor,
+                            shape = RoundedCornerShape(50),
+                            border = BorderStroke(0.5.dp, borderColor)
+                        ) {
+                            Text(
+                                text = "备份不完整",
+                                color = contentColor,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
 
                 BodyMediumText(
                     text = group.fullPath,
