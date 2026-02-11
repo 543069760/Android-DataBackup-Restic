@@ -157,7 +157,8 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
                 }
             }
         }
-        // 新增:删除整个临时目录
+
+        // 删除整个临时目录
         log { "Cleaning up temporary directory: $mRootDir" }
         runCatching {
             mRootService.deleteRecursively(mRootDir)
@@ -166,7 +167,11 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
         }.onFailure { e ->
             log { "Failed to delete temporary directory: ${e.message}" }
         }
+
+        // 【新增】清理停止文件
+        cleanupStopFiles()
     }
+
     override suspend fun clear() {
         log { "Attempting to delete local backup directory: $mRootDir" }
         val result = runCatching {
@@ -177,5 +182,8 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
         } else {
             log { "Failed to delete local backup directory: ${result.exceptionOrNull()?.message}" }
         }
+
+        // 【新增】清理停止文件
+        cleanupStopFiles()
     }
 }

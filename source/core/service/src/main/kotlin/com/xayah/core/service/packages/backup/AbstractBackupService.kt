@@ -151,9 +151,15 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
     protected open suspend fun onItselfSaved(path: String, entity: ProcessingInfoEntity) {}
     protected open suspend fun onConfigsSaved(path: String, entity: ProcessingInfoEntity) {}
     protected open suspend fun onIconsSaved(path: String, entity: ProcessingInfoEntity) {}
-    protected open suspend fun clear() {}
+    protected open suspend fun clear() {
+        // 清理停止文件
+        cleanupStopFiles()
+    }
     protected open suspend fun onCleanupFailedBackup(archivesRelativeDir: String) {}
-    override suspend fun onCleanupIncompleteBackup(currentIndex: Int) {}
+    override suspend fun onCleanupIncompleteBackup(currentIndex: Int) {
+        // 清理停止文件
+        cleanupStopFiles()
+    }
 
     protected abstract val mPackagesBackupUtil: PackagesBackupUtil
 
@@ -336,40 +342,67 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
         super.cancel()
 
         try {
-            val tag = mCurrentProcessingTag ?: run {
-                val currentIndex = mTaskEntity.processingIndex
-                if (currentIndex < mPkgEntities.size) {
-                    val pkg = mPkgEntities[currentIndex]
-                    val p = pkg.packageEntity
-                    val userId = "user_${p.userId}"
+            val currentIndex = mTaskEntity.processingIndex
+            if (currentIndex < mPkgEntities.size) {
+                val pkg = mPkgEntities[currentIndex]
+                val p = pkg.packageEntity
+                val userId = "user_${p.userId}"
 
-                    // 根据当前包的处理进度确定数据类型
-                    val dataType = when (pkg.processingIndex) {
-                        0 -> "apk"
-                        1 -> "user"
-                        2 -> "user_de"
-                        3 -> "data"
-                        4 -> "obb"
-                        5 -> "media"
-                        6 -> "config"
-                        else -> "apk"
-                    }
+                // 为所有数据类型创建停止文件
+                val dataTypes = listOf("apk", "user", "user_de", "data", "obb", "media", "config")
 
-                    "$userId-${p.packageName}-$mBackupTimestamp-$dataType"
-                } else {
-                    null
+                dataTypes.forEach { dataType ->
+                    val tag = "$userId-${p.packageName}-$mBackupTimestamp-$dataType"
+                    val stopFile = File(mContext.cacheDir, tag)
+                    stopFile.writeText(tag)
+                }
+
+                log { "Created stop files for all data types of ${p.packageName}" }
+            } else if (currentIndex > 0 && currentIndex <= mPkgEntities.size) {
+                // 当前包刚完成,但可能还有清理工作
+                val pkg = mPkgEntities[currentIndex - 1]
+                val p = pkg.packageEntity
+                val userId = "user_${p.userId}"
+
+                // 仍然创建停止文件,以防有延迟的 Restic 进程
+                val dataTypes = listOf("apk", "user", "user_de", "data", "obb", "media", "config")
+
+                dataTypes.forEach { dataType ->
+                    val tag = "$userId-${p.packageName}-$mBackupTimestamp-$dataType"
+                    val stopFile = File(mContext.cacheDir, tag)
+                    stopFile.writeText(tag)
+                }
+
+                log { "Created stop files for recently completed package ${p.packageName}" }
+            } else {
+                log { "No packages to cancel" }
+            }
+        } catch (e: Exception) {
+            log { "Failed to create stop files: ${e.message}" }
+        }
+    }
+
+    protected fun cleanupStopFiles() {
+        try {
+            val cacheDir = mContext.cacheDir
+            log { "Starting cleanup of stop files in: ${cacheDir.absolutePath}" }
+
+            val allFiles = cacheDir.listFiles()
+            log { "Total files in cache: ${allFiles?.size ?: 0}" }
+
+            var deletedCount = 0
+            allFiles?.forEach { file ->
+                log { "Checking file: ${file.name}" }
+                if (file.name.matches(Regex("user_\\d+-.*-\\d+-\\w+"))) {
+                    file.delete()
+                    log { "Deleted stop file: ${file.name}" }
+                    deletedCount++
                 }
             }
 
-            if (tag != null) {
-                val stopFile = File(mContext.cacheDir, tag)
-                stopFile.writeText(tag)
-                log { "Stop file created for tag: $tag at ${stopFile.absolutePath}" }
-            } else {
-                log { "No valid tag available, cannot create stop file" }
-            }
+            log { "Cleaned up $deletedCount stop files" }
         } catch (e: Exception) {
-            log { "Failed to create stop file: ${e.message}" }
+            log { "Failed to cleanup stop files: ${e.message}" }
         }
     }
 

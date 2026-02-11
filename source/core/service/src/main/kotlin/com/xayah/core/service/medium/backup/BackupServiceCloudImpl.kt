@@ -411,6 +411,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
     override suspend fun clear() {
         mRootService.deleteRecursively(mRootDir)
         mClient.disconnect()
+        cleanupStopFiles()
     }
 
     @Inject

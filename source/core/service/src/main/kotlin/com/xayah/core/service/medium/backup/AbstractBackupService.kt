@@ -114,53 +114,47 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
         super.cancel()
 
         try {
-            // 获取当前正在处理的标签
-            val tag = mCurrentProcessingTag ?: run {
-                // 如果标签未设置,从当前处理索引获取
-                val currentIndex = mTaskEntity.processingIndex
-                if (currentIndex < mMediaEntities.size) {
-                    val media = mMediaEntities[currentIndex]
-                    val m = media.mediaEntity
+            val currentIndex = mTaskEntity.processingIndex
+            if (currentIndex < mMediaEntities.size) {
+                val media = mMediaEntities[currentIndex]
+                val m = media.mediaEntity
 
-                    // 媒体备份只有两种类型:PACKAGE_MEDIA 和 PACKAGE_CONFIG
-                    // 根据 processingIndex 判断当前阶段
-                    val dataType = when (media.mediaInfo.state) {
-                        OperationState.PROCESSING -> DataType.PACKAGE_MEDIA
-                        else -> DataType.PACKAGE_MEDIA  // 默认为 MEDIA
-                    }
+                // 为所有数据类型创建停止文件
+                val tagSuffixes = listOf("filesbackup", "filesconfig")
 
-                    val tagSuffix = when (dataType) {
-                        DataType.PACKAGE_MEDIA -> "filesbackup"
-                        DataType.PACKAGE_CONFIG -> "filesconfig"
-                        else -> "filesbackup"
-                    }
-
-                    "${m.name}-$mBackupTimestamp-$tagSuffix"
-                } else {
-                    null
+                tagSuffixes.forEach { suffix ->
+                    val tag = "${m.name}-$mBackupTimestamp-$suffix"
+                    val stopFile = File(mContext.cacheDir, tag)
+                    stopFile.writeText(tag)
+                    log { "Created stop file for tag: $tag" }
                 }
-            }
 
-            if (tag != null) {
-                val stopFile = File(mContext.cacheDir, tag)
-                stopFile.writeText(tag)
-                Log.d("CancelDebug", "Stop file created for media tag: $tag")
-                Log.d("CancelDebug", "Stop file path: ${stopFile.absolutePath}")
-                Log.d("CancelDebug", "Stop file exists after write: ${stopFile.exists()}")
+                log { "Created ${tagSuffixes.size} stop files for media: ${m.name}" }
             } else {
-                Log.d("CancelDebug", "No current tag available, creating wildcard stop file")
-                val wildcardFile = File(mContext.cacheDir, ".rustic_stop_all")
-                wildcardFile.writeText("*")
-                Log.d("CancelDebug", "Wildcard stop file created at: ${wildcardFile.absolutePath}")
+                log { "No active media to cancel" }
             }
         } catch (e: Exception) {
-            log { "Failed to create stop file: ${e.message}" }
-            Log.e("CancelDebug", "Exception creating stop file", e)
+            log { "Failed to create stop files: ${e.message}" }
+        }
+    }
+
+    protected fun cleanupStopFiles() {
+        try {
+            val cacheDir = mContext.cacheDir
+            cacheDir.listFiles()?.forEach { file ->
+                // 删除所有符合停止文件命名模式的文件
+                // 格式: mediaName-timestamp-filesbackup/filesconfig
+                if (file.name.matches(Regex(".*-\\d+-(filesbackup|filesconfig)"))) {
+                    file.delete()
+                    log { "Deleted stop file: ${file.name}" }
+                }
+            }
+        } catch (e: Exception) {
+            log { "Failed to cleanup stop files: ${e.message}" }
         }
     }
 
     // Restic 无状态备份方法 - 支持DataType参数
-    // 修改 backupWithRestic 方法
     protected suspend fun backupWithRestic(
         mediaName: String,
         compressedFile: File,
@@ -242,10 +236,15 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
     protected open suspend fun onConfigSaved(path: String, archivesRelativeDir: String) {}
     protected open suspend fun onItselfSaved(path: String, entity: ProcessingInfoEntity) {}
     protected open suspend fun onConfigsSaved(path: String, entity: ProcessingInfoEntity) {}
-    protected open suspend fun clear() {}
+    protected open suspend fun clear() {
+        // 清理停止文件
+        cleanupStopFiles()
+    }
     protected open suspend fun onCleanupFailedBackup(archivesRelativeDir: String) {}
-    override suspend fun onCleanupIncompleteBackup(currentIndex: Int) {}
-
+    override suspend fun onCleanupIncompleteBackup(currentIndex: Int) {
+        // 清理停止文件
+        cleanupStopFiles()
+    }
     protected abstract val mMediumBackupUtil: MediumBackupUtil
 
     override suspend fun onPreprocessing(entity: ProcessingInfoEntity) {
