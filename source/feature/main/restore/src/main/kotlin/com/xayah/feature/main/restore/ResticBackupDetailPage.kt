@@ -59,7 +59,7 @@ fun ResticBackupDetailPage(
     val resticProgress by viewModel.resticProgress.collectAsStateWithLifecycle()
     val dialogState = LocalSlotScope.current!!.dialogSlot  // 新增
     val coroutineScope = rememberCoroutineScope()
-
+    val hasConfigSnapshot = group.backups.any { it.dataType == DataType.PACKAGE_CONFIG }
     // 新增删除状态变量
     val isDeleting = resticProgress.isDeleting
     val isRestoring = resticProgress.totalDataTypes > 0 &&
@@ -68,7 +68,7 @@ fun ResticBackupDetailPage(
 
     val isCompleted = resticProgress.isCompleted && !isDeleting
     val deleteButtonEnabled = !isRestoring && !isCompleted && !isDeleting
-    val restoreButtonEnabled = !isRestoring && !isCompleted && !isDeleting  // 修改原有的 buttonEnabled
+    val restoreButtonEnabled = !isRestoring && !isCompleted && !isDeleting && hasConfigSnapshot
 
     // 新增删除进度相关变量
     val totalSnapshots = group.backups.size
@@ -161,8 +161,9 @@ fun ResticBackupDetailPage(
                     totalCount = totalCount,
                     speed = speed,
                     progressSize = progressSize,
-                    enabled = restoreButtonEnabled,  // 修改这里
+                    enabled = restoreButtonEnabled && hasConfigSnapshot,  // 修改这里
                     text = when {
+                        !hasConfigSnapshot -> "备份不完整,无法恢复"  // 新增,放在最前面
                         isRestoring -> {
                             val currentDataType = getCurrentDataTypeName(group, currentIndex)
                             "正在恢复${currentDataType}快照"
@@ -171,11 +172,10 @@ fun ResticBackupDetailPage(
                         else -> "恢复快照备份"
                     },
                     onClick = {
-                        if (!isRestoring && !isCompleted && !isDeleting) {  // 添加 !isDeleting 检查
+                        if (!isRestoring && !isCompleted && !isDeleting && hasConfigSnapshot) {  // 添加 hasConfigSnapshot 检查
                             Log.d("ResticRestore", "用户点击恢复按钮，开始恢复流程")
                             coroutineScope.launch {
                                 try {
-                                    // 保持原有的恢复逻辑
                                     val success = viewModel.restoreFromResticSnapshots(group)
                                     if (success) {
                                         val backupDir = "${viewModel.readBackupDirectory()}/restore/"

@@ -69,7 +69,7 @@ fun CloudFilesBackupDetailPage(
     LaunchedEffect(accountName) {
         viewModel.setCloudEntity(accountName)
     }
-
+    val hasConfigSnapshot = group.backups.any { it.dataType == DataType.PACKAGE_CONFIG }
     // 状态变量
     val isDeleting = resticProgress.isDeleting
     val isRestoring = resticProgress.totalDataTypes > 0 &&
@@ -77,7 +77,7 @@ fun CloudFilesBackupDetailPage(
             !isDeleting
     val isCompleted = resticProgress.isCompleted && !isDeleting
     val deleteButtonEnabled = !isRestoring && !isCompleted && !isDeleting
-    val restoreButtonEnabled = !isRestoring && !isCompleted && !isDeleting
+    val restoreButtonEnabled = !isRestoring && !isCompleted && !isDeleting && hasConfigSnapshot
 
     val totalSnapshots = group.backups.size
     val totalSteps = totalSnapshots + 1
@@ -164,8 +164,9 @@ fun CloudFilesBackupDetailPage(
                     totalCount = totalCount,
                     speed = speed,
                     progressSize = progressSize,
-                    enabled = restoreButtonEnabled,
+                    enabled = restoreButtonEnabled && hasConfigSnapshot,
                     text = when {
+                        !hasConfigSnapshot -> "备份不完整,无法恢复"
                         isRestoring -> {
                             val currentDataType = getCurrentDataTypeName(group, currentIndex)
                             "正在恢复${currentDataType}快照"

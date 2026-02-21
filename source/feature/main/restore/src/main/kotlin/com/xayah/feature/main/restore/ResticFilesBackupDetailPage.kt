@@ -64,6 +64,7 @@ fun ResticFilesBackupDetailPage(
     val dialogState = LocalSlotScope.current!!.dialogSlot  // 新增
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+    val hasConfigSnapshot = group.backups.any { it.dataType == DataType.PACKAGE_CONFIG }
 
     // 新增删除状态变量
     val isDeleting = resticProgress.isDeleting
@@ -73,7 +74,7 @@ fun ResticFilesBackupDetailPage(
 
     val isCompleted = resticProgress.isCompleted && !isDeleting
     val deleteButtonEnabled = !isRestoring && !isCompleted && !isDeleting
-    val restoreButtonEnabled = !isRestoring && !isCompleted && !isDeleting  // 修改原有的 buttonEnabled
+    val restoreButtonEnabled = !isRestoring && !isCompleted && !isDeleting && hasConfigSnapshot  // 修改原有的 buttonEnabled
 
     // 新增删除进度相关变量
     val totalSnapshots = group.backups.size
@@ -164,8 +165,9 @@ fun ResticFilesBackupDetailPage(
                     totalCount = totalCount,
                     speed = speed,
                     progressSize = progressSize,
-                    enabled = restoreButtonEnabled,  // 修改这里
+                    enabled = restoreButtonEnabled && hasConfigSnapshot,  // 修改这里
                     text = when {
+                        !hasConfigSnapshot -> "备份不完整,无法恢复"
                         isRestoring -> {
                             val currentDataType = getCurrentDataTypeName(group, currentIndex)
                             "正在恢复${currentDataType}快照"
