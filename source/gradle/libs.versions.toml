@@ -16,6 +16,7 @@ androidx-test-ext-junit = "1.2.1"
 espresso-core = "3.6.1"
 junit = "4.13.2"
 compose-bom = "2025.12.00"
+material3 = "1.5.0-alpha16"
 core-ktx = "1.16.0"
 core-splashscreen = "1.0.1"
 gson = "2.10.1"
@@ -78,7 +79,8 @@ androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
-androidx-compose-material3 = { module = "androidx.compose.material3:material3" }
+#androidx-compose-material3 = { module = "androidx.compose.material3:material3" }
+androidx-compose-material3 = { module = "androidx.compose.material3:material3", version.ref = "material3" }
 androidx-compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }
 androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigation-compose" }
 androidx-palette = { module = "androidx.palette:palette", version.ref = "palette" }

@@ -2,6 +2,8 @@ package com.xayah.core.ui.theme
 
 //import android.app.Activity
 import android.os.Build
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -87,8 +89,8 @@ fun DataBackupTheme(
     //        val window = (view.context as Activity).window
     //        window.statusBarColor = colorScheme.primary.toArgb()
     //        WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkTheme
-     //   }
-   // }
+    //   }
+    // }
 
     // Transparent system bars
     //val systemUiController = rememberSystemUiController()
@@ -98,13 +100,62 @@ fun DataBackupTheme(
     //        darkIcons = !darkTheme
     //    )
     //    systemUiController.setNavigationBarColor(
-     //       color = Color.Transparent,
-      //      darkIcons = !darkTheme,
-        //    navigationBarContrastEnforced = false
-        //)
-   // }
+    //       color = Color.Transparent,
+    //      darkIcons = !darkTheme,
+    //    navigationBarContrastEnforced = false
+    //)
+    // }
 
     MaterialTheme(
+        colorScheme = colorScheme,
+        typography = Typography,
+        content = {
+            CompositionLocalProvider(
+                LocalThemedColorScheme provides themedColorScheme,
+            ) {
+                // LocalThemedColorScheme should be applied first.
+                val slotScope = rememberSlotScope()
+                CompositionLocalProvider(
+                    LocalSlotScope provides slotScope,
+                    content = content
+                )
+            }
+        }
+    )
+}
+
+/**
+ * Material 3 Expressive theme wrapper for the Dashboard page.
+ * Uses MaterialExpressiveTheme which provides expressive shapes, motion, and typography.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun DataBackupExpressiveTheme(
+    content: @Composable () -> Unit,
+) {
+    val context = LocalContext.current
+    val darkTheme = darkTheme()
+
+    // Dynamic color is available on Android 12+
+    val dynamicColor by observeMonetEnabled()
+    val colorScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+
+        darkTheme -> darkColorScheme()
+        else -> lightColorScheme()
+    }
+    val themedColorScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            if (darkTheme) dynamicDarkThemedColorScheme(context) else dynamicLightThemedColorScheme(context)
+        }
+
+        darkTheme -> darkThemedColorScheme()
+        else -> lightThemedColorScheme()
+    }
+
+    MaterialExpressiveTheme(
         colorScheme = colorScheme,
         typography = Typography,
         content = {

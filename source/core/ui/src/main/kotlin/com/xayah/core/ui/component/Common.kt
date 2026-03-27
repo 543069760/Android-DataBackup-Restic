@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -83,7 +84,7 @@ fun ActionButton(
     val interactionSource = remember { MutableInteractionSource() }
     Card(
         modifier = modifier.wrapContentHeight(),
-        shape = RoundedCornerShape(SizeTokens.Level18),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = colorContainer.value.withState(enabled)),
         onClick = onClick,
         enabled = enabled,

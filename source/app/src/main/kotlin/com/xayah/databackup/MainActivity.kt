@@ -16,6 +16,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.NavType
 import java.net.URLDecoder
+import com.xayah.core.ui.theme.DataBackupExpressiveTheme
 import com.xayah.core.ui.component.AnimatedNavHost
 import com.xayah.core.ui.route.MainRoutes
 import com.xayah.core.ui.theme.DataBackupTheme
@@ -103,7 +104,9 @@ class MainActivity : AppCompatActivity() {
                         startDestination = MainRoutes.Dashboard.route,
                     ) {
                         composable(MainRoutes.Dashboard.route) {
-                            PageDashboard()
+                            DataBackupExpressiveTheme {
+                                PageDashboard()
+                            }
                         }
                         composable(MainRoutes.Cloud.route) {
                             PageCloud()
