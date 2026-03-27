@@ -27,10 +27,15 @@ private fun Project.configureCommon() {
             targetCompatibility = JavaVersion.VERSION_17
         }
 
+        //tasks.withType<KotlinCompile>().configureEach {
+          //  compilerOptions {
+            //    jvmTarget.set(JvmTarget.JVM_17)
+              //  freeCompilerArgs.add("-Xcontext-receivers")
+            //}
+        //}
         tasks.withType<KotlinCompile>().configureEach {
             compilerOptions {
                 jvmTarget.set(JvmTarget.JVM_17)
-                freeCompilerArgs.add("-Xcontext-receivers")
             }
         }
     }

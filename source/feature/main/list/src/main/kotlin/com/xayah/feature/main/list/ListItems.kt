@@ -88,7 +88,7 @@ fun LazyListScope.listItems(
         is ListItemsUiState.Success.Apps -> {
             items(items = uiState.appList, key = { it.id }) { item ->
                 val navController = LocalNavController.current!!
-                Row(modifier = Modifier.animateItemPlacement()) {
+                Row(modifier = Modifier.animateItem()) {
                     AppItem(
                         opType = uiState.opType,
                         id = item.id,
@@ -112,7 +112,7 @@ fun LazyListScope.listItems(
         is ListItemsUiState.Success.Files -> {
             items(items = uiState.fileList, key = { it.id }) { item ->
                 val navController = LocalNavController.current!!
-                Row(modifier = Modifier.animateItemPlacement()) {
+                Row(modifier = Modifier.animateItem()) {
                     FileItem(
                         opType = uiState.opType,
                         id = item.id,

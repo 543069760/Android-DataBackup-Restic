@@ -2,6 +2,7 @@ package com.xayah.databackup
 
 import android.os.Bundle
 import android.util.Log
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.ExperimentalAnimationApi
@@ -9,7 +10,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.core.view.WindowCompat
+//import androidx.core.view.WindowCompat
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
@@ -76,9 +77,13 @@ class MainActivity : AppCompatActivity() {
     @ExperimentalFoundationApi
     @ExperimentalLayoutApi
     @ExperimentalMaterial3Api
+    //override fun onCreate(savedInstanceState: Bundle?) {
+      //  super.onCreate(savedInstanceState)
+        //WindowCompat.setDecorFitsSystemWindows(window, false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()  // 必须在 super.onCreate() 之前，避免状态栏颜色闪烁
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         runBlocking {
             runCatching {

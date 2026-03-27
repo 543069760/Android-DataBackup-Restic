@@ -38,7 +38,7 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
     protected var mBackupTimestamp: Long = 0L
 
     @Inject
-    protected lateinit var resticRepo: ResticRepository
+    lateinit var resticRepo: ResticRepository
 
     override suspend fun onInitializingPreprocessingEntities(entities: MutableList<ProcessingInfoEntity>) {
         entities.apply {
@@ -245,7 +245,7 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
         // 清理停止文件
         cleanupStopFiles()
     }
-    protected abstract val mMediumBackupUtil: MediumBackupUtil
+    abstract val mMediumBackupUtil: MediumBackupUtil
 
     override suspend fun onPreprocessing(entity: ProcessingInfoEntity) {
         when (entity.infoType) {

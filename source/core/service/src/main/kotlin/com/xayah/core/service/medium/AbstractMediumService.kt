@@ -31,9 +31,9 @@ internal abstract class AbstractMediumService : AbstractProcessingService() {
         mTaskDao.upsert(this)
     }
 
-    protected abstract val mMediaDao: MediaDao
-    protected abstract val mMediaRepo: MediaRepository
-    protected abstract val mRootDir: String
-    protected abstract val mFilesDir: String
-    protected abstract val mConfigsDir: String
+    abstract val mMediaDao: MediaDao
+    abstract val mMediaRepo: MediaRepository
+    abstract val mRootDir: String
+    abstract val mFilesDir: String
+    abstract val mConfigsDir: String
 }

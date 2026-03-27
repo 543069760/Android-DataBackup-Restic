@@ -8,7 +8,8 @@ import java.util.TimerTask
 class CountingInputStreamImpl(
     `in`: InputStream,
     private val fileSize: Long,
-    inline val onProgress: (read: Long, total: Long) -> Unit
+    //inline val onProgress: (read: Long, total: Long) -> Unit
+    val onProgress: (read: Long, total: Long) -> Unit
 ) : CountingInputStream(`in`) {
     private var totalRead: Long = 0
     private val timer = Timer()

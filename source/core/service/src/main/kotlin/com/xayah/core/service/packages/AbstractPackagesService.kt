@@ -55,9 +55,9 @@ internal abstract class AbstractPackagesService : AbstractProcessingService() {
         }
     }
 
-    protected abstract val mPackageDao: PackageDao
-    protected abstract val mPackageRepo: PackageRepository
-    protected abstract val mRootDir: String
-    protected abstract val mAppsDir: String
-    protected abstract val mConfigsDir: String
+    abstract val mPackageDao: PackageDao
+    abstract val mPackageRepo: PackageRepository
+    abstract val mRootDir: String
+    abstract val mAppsDir: String
+    abstract val mConfigsDir: String
 }

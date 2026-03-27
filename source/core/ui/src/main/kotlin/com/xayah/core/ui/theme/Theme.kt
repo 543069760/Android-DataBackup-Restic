@@ -1,6 +1,6 @@
 package com.xayah.core.ui.theme
 
-import android.app.Activity
+//import android.app.Activity
 import android.os.Build
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -12,17 +12,17 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
+//import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
+//import androidx.compose.ui.graphics.Color
+//import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
-import androidx.core.view.WindowCompat
-import com.google.accompanist.systemuicontroller.rememberSystemUiController
+//import androidx.compose.ui.platform.LocalView
+//import androidx.core.view.WindowCompat
+//import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import com.xayah.core.datastore.readMonet
 import com.xayah.core.datastore.readThemeType
 import com.xayah.core.model.ThemeType
@@ -81,28 +81,28 @@ fun DataBackupTheme(
         darkTheme -> darkThemedColorScheme()
         else -> lightThemedColorScheme()
     }
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        SideEffect {
-            val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.primary.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkTheme
-        }
-    }
+    //val view = LocalView.current
+    //if (!view.isInEditMode) {
+    //    SideEffect {
+    //        val window = (view.context as Activity).window
+    //        window.statusBarColor = colorScheme.primary.toArgb()
+    //        WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkTheme
+     //   }
+   // }
 
     // Transparent system bars
-    val systemUiController = rememberSystemUiController()
-    SideEffect {
-        systemUiController.setStatusBarColor(
-            color = Color.Transparent,
-            darkIcons = !darkTheme
-        )
-        systemUiController.setNavigationBarColor(
-            color = Color.Transparent,
-            darkIcons = !darkTheme,
-            navigationBarContrastEnforced = false
-        )
-    }
+    //val systemUiController = rememberSystemUiController()
+    //SideEffect {
+    //    systemUiController.setStatusBarColor(
+    //        color = Color.Transparent,
+    //        darkIcons = !darkTheme
+    //    )
+    //    systemUiController.setNavigationBarColor(
+     //       color = Color.Transparent,
+      //      darkIcons = !darkTheme,
+        //    navigationBarContrastEnforced = false
+        //)
+   // }
 
     MaterialTheme(
         colorScheme = colorScheme,

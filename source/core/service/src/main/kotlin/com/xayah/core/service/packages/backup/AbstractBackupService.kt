@@ -45,7 +45,7 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
     protected var mBackupTimestamp: Long = 0L
 
     @Inject
-    protected lateinit var resticRepo: ResticRepository
+    lateinit var resticRepo: ResticRepository
 
     override suspend fun onInitializingPreprocessingEntities(entities: MutableList<ProcessingInfoEntity>) {
         entities.apply {
@@ -161,7 +161,7 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
         cleanupStopFiles()
     }
 
-    protected abstract val mPackagesBackupUtil: PackagesBackupUtil
+    abstract val mPackagesBackupUtil: PackagesBackupUtil
 
     private lateinit var necessaryInfo: NecessaryInfo
 

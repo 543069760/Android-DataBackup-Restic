@@ -54,10 +54,15 @@ private fun Project.configureCommon() {
             }
         }
 
+        //tasks.withType<KotlinCompile>().configureEach {
+          //  compilerOptions {
+            //    jvmTarget.set(JvmTarget.JVM_17)
+              //  freeCompilerArgs.add("-Xcontext-receivers")
+            //}
+        //}
         tasks.withType<KotlinCompile>().configureEach {
             compilerOptions {
                 jvmTarget.set(JvmTarget.JVM_17)
-                freeCompilerArgs.add("-Xcontext-receivers")
             }
         }
     }

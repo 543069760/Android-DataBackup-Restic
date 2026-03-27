@@ -18,9 +18,17 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.google.accompanist.placeholder.PlaceholderHighlight
-import com.google.accompanist.placeholder.fade
-import com.google.accompanist.placeholder.placeholder
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Brush
+//import com.google.accompanist.placeholder.PlaceholderHighlight
+//import com.google.accompanist.placeholder.fade
+//import com.google.accompanist.placeholder.placeholder
 import com.xayah.core.ui.material3.util.lerp
 import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
 import com.xayah.core.ui.theme.darkTheme
@@ -39,22 +47,60 @@ fun Modifier.paddingHorizontal(horizontal: Dp) = padding(horizontal, 0.dp)
 
 fun Modifier.paddingVertical(vertical: Dp) = padding(0.dp, vertical)
 
+//fun Modifier.shimmer(visible: Boolean = true, colorAlpha: Float = 0.1f, highlightAlpha: Float = 0.3f) = composed {
+  //  val alphaColor = if (darkTheme()) highlightAlpha else colorAlpha
+    //val alphaHighlight = if (darkTheme()) colorAlpha else highlightAlpha
+    //placeholder(
+      //  visible = visible,
+        //shape = CircleShape,
+        //color = ThemedColorSchemeKeyTokens.OnSurface
+          //  .value
+            //.copy(alpha = alphaColor)
+            //.compositeOver(ThemedColorSchemeKeyTokens.Surface.value),
+        //highlight = PlaceholderHighlight.fade(
+          //  ThemedColorSchemeKeyTokens.Surface
+            //    .value
+              //  .copy(alpha = alphaHighlight)
+        //),
+    //)
+//}
+
 fun Modifier.shimmer(visible: Boolean = true, colorAlpha: Float = 0.1f, highlightAlpha: Float = 0.3f) = composed {
+    if (!visible) return@composed this
+
     val alphaColor = if (darkTheme()) highlightAlpha else colorAlpha
     val alphaHighlight = if (darkTheme()) colorAlpha else highlightAlpha
-    placeholder(
-        visible = visible,
-        shape = CircleShape,
-        color = ThemedColorSchemeKeyTokens.OnSurface
-            .value
-            .copy(alpha = alphaColor)
-            .compositeOver(ThemedColorSchemeKeyTokens.Surface.value),
-        highlight = PlaceholderHighlight.fade(
-            ThemedColorSchemeKeyTokens.Surface
-                .value
-                .copy(alpha = alphaHighlight)
+    val baseColor = ThemedColorSchemeKeyTokens.OnSurface.value
+        .copy(alpha = alphaColor)
+        .compositeOver(ThemedColorSchemeKeyTokens.Surface.value)
+    val highlightColor = ThemedColorSchemeKeyTokens.Surface.value
+        .copy(alpha = alphaHighlight)
+
+    val transition = rememberInfiniteTransition(label = "shimmer")
+    val progress = transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200),
+            repeatMode = RepeatMode.Restart
         ),
+        label = "shimmer"
     )
+
+    clip(CircleShape)
+        .drawWithContent {
+            drawContent()
+            val width = size.width
+            val shimmerWidth = width * 0.4f
+            val start = -shimmerWidth + (width + shimmerWidth) * progress.value
+            drawRect(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(baseColor, highlightColor, baseColor),
+                    startX = start,
+                    endX = start + shimmerWidth
+                )
+            )
+        }
 }
 
 fun Modifier.limitMaxDisplay(itemHeightPx: Int, maxDisplay: Int? = null, scrollState: ScrollState) = composed {

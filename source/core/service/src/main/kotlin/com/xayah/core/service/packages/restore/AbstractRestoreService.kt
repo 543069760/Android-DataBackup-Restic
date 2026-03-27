@@ -83,7 +83,7 @@ internal abstract class AbstractRestoreService : AbstractPackagesService() {
     abstract suspend fun restore(type: DataType, userId: Int, p: PackageEntity, t: TaskDetailPackageEntity, srcDir: String)
     protected open suspend fun clear() {}
 
-    protected abstract val mPackagesRestoreUtil: PackagesRestoreUtil
+    abstract val mPackagesRestoreUtil: PackagesRestoreUtil
 
     private var restoreUser = -1
 

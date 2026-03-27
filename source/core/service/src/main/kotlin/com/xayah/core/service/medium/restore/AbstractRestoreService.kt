@@ -71,7 +71,7 @@ internal abstract class AbstractRestoreService : AbstractMediumService() {
     abstract suspend fun restore(m: MediaEntity, t: TaskDetailMediaEntity, srcDir: String)
     protected open suspend fun clear() {}
 
-    protected abstract val mMediumRestoreUtil: MediumRestoreUtil
+    abstract val mMediumRestoreUtil: MediumRestoreUtil
 
     override suspend fun onPreprocessing(entity: ProcessingInfoEntity) {
         when (entity.infoType) {

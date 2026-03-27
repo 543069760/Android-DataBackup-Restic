@@ -114,13 +114,13 @@ internal abstract class AbstractProcessingService : Service() {
     private val mBinder = OperationLocalBinder()
     private val mMutex = Mutex()
     protected val mContext: Context by lazy { applicationContext }
-    protected abstract val mTAG: String
-    protected abstract val mRootService: RemoteRootService
-    protected abstract val mPathUtil: PathUtil
-    protected abstract val mCommonBackupUtil: CommonBackupUtil
-    protected abstract val mTaskDao: TaskDao
-    protected abstract val mTaskRepo: TaskRepository
-    protected abstract val mTaskEntity: TaskEntity
+    abstract val mTAG: String
+    abstract val mRootService: RemoteRootService
+    abstract val mPathUtil: PathUtil
+    abstract val mCommonBackupUtil: CommonBackupUtil
+    abstract val mTaskDao: TaskDao
+    abstract val mTaskRepo: TaskRepository
+    abstract val mTaskEntity: TaskEntity
 
     protected val mNotificationBuilder by lazy { NotificationUtil.getProgressNotificationBuilder(mContext) }
     private val mPreprocessingEntities: MutableList<ProcessingInfoEntity> = mutableListOf()

@@ -91,7 +91,7 @@ fun PageBlackList() {
             }
 
             items(items = packagesState, key = { "apps-${it.id}" }) { item ->
-                Row(modifier = Modifier.animateItemPlacement()) {
+                Row(modifier = Modifier.animateItem()) {
                     PackageItem(
                         item = item,
                         checked = item.id in uiState.appIds,
@@ -112,7 +112,7 @@ fun PageBlackList() {
             }
 
             items(items = mediumState, key = { "files-${it.id}" }) { item ->
-                Row(modifier = Modifier.animateItemPlacement()) {
+                Row(modifier = Modifier.animateItem()) {
                     MediaItem(
                         item = item,
                         enabled = true,
