@@ -2,6 +2,16 @@ package com.xayah.feature.main.dashboard
 
 import android.annotation.SuppressLint
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.KeyboardArrowRight
@@ -16,8 +26,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
-import com.xayah.core.ui.component.ActionButton
-import com.xayah.core.ui.component.AutoLabelLargeText
+//import com.xayah.core.ui.component.ActionButton
+//import com.xayah.core.ui.component.AutoLabelLargeText
 import com.xayah.core.ui.component.BodyMediumText
 import com.xayah.core.ui.component.OverviewCard
 import com.xayah.core.ui.component.SegmentProgressIndicator
@@ -27,7 +37,7 @@ import com.xayah.core.ui.component.paddingTop
 import com.xayah.core.ui.model.SegmentProgress
 import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
 import com.xayah.core.ui.theme.value
-import com.xayah.core.ui.theme.withState
+//import com.xayah.core.ui.theme.withState
 import com.xayah.core.ui.token.SizeTokens
 import com.xayah.core.util.DateUtil
 
@@ -128,28 +138,47 @@ fun QuickActionsButton(
     title: String,
     icon: ImageVector,
     colorContainer: ThemedColorSchemeKeyTokens,
-    colorL80D20: ThemedColorSchemeKeyTokens,
     onColorContainer: ThemedColorSchemeKeyTokens,
     actionIcon: ImageVector? = null,
     onClick: () -> Unit = {},
 ) {
-    ActionButton(
-        modifier = modifier,
+    Button(
+        modifier = modifier.heightIn(min = SizeTokens.Level56),
         enabled = enabled,
-        icon = icon,
-        colorContainer = colorContainer,
-        colorL80D20 = colorL80D20,
-        onColorContainer = onColorContainer,
-        trailingIcon = {
-            if (actionIcon != null)
-                Icon(
-                    imageVector = actionIcon,
-                    tint = onColorContainer.value.withState(enabled),
-                    contentDescription = null
-                )
-        },
-        onClick = onClick
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = colorContainer.value,
+            contentColor = onColorContainer.value,
+            disabledContainerColor = colorContainer.value.copy(alpha = 0.38f),
+            disabledContentColor = onColorContainer.value.copy(alpha = 0.38f),
+        ),
+        contentPadding = PaddingValues(
+            start = SizeTokens.Level16,
+            end = if (actionIcon != null) SizeTokens.Level12 else SizeTokens.Level16,
+            top = SizeTokens.Level8,
+            bottom = SizeTokens.Level8,
+        ),
     ) {
-        AutoLabelLargeText(modifier = Modifier.weight(1f), text = title, color = onColorContainer.value.withState(enabled), enabled = enabled)
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(SizeTokens.Level20),
+        )
+        Spacer(modifier = Modifier.width(SizeTokens.Level8))
+        Text(
+            text = title,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.labelLarge,
+        )
+        if (actionIcon != null) {
+            Spacer(modifier = Modifier.width(SizeTokens.Level4))
+            Icon(
+                imageVector = actionIcon,
+                contentDescription = null,
+                modifier = Modifier.size(SizeTokens.Level20),
+            )
+        }
     }
 }

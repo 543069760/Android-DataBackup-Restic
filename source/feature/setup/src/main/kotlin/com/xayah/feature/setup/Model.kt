@@ -34,25 +34,6 @@ sealed class EnvState {
             }
         }
 
-    val colorL80D20: ThemedColorSchemeKeyTokens
-        get() = when (this) {
-            Idle -> {
-                ThemedColorSchemeKeyTokens.SurfaceDimBaselineFixed
-            }
-
-            Processing -> {
-                ThemedColorSchemeKeyTokens.OnSecondaryContainer
-            }
-
-            Succeed -> {
-                ThemedColorSchemeKeyTokens.OnPrimaryContainer
-            }
-
-            Failed -> {
-                ThemedColorSchemeKeyTokens.OnErrorContainer
-            }
-        }
-
     val onColorContainer: ThemedColorSchemeKeyTokens
         get() = when (this) {
             Idle -> {

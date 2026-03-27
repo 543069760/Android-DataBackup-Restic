@@ -88,7 +88,6 @@ fun PermissionButton(
         enabled = enabled,
         icon = envState.icon,
         colorContainer = envState.colorContainer,
-        colorL80D20 = envState.colorL80D20,
         onColorContainer = envState.onColorContainer,
         trailingIcon = {
             if (onSetting != null) {

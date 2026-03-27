@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Folder
@@ -75,44 +76,33 @@ fun ActionButton(
     enabled: Boolean = true,
     icon: ImageVector,
     colorContainer: ThemedColorSchemeKeyTokens,
-    colorL80D20: ThemedColorSchemeKeyTokens,
     onColorContainer: ThemedColorSchemeKeyTokens,
     trailingIcon: @Composable (RowScope.() -> Unit)? = null,
     onClick: () -> Unit = {},
     content: @Composable RowScope.() -> Unit
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
     Card(
-        modifier = modifier.wrapContentHeight(),
-        shape = MaterialTheme.shapes.medium,
+        modifier = modifier
+            .wrapContentHeight()
+            .heightIn(min = SizeTokens.Level56),
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = colorContainer.value.withState(enabled)),
         onClick = onClick,
         enabled = enabled,
-        interactionSource = interactionSource,
     ) {
         Row(
             modifier = Modifier
-                .padding(SizeTokens.Level12)
+                .padding(horizontal = SizeTokens.Level16, vertical = SizeTokens.Level12)
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level10)
+            horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level12)
         ) {
-            Surface(
-                modifier = Modifier.size(SizeTokens.Level36),
-                shape = CircleShape,
-                color = colorL80D20.value.withState(enabled),
-                enabled = enabled,
-                onClick = onClick,
-                indication = null,
-                interactionSource = interactionSource
-            ) {
-                Icon(
-                    modifier = Modifier.padding(SizeTokens.Level8),
-                    imageVector = icon,
-                    tint = onColorContainer.value.withState(enabled),
-                    contentDescription = null,
-                )
-            }
+            Icon(
+                modifier = Modifier.size(SizeTokens.Level24),
+                imageVector = icon,
+                tint = onColorContainer.value.withState(enabled),
+                contentDescription = null,
+            )
             content()
             trailingIcon?.invoke(this)
         }

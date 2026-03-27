@@ -402,7 +402,6 @@ fun ActionChip(
         enabled = enabled,
         icon = if (selected) Icons.Rounded.Check else icon,
         colorContainer = if (selected) ThemedColorSchemeKeyTokens.PrimaryContainer else ThemedColorSchemeKeyTokens.SurfaceContainerHigh,
-        colorL80D20 = if (selected) ThemedColorSchemeKeyTokens.OnPrimaryContainer else ThemedColorSchemeKeyTokens.SurfaceDim,
         onColorContainer = if (selected) ThemedColorSchemeKeyTokens.PrimaryContainer else ThemedColorSchemeKeyTokens.OnSurface,
         onClick = onClick
     ) {
