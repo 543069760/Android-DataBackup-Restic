@@ -6,17 +6,17 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.ListAlt
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -39,11 +39,9 @@ import com.xayah.core.ui.component.DismissState
 import com.xayah.core.ui.component.IconButton
 import com.xayah.core.ui.component.LocalSlotScope
 import com.xayah.core.ui.component.MainIndexSubScaffold
-import com.xayah.core.ui.component.Section
 import com.xayah.core.ui.component.paddingTop
 import com.xayah.core.ui.model.SegmentProgress
 import com.xayah.core.ui.route.MainRoutes
-import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
 import com.xayah.core.ui.token.SizeTokens
 import com.xayah.core.ui.util.LocalNavController
 import com.xayah.core.util.navigateSingle
@@ -119,114 +117,92 @@ fun PageDashboard() {
     ) {
         Column(
             modifier = Modifier
-                .paddingTop(SizeTokens.Level32)
+                .paddingTop(SizeTokens.Level16)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(SizeTokens.Level24)
+            verticalArrangement = Arrangement.spacedBy(SizeTokens.Level16)
         ) {
-            Section(title = stringResource(id = R.string.overlook)) {
-                OverviewLastBackupCard(nullBackupDir = nullBackupDir, lastBackupTime = lastBackupTime) {
-                    if (nullBackupDir)
-                        navController.navigateSingle(MainRoutes.Directory.route)
-                }
-
-                if (directoryState != null) {
-                    OverviewStorageCard(
-                        stringResource(id = directoryState!!.titleResId),
-                        SegmentProgress(used = directoryState!!.usedBytes, total = directoryState!!.totalBytes),
-                        SegmentProgress(used = directoryState!!.childUsedBytes, total = directoryState!!.totalBytes),
-                    ) {
-                        navController.navigateSingle(MainRoutes.Directory.route)
-                    }
-                }
-            }
-
-            Section(title = stringResource(id = R.string.quick_actions)) {
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level8),
-                    verticalArrangement = Arrangement.spacedBy(SizeTokens.Level8),
-                    maxItemsInEachRow = 2,
+            // 1. 存储信息区域（平铺大号数字 + 进度条）
+            if (directoryState != null) {
+                StorageOverviewSection(
+                    title = stringResource(id = directoryState!!.titleResId),
+                    used = SegmentProgress(used = directoryState!!.usedBytes, total = directoryState!!.totalBytes),
+                    backupUsed = SegmentProgress(used = directoryState!!.childUsedBytes, total = directoryState!!.totalBytes),
                 ) {
-                    QuickActionsButton(
-                        modifier = Modifier.weight(1f),
-                        enabled = nullBackupDir.not(),
-                        title = stringResource(id = R.string.backup_apps),
-                        icon = ImageVector.vectorResource(id = R.drawable.ic_rounded_acute),
-                        colorContainer = ThemedColorSchemeKeyTokens.RedPrimaryContainer,
-                        //colorL80D20 = ThemedColorSchemeKeyTokens.RedL80D20,
-                        onColorContainer = ThemedColorSchemeKeyTokens.RedOnPrimaryContainer
-                    ) {
-                        navController.navigateSingle(MainRoutes.List.getRoute(target = Target.Apps, opType = OpType.BACKUP))
-                    }
-                    QuickActionsButton(
-                        modifier = Modifier.weight(1f),
-                        enabled = nullBackupDir.not(),
-                        title = stringResource(id = R.string.backup_files),
-                        icon = ImageVector.vectorResource(id = R.drawable.ic_rounded_acute),
-                        colorContainer = ThemedColorSchemeKeyTokens.YellowPrimaryContainer,
-                        //colorL80D20 = ThemedColorSchemeKeyTokens.YellowL80D20,
-                        onColorContainer = ThemedColorSchemeKeyTokens.YellowOnPrimaryContainer
-                    ) {
-                        navController.navigateSingle(MainRoutes.List.getRoute(target = Target.Files, opType = OpType.BACKUP))
-                    }
-                    // TODO MMS/SMS, Contacts backup/restore
-//                    QuickActionsButton(
-//                        modifier = Modifier.weight(1f),
-//                        enabled = false,
-//                        title = stringResource(id = R.string.backup_messages),
-//                        icon = ImageVector.vectorResource(id = R.drawable.ic_rounded_acute),
-//                        colorContainer = ThemedColorSchemeKeyTokens.BluePrimaryContainer,
-//                        colorL80D20 = ThemedColorSchemeKeyTokens.BlueL80D20,
-//                        onColorContainer = ThemedColorSchemeKeyTokens.BlueOnPrimaryContainer
-//                    )
-//                    QuickActionsButton(
-//                        modifier = Modifier.weight(1f),
-//                        enabled = false,
-//                        title = stringResource(id = R.string.backup_contacts),
-//                        icon = ImageVector.vectorResource(id = R.drawable.ic_rounded_acute),
-//                        colorContainer = ThemedColorSchemeKeyTokens.GreenPrimaryContainer,
-//                        colorL80D20 = ThemedColorSchemeKeyTokens.GreenL80D20,
-//                        onColorContainer = ThemedColorSchemeKeyTokens.GreenOnPrimaryContainer
-//                    )
-                    QuickActionsButton(
-                        modifier = Modifier.weight(1f),
-                        enabled = nullBackupDir.not(),
-                        title = stringResource(id = R.string.cloud),
-                        icon = Icons.Outlined.Cloud,
-                        colorContainer = ThemedColorSchemeKeyTokens.PurplePrimaryContainer,
-                        //colorL80D20 = ThemedColorSchemeKeyTokens.PurpleL80D20,
-                        onColorContainer = ThemedColorSchemeKeyTokens.PurpleOnPrimaryContainer,
-                        actionIcon = Icons.Rounded.KeyboardArrowRight
-                    ) {
-                        navController.navigateSingle(MainRoutes.Cloud.route)
-                    }
-                    QuickActionsButton(
-                        modifier = Modifier.weight(1f),
-                        enabled = nullBackupDir.not(),
-                        title = stringResource(id = R.string.restore),
-                        icon = ImageVector.vectorResource(id = R.drawable.ic_rounded_history),
-                        colorContainer = ThemedColorSchemeKeyTokens.OrangePrimaryContainer,
-                        //colorL80D20 = ThemedColorSchemeKeyTokens.OrangeL80D20,
-                        onColorContainer = ThemedColorSchemeKeyTokens.OrangeOnPrimaryContainer,
-                        actionIcon = Icons.Rounded.KeyboardArrowRight
-                    ) {
-                        navController.navigateSingle(MainRoutes.Restore.route)
-                    }
-                    QuickActionsButton(
-                        modifier = Modifier.weight(1f),
-                        enabled = nullBackupDir.not(),
-                        title = stringResource(R.string.history),
-                        icon = Icons.Rounded.ListAlt,
-                        colorContainer = ThemedColorSchemeKeyTokens.PinkPrimaryContainer,
-                        //colorL80D20 = ThemedColorSchemeKeyTokens.PinkL80D20,
-                        onColorContainer = ThemedColorSchemeKeyTokens.PinkOnPrimaryContainer,
-                        actionIcon = Icons.Rounded.KeyboardArrowRight
-                    ) {
-                        navController.navigateSingle(MainRoutes.History.route)
-                    }
-                    Spacer(modifier = Modifier.weight(1f))
+                    navController.navigateSingle(MainRoutes.Directory.route)
                 }
             }
+
+            // 2. 上次备份小卡片
+            LastBackupChip(nullBackupDir = nullBackupDir, lastBackupTime = lastBackupTime) {
+                if (nullBackupDir)
+                    navController.navigateSingle(MainRoutes.Directory.route)
+            }
+
+            // 3. 备份应用 - 全宽填充按钮
+            PrimaryActionButton(
+                modifier = Modifier.padding(horizontal = SizeTokens.Level16),
+                enabled = nullBackupDir.not(),
+                title = stringResource(id = R.string.backup_apps),
+                icon = ImageVector.vectorResource(id = R.drawable.ic_rounded_acute),
+            ) {
+                navController.navigateSingle(MainRoutes.List.getRoute(target = Target.Apps, opType = OpType.BACKUP))
+            }
+
+            // 4. 备份文件 - 全宽描边按钮
+            SecondaryActionButton(
+                modifier = Modifier.padding(horizontal = SizeTokens.Level16),
+                enabled = nullBackupDir.not(),
+                title = stringResource(id = R.string.backup_files),
+                icon = ImageVector.vectorResource(id = R.drawable.ic_rounded_acute),
+            ) {
+                navController.navigateSingle(MainRoutes.List.getRoute(target = Target.Files, opType = OpType.BACKUP))
+            }
+
+            Spacer(modifier = Modifier.height(SizeTokens.Level8))
+
+            // 5. 导航列表项
+            Column(
+                modifier = Modifier.padding(horizontal = SizeTokens.Level16),
+                verticalArrangement = Arrangement.spacedBy(SizeTokens.Level8)
+            ) {
+                // Cloud
+                NavigationListItem(
+                    icon = Icons.Outlined.Cloud,
+                    iconTint = MaterialTheme.colorScheme.primary,
+                    iconBackgroundColor = MaterialTheme.colorScheme.primaryContainer,
+                    title = stringResource(id = R.string.cloud),
+                    subtitle = "Remote vault",
+                    enabled = nullBackupDir.not(),
+                ) {
+                    navController.navigateSingle(MainRoutes.Cloud.route)
+                }
+
+                // Restore
+                NavigationListItem(
+                    icon = ImageVector.vectorResource(id = R.drawable.ic_rounded_history),
+                    iconTint = MaterialTheme.colorScheme.tertiary,
+                    iconBackgroundColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    title = stringResource(id = R.string.restore),
+                    subtitle = "Recovery tools",
+                    enabled = nullBackupDir.not(),
+                ) {
+                    navController.navigateSingle(MainRoutes.Restore.route)
+                }
+
+                // History
+                NavigationListItem(
+                    icon = Icons.Rounded.ListAlt,
+                    iconTint = MaterialTheme.colorScheme.secondary,
+                    iconBackgroundColor = MaterialTheme.colorScheme.secondaryContainer,
+                    title = stringResource(R.string.history),
+                    subtitle = "Audit logs",
+                    enabled = nullBackupDir.not(),
+                ) {
+                    navController.navigateSingle(MainRoutes.History.route)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(SizeTokens.Level16))
         }
     }
 }
