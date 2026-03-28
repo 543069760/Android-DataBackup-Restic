@@ -1,12 +1,12 @@
 package com.xayah.feature.setup
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Done
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.MoreHoriz
-import androidx.compose.material.icons.rounded.PriorityHigh
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.vectorResource
 import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
 
 sealed class EnvState {
@@ -41,24 +41,24 @@ sealed class EnvState {
             }
 
             Processing -> {
-                ThemedColorSchemeKeyTokens.SecondaryContainer
+                ThemedColorSchemeKeyTokens.OnSecondaryContainer
             }
 
             Succeed -> {
-                ThemedColorSchemeKeyTokens.PrimaryContainer
+                ThemedColorSchemeKeyTokens.OnPrimaryContainer
             }
 
             Failed -> {
-                ThemedColorSchemeKeyTokens.ErrorContainer
+                ThemedColorSchemeKeyTokens.OnErrorContainer
             }
         }
 
     val icon: ImageVector
         @Composable
         get() = when (this) {
-            Idle -> ImageVector.vectorResource(id = R.drawable.ic_rounded_package_2)
+            Idle -> Icons.Outlined.RadioButtonUnchecked
             Processing -> Icons.Rounded.MoreHoriz
-            Succeed -> Icons.Rounded.Done
-            Failed -> Icons.Rounded.PriorityHigh
+            Succeed -> Icons.Rounded.CheckCircle
+            Failed -> Icons.Rounded.Error
         }
 }
