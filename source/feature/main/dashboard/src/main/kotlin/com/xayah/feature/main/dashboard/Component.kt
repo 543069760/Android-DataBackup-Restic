@@ -1,22 +1,31 @@
 package com.xayah.feature.main.dashboard
 
 import android.annotation.SuppressLint
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.Description
-import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.Restore
-import androidx.compose.material3.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,19 +40,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.xayah.core.ui.component.BodyMediumText
 import com.xayah.core.ui.component.SegmentProgressIndicator
-import com.xayah.core.ui.component.paddingBottom
-import com.xayah.core.ui.component.paddingTop
 import com.xayah.core.ui.model.SegmentProgress
 import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
-import com.xayah.core.ui.theme.value
-import com.xayah.core.ui.token.SizeTokens
 import com.xayah.core.util.DateUtil
 
 /**
- * 存储信息区域 - 平铺显示大号数字 + 两条进度条
+ * 存储信息胶囊卡片 - 与 LastBackupChip 同风格
  */
 @SuppressLint("StringFormatInvalid")
 @ExperimentalMaterial3Api
@@ -55,112 +58,87 @@ fun StorageOverviewSection(
     onClick: () -> Unit,
 ) {
     val context = LocalContext.current
-    Column(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        ),
+        onClick = onClick,
     ) {
-        // 存储类型标签（如 "内部存储"）
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = ImageVector.vectorResource(id = R.drawable.ic_rounded_folder_open),
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // 左侧圆形图标
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = ImageVector.vectorResource(id = R.drawable.ic_rounded_folder_open),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // 大号存储数字
-        if (used != null && used.progress.isNaN().not()) {
-            Row(verticalAlignment = Alignment.Bottom) {
+            // 右侧内容
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = used.usedFormat.replace(" ", "").replace("GB", "").replace("MB", "").replace("TB", ""),
-                    style = MaterialTheme.typography.displayMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 48.sp
-                    ),
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = "/ ${used.totalFormat}",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-            }
 
-            Spacer(modifier = Modifier.height(8.dp))
+                if (used != null && used.progress.isNaN().not()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    SegmentProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = true,
+                        progress = used.progress,
+                        color = ThemedColorSchemeKeyTokens.Secondary,
+                        trackColor = ThemedColorSchemeKeyTokens.SecondaryL80D20,
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${context.getString(R.string.args_used, (used.progress * 100).toInt())} (${used.usedFormat} / ${used.totalFormat})",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
-            // 已使用进度条
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = context.getString(R.string.args_used, (used.progress * 100).toInt()),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "${used.usedFormat} / ${used.totalFormat}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (backupUsed != null && backupUsed.progress.isNaN().not()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    SegmentProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = true,
+                        progress = backupUsed.progress,
+                        color = ThemedColorSchemeKeyTokens.Primary,
+                        trackColor = ThemedColorSchemeKeyTokens.SecondaryL80D20,
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${context.getString(R.string.args_used_by_backups, (backupUsed.progress * 100).toInt())} (${backupUsed.usedFormat} / ${backupUsed.totalFormat})",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
-            Spacer(modifier = Modifier.height(4.dp))
-            SegmentProgressIndicator(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = true,
-                progress = used.progress,
-                color = ThemedColorSchemeKeyTokens.Secondary,
-                trackColor = ThemedColorSchemeKeyTokens.SecondaryL80D20,
-            )
-        }
-
-        // 备份已使用进度条
-        if (backupUsed != null && backupUsed.progress.isNaN().not()) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = context.getString(R.string.args_used_by_backups, (backupUsed.progress * 100).toInt()),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "${backupUsed.usedFormat} / ${backupUsed.totalFormat}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            SegmentProgressIndicator(
-                modifier = Modifier.fillMaxWidth(),
-                enabled = true,
-                progress = backupUsed.progress,
-                color = ThemedColorSchemeKeyTokens.Primary,
-                trackColor = ThemedColorSchemeKeyTokens.SecondaryL80D20,
-            )
         }
     }
 }
 
 /**
- * 上次备份卡片 - 小型圆角卡片，带勾选图标
+ * 上次备份胶囊卡片 - 带勾选图标
  */
 @SuppressLint("StringFormatInvalid")
 @ExperimentalMaterial3Api
