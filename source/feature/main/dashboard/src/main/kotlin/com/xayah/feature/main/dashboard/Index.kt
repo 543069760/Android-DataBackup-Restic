@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Settings
@@ -143,7 +145,7 @@ fun PageDashboard() {
                 modifier = Modifier.padding(horizontal = SizeTokens.Level16),
                 enabled = nullBackupDir.not(),
                 title = stringResource(id = R.string.backup_apps),
-                icon = ImageVector.vectorResource(id = R.drawable.ic_rounded_acute),
+                icon = Icons.Rounded.Apps,
             ) {
                 navController.navigateSingle(MainRoutes.List.getRoute(target = Target.Apps, opType = OpType.BACKUP))
             }
@@ -153,7 +155,7 @@ fun PageDashboard() {
                 modifier = Modifier.padding(horizontal = SizeTokens.Level16),
                 enabled = nullBackupDir.not(),
                 title = stringResource(id = R.string.backup_files),
-                icon = ImageVector.vectorResource(id = R.drawable.ic_rounded_acute),
+                icon = Icons.Rounded.Description,
             ) {
                 navController.navigateSingle(MainRoutes.List.getRoute(target = Target.Files, opType = OpType.BACKUP))
             }
