@@ -6,7 +6,7 @@ on:
       branch:
         description: 'Target Branch'
         required: true
-        default: 'feature/restic-integration'
+        default: 'feature-new-m3e/rustic-integration'
       Alpha:
         description: 'Alpha'
         required: true
