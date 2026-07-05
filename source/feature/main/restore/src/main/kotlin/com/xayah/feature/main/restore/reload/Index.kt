@@ -19,7 +19,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -45,7 +44,6 @@ import com.xayah.feature.main.restore.RestoreScaffold
 @ExperimentalMaterial3Api
 @Composable
 fun PageReload() {
-    val context = LocalContext.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     val viewModel = hiltViewModel<IndexViewModel>()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -85,6 +83,7 @@ fun PageReload() {
 
                     val dialogState = LocalSlotScope.current!!.dialogSlot
                     val currentIndex = uiState.versionIndex
+                    val versionText = stringResource(id = R.string.version)
                     Selectable(
                         enabled = uiState.isLoading.not(),
                         title = stringResource(id = R.string.version),
@@ -92,7 +91,7 @@ fun PageReload() {
                         current = uiState.versionList[currentIndex].title
                     ) {
                         val (state, selectedIndex) = dialogState.select(
-                            title = context.getString(R.string.version),
+                            title = versionText,
                             defIndex = currentIndex,
                             items = uiState.versionList
                         )

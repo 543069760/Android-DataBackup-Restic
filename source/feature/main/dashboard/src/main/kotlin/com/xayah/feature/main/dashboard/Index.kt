@@ -66,6 +66,14 @@ fun PageDashboard() {
     val nullBackupDir by remember(directoryState) { mutableStateOf(directoryState == null) }
     val dialogState = LocalSlotScope.current!!.dialogSlot
     val scope = rememberCoroutineScope()
+    val updateAvailableText = stringResource(id = R.string.update_available)
+    val changelogText = stringResource(id = R.string.changelog)
+    val downloadText = stringResource(id = R.string.download)
+    val argsUpdateFromText = stringResource(
+        id = R.string.args_update_from,
+        BuildConfigUtil.VERSION_NAME,
+        uiState.latestRelease?.name ?: ""
+    )
 
     LaunchedEffect(null) {
         viewModel.emitIntentOnIO(IndexUiIntent.Update)
@@ -80,11 +88,11 @@ fun PageDashboard() {
             scope.launch {
                 val state = dialogState.open(
                     initialState = false,
-                    title = context.getString(R.string.update_available),
+                    title = updateAvailableText,
                     icon = null,
-                    dismissText = context.getString(R.string.changelog),
-                    confirmText = context.getString(R.string.download),
-                    block = { _ -> Text(text = context.getString(R.string.args_update_from, BuildConfigUtil.VERSION_NAME, uiState.latestRelease?.name)) }
+                    dismissText = changelogText,
+                    confirmText = downloadText,
+                    block = { _ -> Text(text = argsUpdateFromText) }
                 ).first
                 when (state) {
                     DismissState.CONFIRM -> {

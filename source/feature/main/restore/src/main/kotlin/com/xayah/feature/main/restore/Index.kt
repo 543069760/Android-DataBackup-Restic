@@ -31,7 +31,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -60,7 +59,6 @@ import com.xayah.core.util.navigateSingle
 @Composable
 fun PageRestore() {
     val navController = LocalNavController.current!!
-    val context = LocalContext.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     val viewModel = hiltViewModel<IndexViewModel>()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -89,7 +87,9 @@ fun PageRestore() {
             )
 
             var enabled by remember { mutableStateOf(true) }
-            val storageOptions = remember { listOf(context.getString(R.string.local), context.getString(R.string.cloud)) }
+            val localText = stringResource(id = R.string.local)
+            val cloudText = stringResource(id = R.string.cloud)
+            val storageOptions = remember { listOf(localText, cloudText) }
             SingleChoiceSegmentedButtonRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -128,6 +128,7 @@ fun PageRestore() {
                     }
                 } else {
                     val dialogState = LocalSlotScope.current!!.dialogSlot
+                    val accountText = stringResource(id = R.string.account)
                     var currentIndex by remember { mutableIntStateOf(if (uiState.cloudEntity == null) 0 else accounts.indexOfFirst { it.title == uiState.cloudEntity!!.name }) }
                     LaunchedEffect(currentIndex) {
                         viewModel.emitIntentOnIO(IndexUiIntent.SetCloudEntity(name = accounts[currentIndex].title))
@@ -141,7 +142,7 @@ fun PageRestore() {
                     ) {
                         viewModel.launchOnIO {
                             val (state, selectedIndex) = dialogState.select(
-                                title = context.getString(R.string.account),
+                                title = accountText,
                                 defIndex = currentIndex,
                                 items = accounts
                             )

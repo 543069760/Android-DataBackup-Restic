@@ -56,6 +56,7 @@ internal fun ListActions(
 ) {
     if (uiState is ListActionsUiState.Success) {
         val context = LocalContext.current
+        val selectTargetDirectoryText = stringResource(R.string.select_target_directory)
         val target by remember(uiState) {
             mutableStateOf(
                 when (uiState) {
@@ -97,7 +98,7 @@ internal fun ListActions(
                                 moreExpanded = false
                                 PickYouLauncher(
                                     checkPermission = true,
-                                    title = context.getString(R.string.select_target_directory),
+                                    title = selectTargetDirectoryText,
                                     pickerType = PickerType.DIRECTORY,
                                     permissionType = PermissionType.ROOT,
                                 ).apply {
@@ -187,7 +188,9 @@ private fun AppsListActions(
     onSelectDataItems: () -> Unit,
     onDeleteSelected: () -> Unit,
 ) {
-    val context = LocalContext.current
+    val promptText = stringResource(R.string.prompt)
+    val addToBlacklistText = stringResource(R.string.confirm_add_to_blacklist)
+    val confirmDeleteText = stringResource(R.string.confirm_delete)
     val dialogState = LocalSlotScope.current!!.dialogSlot
 
     when (opType) {
@@ -195,8 +198,8 @@ private fun AppsListActions(
             BlockItem(enabled) {
                 checkListExpanded()
                 dialogState.confirm(
-                    title = context.getString(R.string.prompt),
-                    text = context.getString(R.string.confirm_add_to_blacklist)
+                    title = promptText,
+                    text = addToBlacklistText
                 ) {
                     onBlockSelected()
                 }
@@ -211,8 +214,8 @@ private fun AppsListActions(
             DeleteItem(enabled) {
                 checkListExpanded()
                 dialogState.confirm(
-                    title = context.getString(R.string.prompt),
-                    text = context.getString(R.string.confirm_delete)
+                    title = promptText,
+                    text = confirmDeleteText
                 ) {
                     onDeleteSelected()
                 }
@@ -233,7 +236,9 @@ private fun FilesListActions(
     onBlockSelected: () -> Unit,
     onDeleteSelected: () -> Unit,
 ) {
-    val context = LocalContext.current
+    val promptText = stringResource(R.string.prompt)
+    val addToBlacklistText = stringResource(R.string.confirm_add_to_blacklist)
+    val confirmDeleteText = stringResource(R.string.confirm_delete)
     val dialogState = LocalSlotScope.current!!.dialogSlot
 
     when (opType) {
@@ -241,8 +246,8 @@ private fun FilesListActions(
             BlockItem(enabled) {
                 checkListExpanded()
                 dialogState.confirm(
-                    title = context.getString(R.string.prompt),
-                    text = context.getString(R.string.confirm_add_to_blacklist)
+                    title = promptText,
+                    text = addToBlacklistText
                 ) {
                     onBlockSelected()
                 }
@@ -250,8 +255,8 @@ private fun FilesListActions(
             DeleteItem(enabled) {
                 checkListExpanded()
                 dialogState.confirm(
-                    title = context.getString(R.string.prompt),
-                    text = context.getString(R.string.confirm_delete)
+                    title = promptText,
+                    text = confirmDeleteText
                 ) {
                     onDeleteSelected()
                 }
@@ -262,8 +267,8 @@ private fun FilesListActions(
             DeleteItem(enabled) {
                 checkListExpanded()
                 dialogState.confirm(
-                    title = context.getString(R.string.prompt),
-                    text = context.getString(R.string.confirm_delete)
+                    title = promptText,
+                    text = confirmDeleteText
                 ) {
                     onDeleteSelected()
                 }

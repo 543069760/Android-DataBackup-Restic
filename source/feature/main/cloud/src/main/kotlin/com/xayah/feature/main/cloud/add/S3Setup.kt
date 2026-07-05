@@ -74,6 +74,7 @@ import com.xayah.feature.main.cloud.SetupTextField
 fun PageS3Setup() {
     val dialogState = LocalSlotScope.current!!.dialogSlot
     val context = LocalContext.current
+    val notSelectedText = stringResource(id = R.string.not_selected)   // 新增
     val navController = LocalNavController.current!!
     val viewModel = hiltViewModel<IndexViewModel>()
     val s3ViewModel = hiltViewModel<S3ResticViewModel>()
@@ -372,7 +373,7 @@ fun PageS3Setup() {
                 Clickable(
                     enabled = allFilled && uiState.isProcessing.not(),
                     title = stringResource(id = R.string.remote_path),
-                    value = remote.ifEmpty { context.getString(R.string.not_selected) },
+                    value = remote.ifEmpty { notSelectedText },
                     desc = stringResource(id = R.string.remote_path_desc),
                 ) {
                     viewModel.launchOnIO {

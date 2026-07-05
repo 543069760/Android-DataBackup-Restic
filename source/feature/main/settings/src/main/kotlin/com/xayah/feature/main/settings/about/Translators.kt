@@ -67,8 +67,8 @@ fun PageTranslatorsSettings() {
                                     TranslatorCard(
                                         modifier = Modifier.paddingHorizontal(SizeTokens.Level16),
                                         avatar = null,
-                                        name = context.getString(R.string.unknown),
-                                        desc = context.getString(R.string.translators_desc)
+                                        name = stringResource(R.string.unknown),
+                                        desc = stringResource(R.string.translators_desc)
                                     ) {
                                     }
                                 } else {
@@ -76,8 +76,8 @@ fun PageTranslatorsSettings() {
                                         TranslatorCard(
                                             modifier = Modifier.paddingHorizontal(SizeTokens.Level16),
                                             avatar = info.getOrNull(3),
-                                            name = info.getOrNull(1) ?: context.getString(R.string.unknown),
-                                            desc = info.getOrNull(0) ?: context.getString(R.string.unknown)
+                                            name = info.getOrNull(1) ?: stringResource(R.string.unknown),
+                                            desc = info.getOrNull(0) ?: stringResource(R.string.unknown)
                                         ) {
                                             val url = info.getOrNull(4)
                                             if (url != null) {

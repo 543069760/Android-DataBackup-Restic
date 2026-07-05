@@ -21,22 +21,29 @@ import com.xayah.core.ui.theme.observeCurrentTheme
 fun DarkThemeSelectable() {
     val context = LocalContext.current
     val dialogState = LocalSlotScope.current!!.dialogSlot
+    val themeAutoText = stringResource(R.string.theme_auto)
+    val themeAutoDescText = stringResource(R.string.theme_auto_desc)
+    val themeLightText = stringResource(R.string.theme_light)
+    val themeLightDescText = stringResource(R.string.theme_light_desc)
+    val themeDarkText = stringResource(R.string.theme_dark)
+    val themeDarkDescText = stringResource(R.string.theme_dark_desc)
+    val darkThemeText = stringResource(R.string.dark_theme)
     val items = remember {
         listOf(
             DialogRadioItem(
                 enum = ThemeType.AUTO,
-                title = context.getString(R.string.theme_auto),
-                desc = context.getString(R.string.theme_auto_desc),
+                title = themeAutoText,
+                desc = themeAutoDescText,
             ),
             DialogRadioItem(
                 enum = ThemeType.LIGHT_THEME,
-                title = context.getString(R.string.theme_light),
-                desc = context.getString(R.string.theme_light_desc),
+                title = themeLightText,
+                desc = themeLightDescText,
             ),
             DialogRadioItem(
                 enum = ThemeType.DARK_THEME,
-                title = context.getString(R.string.theme_dark),
-                desc = context.getString(R.string.theme_dark_desc),
+                title = themeDarkText,
+                desc = themeDarkDescText,
             ),
         )
     }
@@ -48,7 +55,7 @@ fun DarkThemeSelectable() {
         current = items[currentIndex].title
     ) {
         val (state, selectedIndex) = dialogState.select(
-            title = context.getString(R.string.dark_theme),
+            title = darkThemeText,
             defIndex = currentIndex,
             items = items
         )

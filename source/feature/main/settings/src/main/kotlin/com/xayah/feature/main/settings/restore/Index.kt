@@ -59,6 +59,7 @@ fun PageRestoreSettings() {
         ) {
             Column {
                 val items = stringArrayResource(id = R.array.kill_app_options)
+                val killAppOptionsText = stringResource(R.string.kill_app_options)
                 val dialogItems by remember(items) {
                     mutableStateOf(items.mapIndexed { index, s ->
                         DialogRadioItem(enum = KillAppOption.indexOf(index), title = s, desc = null)
@@ -72,7 +73,7 @@ fun PageRestoreSettings() {
                     current = items[currentIndex]
                 ) {
                     val (state, selectedIndex) = dialogState.select(
-                        title = context.getString(R.string.kill_app_options),
+                        title = killAppOptionsText,
                         defIndex = currentIndex,
                         items = dialogItems
                     )

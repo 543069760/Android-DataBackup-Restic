@@ -110,6 +110,11 @@ fun PageProcessing(
     }
     val screenOffCountDown by viewModel.screenOffCountDown.collectAsStateWithLifecycle()
 
+    val screenOffMessage = stringResource(R.string.args_screen_off_in_seconds, screenOffCountDown)
+    val promptText = stringResource(R.string.prompt)
+    val processingExitConfirmationText = stringResource(R.string.processing_exit_confirmation)
+    val cancelBackupConfirmationText = stringResource(R.string.cancel_backup_confirmation)
+
     LaunchedEffect(null) {
         viewModel.emitIntentOnIO(ProcessingUiIntent.Initialize)
     }
@@ -125,7 +130,7 @@ fun PageProcessing(
                         viewModel.emitEffect(
                             IndexUiEffect.ShowSnackbar(
                                 type = SnackbarType.Success,
-                                message = context.getString(R.string.args_screen_off_in_seconds, screenOffCountDown),
+                                message = screenOffMessage,
                                 duration = SnackbarDuration.Indefinite
                             )
                         )
@@ -160,7 +165,7 @@ fun PageProcessing(
         {
             if (uiState.state == OperationState.PROCESSING) {
                 viewModel.launchOnIO {
-                    if (dialogState.confirm(title = context.getString(R.string.prompt), text = context.getString(R.string.processing_exit_confirmation))) {
+                    if (dialogState.confirm(title = promptText, text = processingExitConfirmationText)) {
                         BaseUtil.kill(context, "tar", "root")
                         // 修改这里:使用 CancelAndCleanup 而不是 DestroyService
                         viewModel.emitIntent(ProcessingUiIntent.CancelAndCleanup)
@@ -218,8 +223,8 @@ fun PageProcessing(
                         onClick = {
                             viewModel.launchOnIO {
                                 if (dialogState.confirm(
-                                        title = context.getString(R.string.prompt),
-                                        text = context.getString(R.string.cancel_backup_confirmation)
+                                        title = promptText,
+                                        text = cancelBackupConfirmationText
                                     )) {
                                     viewModel.emitIntent(ProcessingUiIntent.CancelAndCleanup)
                                 }
@@ -310,12 +315,12 @@ fun PageProcessing(
                                     title = stringResource(id = finishedTitleId)
                                     subtitle = if (task != null) {
                                         if (task!!.totalCount == task!!.successCount) {
-                                            remember { context.getString(finishedSubtitleId, task!!.totalCount) }
+                                            stringResource(finishedSubtitleId, task!!.totalCount)
                                         } else {
-                                            remember { context.getString(finishedWithErrorsSubtitleId, task!!.successCount, task!!.failureCount) }
+                                            stringResource(finishedWithErrorsSubtitleId, task!!.successCount, task!!.failureCount)
                                         }
                                     } else {
-                                        remember { context.getString(finishedSubtitleId, dataItems.size) }
+                                        stringResource(finishedSubtitleId, dataItems.size)
                                     }
                                 }
 

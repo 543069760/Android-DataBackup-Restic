@@ -45,6 +45,9 @@ fun PageTwo() {
     val viewModel = hiltViewModel<IndexViewModel>()
     val backupSavePathSaved by context.readBackupSavePathSaved().collectAsStateWithLifecycle(initialValue = false)
     val backupSavePath by context.readBackupSavePath().collectAsStateWithLifecycle(initialValue = "")
+    val skipSetupText = stringResource(id = R.string.skip_setup)          // 新增
+    val skipSetupAlertText = stringResource(id = R.string.skip_setup_alert)  // 新增
+    val notSelectedText = stringResource(id = R.string.not_selected)      // 新增
 
     SetupScaffold(
         topBar = {
@@ -58,7 +61,7 @@ fun PageTwo() {
                 OutlinedButton(
                     onClick = {
                         viewModel.launchOnIO {
-                            if (dialogState.confirm(title = context.getString(R.string.skip_setup), text = context.getString(R.string.skip_setup_alert))) {
+                            if (dialogState.confirm(title = skipSetupText, text = skipSetupAlertText)) {
                                 viewModel.emitIntent(IndexUiIntent.ToMain(context = context.getActivity()))
                             }
                         }
@@ -84,7 +87,7 @@ fun PageTwo() {
             // 备份目录 - 移除选择功能，只显示当前路径
             Clickable(
                 title = stringResource(id = R.string.backup_dir),
-                value = if (backupSavePathSaved) backupSavePath else context.getString(R.string.not_selected),
+                value = if (backupSavePathSaved) backupSavePath else notSelectedText,
                 desc = if (backupSavePathSaved) null else stringResource(id = R.string.setup_backup_dir_desc),
                 enabled = false // 禁用点击
             ) {

@@ -63,6 +63,9 @@ import com.xayah.feature.main.cloud.SetupTextField
 fun PageFTPSetup() {
     val dialogState = LocalSlotScope.current!!.dialogSlot
     val context = LocalContext.current
+    val notSelectedText = stringResource(id = R.string.not_selected)
+    val deleteAccountText = stringResource(id = R.string.delete_account)
+    val deleteAccountDescText = stringResource(id = R.string.delete_account_desc)
     val navController = LocalNavController.current!!
     val viewModel = hiltViewModel<IndexViewModel>()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -220,7 +223,7 @@ fun PageFTPSetup() {
                 Clickable(
                     enabled = allFilled && uiState.isProcessing.not(),
                     title = stringResource(id = R.string.remote_path),
-                    value = remote.ifEmpty { context.getString(R.string.not_selected) },
+                    value = remote.ifEmpty { notSelectedText },
                     desc = stringResource(id = R.string.remote_path_desc),
                 ) {
                     viewModel.launchOnIO {
@@ -238,7 +241,7 @@ fun PageFTPSetup() {
                         enabled = uiState.isProcessing.not(),
                         onClick = {
                             viewModel.launchOnIO {
-                                if (dialogState.confirm(title = context.getString(R.string.delete_account), text = context.getString(R.string.delete_account_desc))) {
+                                if (dialogState.confirm(title = deleteAccountText, text = deleteAccountDescText)) {
                                     viewModel.emitIntent(IndexUiIntent.DeleteAccount(navController = navController))
                                 }
                             }

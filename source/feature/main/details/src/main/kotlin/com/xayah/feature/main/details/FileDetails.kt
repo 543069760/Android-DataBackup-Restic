@@ -196,7 +196,8 @@ private fun LabelsBottomSheet(
     onDeleteLabel: (String) -> Unit,
     onSelectLabel: (Boolean, LabelFileCrossRefEntity?) -> Unit,
 ) {
-    val context = LocalContext.current
+    val addLabelText = stringResource(R.string.add_label)
+    val labelText = stringResource(R.string.label)
     val dialogState = LocalSlotScope.current!!.dialogSlot
     if (isShow) {
         ModalBottomSheet(onDismissRequest = onDismissRequest, sheetState = sheetState) {
@@ -272,7 +273,7 @@ private fun LabelsBottomSheet(
             }
 
             BottomButton(text = stringResource(id = R.string.add_label)) {
-                dialogState.edit(context.getString(R.string.add_label), label = context.getString(R.string.label), onConfirm = onAddLabel)
+                dialogState.edit(addLabelText, label = labelText, onConfirm = onAddLabel)
             }
         }
     }
@@ -345,7 +346,10 @@ private fun ActionsRow(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SingleChoiceSegmentedButtonRowScope.BackupActions(blocked: Boolean, onBlock: (Boolean) -> Unit, onDelete: () -> Unit) {
-    val context = LocalContext.current
+    val promptText = stringResource(R.string.prompt)
+    val blacklistText = stringResource(if (blocked) R.string.confirm_remove_from_blacklist else R.string.confirm_add_to_blacklist)
+    val deleteText = stringResource(R.string.delete)
+    val deleteDescText = stringResource(R.string.delete_desc)
     val dialogState = LocalSlotScope.current!!.dialogSlot
     ActionItem(
         index = 0,
@@ -354,8 +358,8 @@ private fun SingleChoiceSegmentedButtonRowScope.BackupActions(blocked: Boolean, 
         icon = Icons.Rounded.Block
     ) {
         dialogState.confirm(
-            title = context.getString(R.string.prompt),
-            text = context.getString(if (blocked) R.string.confirm_remove_from_blacklist else R.string.confirm_add_to_blacklist),
+            title = promptText,
+            text = blacklistText,
             onConfirm = {
                 onBlock(blocked)
             }
@@ -369,8 +373,8 @@ private fun SingleChoiceSegmentedButtonRowScope.BackupActions(blocked: Boolean, 
         containerColor = ThemedColorSchemeKeyTokens.ErrorContainer.value
     ) {
         dialogState.confirm(
-            title = context.getString(R.string.delete),
-            text = context.getString(R.string.delete_desc),
+            title = deleteText,
+            text = deleteDescText,
             onConfirm = {
                 onDelete()
             }
@@ -389,7 +393,10 @@ private fun SingleChoiceSegmentedButtonRowScope.RestoreActions(
 ) {
     // 添加调试日志
     android.util.Log.d("FileDetails", "RestoreActions: isProtecting=$isProtecting, protectProgress=$protectProgress")
-    val context = LocalContext.current
+    val protectText = stringResource(R.string.protect)
+    val protectDescText = stringResource(R.string.protect_desc)
+    val deleteText = stringResource(R.string.delete)
+    val deleteDescText = stringResource(R.string.delete_desc)
     val dialogState = LocalSlotScope.current!!.dialogSlot
 
     // 受保护按钮 - 使用 ActionSegmentedButton 直接控制内容
@@ -398,9 +405,9 @@ private fun SingleChoiceSegmentedButtonRowScope.RestoreActions(
         onClick = {
             if (!isProtecting) {
                 dialogState.confirm(
-                    title = context.getString(R.string.protect),
-                    text = context.getString(R.string.protect_desc),
-                    onConfirm = onProtect
+                    title = protectText,
+                    text = protectDescText,
+                    onConfirm = onProtect,
                 )
             }
         },
@@ -447,8 +454,8 @@ private fun SingleChoiceSegmentedButtonRowScope.RestoreActions(
         containerColor = ThemedColorSchemeKeyTokens.ErrorContainer.value
     ) {
         dialogState.confirm(
-            title = context.getString(R.string.delete),
-            text = context.getString(R.string.delete_desc),
+            title = deleteText,
+            text = deleteDescText,
             onConfirm = onDelete
         )
     }

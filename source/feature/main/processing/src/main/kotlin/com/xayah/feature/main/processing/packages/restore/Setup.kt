@@ -122,6 +122,7 @@ fun PagePackagesRestoreProcessingSetup(localNavController: NavHostController, vi
             Title(title = stringResource(id = R.string.settings)) {
                 val dialogState = LocalSlotScope.current!!.dialogSlot
                 val context = LocalContext.current
+                val restoreUserText = stringResource(R.string.restore_user)
                 var currentIndex by remember { mutableIntStateOf(0) }
                 LaunchedEffect(currentIndex) {
                     viewModel.launchOnIO {
@@ -138,7 +139,7 @@ fun PagePackagesRestoreProcessingSetup(localNavController: NavHostController, vi
                 ) {
                     viewModel.launchOnIO {
                         val (state, selectedIndex) = dialogState.select(
-                            title = context.getString(R.string.restore_user),
+                            title = restoreUserText,
                             defIndex = currentIndex,
                             items = restoreUsers
                         )

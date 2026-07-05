@@ -60,6 +60,10 @@ fun PageOne() {
     val allRequiredValidated by viewModel.allRequiredValidated.collectAsStateWithLifecycle()
     val allOptionalValidated by viewModel.allOptionalValidated.collectAsStateWithLifecycle()
     val dialogState = LocalSlotScope.current!!.dialogSlot
+    val customSuFileText = stringResource(id = R.string.custom_su_file)             // 新增
+    val nameText = stringResource(id = R.string.name)                              // 新增
+    val restartToTakeEffectText = stringResource(id = R.string.restart_to_take_effect)  // 新增
+    val abiValidationDescText = stringResource(id = R.string.abi_validation_desc)   // 新增
 
     SetOnResume {
         viewModel.emitIntentOnIO(IndexUiIntent.OnResume)
@@ -111,10 +115,10 @@ fun PageOne() {
                     onSetting = {
                         viewModel.launchOnIO {
                             val (state, su) = dialogState.edit(
-                                title = context.getString(R.string.custom_su_file),
+                                title = customSuFileText,
                                 defValue = context.readCustomSUFile().first(),
-                                label = context.getString(R.string.name),
-                                desc = context.getString(R.string.restart_to_take_effect)
+                                label = nameText,
+                                desc = restartToTakeEffectText
                             )
                             if (state.isConfirm) context.saveCustomSUFile(su)
                         }
@@ -124,7 +128,7 @@ fun PageOne() {
                 }
                 PermissionButton(
                     title = stringResource(id = R.string.abi_validation),
-                    desc = uiState.abiErr.ifEmpty { context.getString(R.string.abi_validation_desc) },
+                    desc = uiState.abiErr.ifEmpty { abiValidationDescText },
                     envState = abiState,
                 ) {
                     viewModel.launchOnIO { viewModel.emitIntent(IndexUiIntent.ValidateAbi) }

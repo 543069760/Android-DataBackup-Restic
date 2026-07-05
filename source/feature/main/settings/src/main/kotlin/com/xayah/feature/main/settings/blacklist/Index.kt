@@ -20,7 +20,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -43,7 +42,8 @@ import com.xayah.feature.main.settings.SettingsScaffold
 @ExperimentalMaterial3Api
 @Composable
 fun PageBlackList() {
-    val context = LocalContext.current
+    val promptText = stringResource(R.string.prompt)
+    val confirmRemoveText = stringResource(R.string.confirm_remove_from_blacklist)
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     val dialogState = LocalSlotScope.current!!.dialogSlot
     val viewModel = hiltViewModel<IndexViewModel>()
@@ -58,7 +58,7 @@ fun PageBlackList() {
             AnimatedVisibility(visible = uiState.appIds.isNotEmpty() || uiState.fileIds.isNotEmpty()) {
                 IconButton(icon = Icons.Outlined.Delete) {
                     viewModel.launchOnIO {
-                        if (dialogState.confirm(title = context.getString(R.string.prompt), text = context.getString(R.string.confirm_remove_from_blacklist))) {
+                        if (dialogState.confirm(title = promptText, text = confirmRemoveText)) {
                             viewModel.emitIntentOnIO(IndexUiIntent.RemoveSelected)
                         }
                     }

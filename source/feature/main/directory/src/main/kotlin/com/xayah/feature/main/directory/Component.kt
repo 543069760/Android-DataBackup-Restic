@@ -25,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.xayah.core.model.database.DirectoryEntity
 import com.xayah.core.ui.component.BodyMediumText
@@ -96,7 +95,6 @@ fun DirectoryCard(
     onClick: () -> Unit = {},
     onLongClick: () -> Unit = {},
 ) {
-    val context = LocalContext.current
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -148,7 +146,7 @@ fun DirectoryCard(
 
                 BodyMediumText(
                     enabled = enabled,
-                    text = "${context.getString(R.string.args_used, (used.progress * 100).toInt())} (${used.usedFormat} / ${used.totalFormat})",
+                    text = "${stringResource(id = R.string.args_used, (used.progress * 100).toInt())} (${used.usedFormat} / ${used.totalFormat})",
                     color = ThemedColorSchemeKeyTokens.OnSurfaceVariant.value,
                 )
             }
@@ -164,7 +162,7 @@ fun DirectoryCard(
                 )
                 BodyMediumText(
                     enabled = enabled,
-                    text = "${context.getString(R.string.args_used_by_backups, (backupUsed.progress * 100).toInt())} (${backupUsed.usedFormat} / ${backupUsed.totalFormat})",
+                    text = "${stringResource(id = R.string.args_used_by_backups, (backupUsed.progress * 100).toInt())} (${backupUsed.usedFormat} / ${backupUsed.totalFormat})",
                     color = ThemedColorSchemeKeyTokens.OnSurfaceVariant.value,
                 )
             }

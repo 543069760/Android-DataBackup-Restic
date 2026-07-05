@@ -31,7 +31,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -70,7 +69,6 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 @Composable
 fun PagePackagesBackupProcessingSetup(localNavController: NavHostController, viewModel: BackupViewModelImpl) {
     val navController = LocalNavController.current!!
-    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
@@ -109,7 +107,7 @@ fun PagePackagesBackupProcessingSetup(localNavController: NavHostController, vie
                 .verticalScroll(rememberScrollState())
                 .fillMaxSize(),
         ) {
-            val storageOptions = remember { listOf(context.getString(R.string.local), context.getString(R.string.cloud)) }
+            val storageOptions = listOf(stringResource(R.string.local), stringResource(R.string.cloud))
             SingleChoiceSegmentedButtonRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -142,6 +140,7 @@ fun PagePackagesBackupProcessingSetup(localNavController: NavHostController, vie
                         }
                     } else {
                         val dialogState = LocalSlotScope.current!!.dialogSlot
+                        val accountText = stringResource(R.string.account)
                         var currentIndex by remember { mutableIntStateOf(if (uiState.cloudEntity == null) 0 else accounts.indexOfFirst { it.title == uiState.cloudEntity!!.name }) }
                         LaunchedEffect(currentIndex) {
                             viewModel.emitIntentOnIO(SetCloudEntity(name = accounts[currentIndex].title))
@@ -154,7 +153,7 @@ fun PagePackagesBackupProcessingSetup(localNavController: NavHostController, vie
                         ) {
                             viewModel.launchOnIO {
                                 val (state, selectedIndex) = dialogState.select(
-                                    title = context.getString(R.string.account),
+                                    title = accountText,
                                     defIndex = currentIndex,
                                     items = accounts
                                 )

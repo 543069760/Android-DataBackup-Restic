@@ -73,15 +73,16 @@ fun PageBackupSettings() {
                 val currentLevelIndex by remember(compressionLevel) {
                     mutableIntStateOf(compressionLevels.indexOf(compressionLevel))
                 }
+                val currentLevelText = stringResource(R.string.args_current_level, compressionLevels[currentLevelIndex].uppercase())
+                val compressionDescText = stringResource(R.string.restic_compression_level_desc)
+                val killAppOptionsText = stringResource(R.string.kill_app_options)
 
                 Slideable(
                     title = stringResource(id = R.string.restic_compression_level),
                     value = currentLevelIndex.toFloat(),
                     valueRange = 0F..4F,
                     steps = 3,
-                    desc = remember(currentLevelIndex) {
-                        "${context.getString(R.string.args_current_level, compressionLevels[currentLevelIndex].uppercase())}\n${context.getString(R.string.restic_compression_level_desc)}"
-                    }
+                    desc = "$currentLevelText\n$compressionDescText"
                 ) {
                     scope.launch {
                         context.saveResticCompressionLevel(compressionLevels[it.roundToInt()])
@@ -102,7 +103,7 @@ fun PageBackupSettings() {
                     current = items[currentIndex]
                 ) {
                     val (state, selectedIndex) = dialogState.select(
-                        title = context.getString(R.string.kill_app_options),
+                        title = killAppOptionsText,
                         defIndex = currentIndex,
                         items = dialogItems
                     )

@@ -27,15 +27,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
@@ -57,7 +53,6 @@ fun StorageOverviewSection(
     backupUsed: SegmentProgress? = null,
     onClick: () -> Unit,
 ) {
-    val context = LocalContext.current
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -110,7 +105,7 @@ fun StorageOverviewSection(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "${context.getString(R.string.args_used, (used.progress * 100).toInt())} (${used.usedFormat} / ${used.totalFormat})",
+                        text = "${stringResource(id = R.string.args_used, (used.progress * 100).toInt())} (${used.usedFormat} / ${used.totalFormat})",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -127,7 +122,7 @@ fun StorageOverviewSection(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "${context.getString(R.string.args_used_by_backups, (backupUsed.progress * 100).toInt())} (${backupUsed.usedFormat} / ${backupUsed.totalFormat})",
+                        text = "${stringResource(id = R.string.args_used_by_backups, (backupUsed.progress * 100).toInt())} (${backupUsed.usedFormat} / ${backupUsed.totalFormat})",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -144,14 +139,9 @@ fun StorageOverviewSection(
 @ExperimentalMaterial3Api
 @Composable
 fun LastBackupChip(nullBackupDir: Boolean, lastBackupTime: Long, onClick: () -> Unit) {
-    val context = LocalContext.current
-    val finishTime by remember(lastBackupTime) {
-        mutableStateOf(
-            if (lastBackupTime != 0L)
-                context.getString(R.string.args_finished_at, DateUtil.formatTimestamp(lastBackupTime, DateUtil.PATTERN_FINISH))
-            else ""
-        )
-    }
+    val finishTime = if (lastBackupTime != 0L)
+        stringResource(id = R.string.args_finished_at, DateUtil.formatTimestamp(lastBackupTime, DateUtil.PATTERN_FINISH))
+    else ""
 
     Card(
         modifier = Modifier

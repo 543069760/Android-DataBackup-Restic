@@ -76,16 +76,13 @@ internal fun HistoryScreen(uiState: HistoryUiState) {
                         }
 
                         items(items = state.items) {
-                            val desc by remember(it.endTimestamp, it.opType) {
-                                mutableStateOf(
-                                    context.getString(
-                                        when (it.opType) {
-                                            OpType.BACKUP -> R.string.args_backed_up_at
-                                            OpType.RESTORE -> R.string.args_restored_at
-                                        }, DateUtil.formatTimestamp(it.endTimestamp, DateUtil.PATTERN_FINISH)
-                                    )
-                                )
-                            }
+                            val desc = stringResource(
+                                when (it.opType) {
+                                    OpType.BACKUP -> R.string.args_backed_up_at
+                                    OpType.RESTORE -> R.string.args_restored_at
+                                },
+                                DateUtil.formatTimestamp(it.endTimestamp, DateUtil.PATTERN_FINISH)
+                            )
                             val interactionSource = remember { MutableInteractionSource() }
                             Clickable(
                                 title = stringResource(

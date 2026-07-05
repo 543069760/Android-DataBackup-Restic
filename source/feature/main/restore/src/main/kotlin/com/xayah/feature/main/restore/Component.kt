@@ -97,9 +97,7 @@ fun OverviewLastRestoreCard(modifier: Modifier, lastRestoreTime: Long) {
     val relativeTime by remember(lastRestoreTime) {
         mutableStateOf(DateUtil.getShortRelativeTimeSpanString(context = context, time1 = lastRestoreTime, time2 = DateUtil.getTimestamp()))
     }
-    val finishTime by remember(lastRestoreTime) {
-        mutableStateOf(context.getString(R.string.args_finished_at, DateUtil.formatTimestamp(lastRestoreTime, DateUtil.PATTERN_FINISH)))
-    }
+    val finishTime = stringResource(id = R.string.args_finished_at, DateUtil.formatTimestamp(lastRestoreTime, DateUtil.PATTERN_FINISH))
     OverviewCard(
         modifier = modifier,
         title = stringResource(id = R.string.last_restore),
