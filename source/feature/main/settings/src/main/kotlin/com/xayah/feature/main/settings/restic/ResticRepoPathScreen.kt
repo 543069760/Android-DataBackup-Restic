@@ -1,8 +1,5 @@
 package com.xayah.feature.main.settings.restic
 
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -18,6 +15,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.xayah.core.ui.util.LocalNavController
 import com.xayah.feature.main.settings.R
+import com.xayah.libpickyou.PickYouLauncher
+import com.xayah.libpickyou.ui.model.PickerType
+import com.xayah.libpickyou.ui.model.PermissionType
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -30,19 +30,15 @@ fun ResticRepoPathScreen() {
 
     var repoPath by remember { mutableStateOf("") }
 
-    // --- SAF 文件夹选择器逻辑 ---
-    val folderLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri: Uri? ->
-        uri?.let {
-            // 将选择的 Uri 转换为物理路径
-            // 注意：getFullPathFromUri 是我们需要在 ViewModel 或工具类中实现的逻辑
-            val physicalPath = viewModel.getFullPathFromUri(it)
-            if (physicalPath != null) {
-                repoPath = physicalPath
-            }
-        }
-    }
+    // --- Root 目录选择器（libpickyou）---
+    // 与 ResticInitializationScreen 中已稳定运行的用法保持一致，
+    // 通过 root 直接遍历文件系统，避免 SAF Uri→路径转换在不同 ROM 下崩溃。
+    val directoryLauncher = PickYouLauncher(
+        checkPermission = true,
+        title = stringResource(id = R.string.select_directory),
+        pickerType = PickerType.DIRECTORY,
+        permissionType = PermissionType.ROOT,
+    )
 
     LaunchedEffect(Unit) {
         repoPath = viewModel.getRepoPath()
@@ -88,8 +84,12 @@ fun ResticRepoPathScreen() {
                 modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                 trailingIcon = {
-                    // 添加 SAF 选择按钮
-                    IconButton(onClick = { folderLauncher.launch(null) }) {
+                    // 使用 libpickyou 的 root 目录选择器，回调直接返回物理路径
+                    IconButton(onClick = {
+                        directoryLauncher.launch(context) { pathString ->
+                            repoPath = pathString
+                        }
+                    }) {
                         Icon(
                             imageVector = Icons.Rounded.FolderOpen,
                             contentDescription = "Select Folder",
@@ -114,7 +114,7 @@ fun ResticRepoPathScreen() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "提示：普通目录可点击图标选择；Root 目录（如 /data/adb）请手动输入路径。保存后程序将自动尝试修复路径权限。",
+                    text = "提示：点击图标可直接浏览包括 Root 目录（如 /data/adb）在内的路径；也可手动输入。保存后程序将自动尝试修复路径权限。",
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(12.dp),
                     color = MaterialTheme.colorScheme.onSecondaryContainer
