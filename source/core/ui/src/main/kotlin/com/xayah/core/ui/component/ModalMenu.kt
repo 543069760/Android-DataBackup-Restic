@@ -32,9 +32,9 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -65,7 +65,7 @@ fun ModalActionDropdownMenu(
     onClick: ((index: Int) -> Unit)? = null,
     onDismissRequest: () -> Unit,
 ) {
-    val context = LocalContext.current
+    val wordReturn = stringResource(id = R.string.word_return)
     val scope = rememberCoroutineScope()
     var processingIndex by remember { mutableIntStateOf(-1) }
     val processing by remember(processingIndex) { mutableStateOf(processingIndex != -1) }
@@ -108,7 +108,7 @@ fun ModalActionDropdownMenu(
                             if (processing.not()) {
                                 if (item.secondaryMenu.isNotEmpty()) {
                                     targetList = item.secondaryMenu
-                                } else if (item.title == context.getString(R.string.word_return) && item.onClick == null) {
+                                } else if (item.title == wordReturn && item.onClick == null) {
                                     targetList = actionList
                                 } else if (onClick != null) {
                                     onClick(index)

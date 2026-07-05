@@ -24,7 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import com.xayah.core.common.util.BuildConfigUtil
 import com.xayah.core.ui.R
 import com.xayah.core.ui.material3.SnackbarHost
@@ -46,7 +46,6 @@ fun MainIndexSubScaffold(
     floatingActionButton: @Composable () -> Unit = {},               // <-- 新增
     content: @Composable (BoxScope.() -> Unit)
 ) {
-    val context = LocalContext.current
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
@@ -70,11 +69,12 @@ fun MainIndexSubScaffold(
                                 var version by remember {
                                     mutableStateOf("${BuildConfigUtil.VERSION_NAME} ${BuildConfigUtil.FLAVOR_feature.capitalizeString()}")
                                 }
+                                val updateAvailableText = stringResource(id = R.string.update_available)   // 新增：Composable 作用域内预取
                                 LaunchedEffect(updateAvailable) {
                                     while (updateAvailable) {
                                         delay(3000)
                                         val tmp = version
-                                        version = context.getString(R.string.update_available)
+                                        version = updateAvailableText   // ← 原为 context.getString(R.string.update_available)
                                         delay(3000)
                                         version = tmp
                                     }
