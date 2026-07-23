@@ -2,6 +2,7 @@ package com.xayah.databackup.util
 
 import android.content.Context
 import com.topjohnwu.superuser.Shell
+import com.topjohnwu.superuser.ShellUtils
 import com.xayah.databackup.App
 import com.xayah.databackup.util.SymbolHelper.USD
 import kotlinx.coroutines.flow.first
@@ -71,4 +72,6 @@ object ShellHelper {
             LogHelper.e(TAG, "rm", "Failed to get a new shell!")
         }
     }
+
+    fun getSuVersion(): String? = runCatching { ShellUtils.fastCmd("su -v").trim().ifBlank { null } }.getOrNull()
 }

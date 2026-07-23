@@ -112,7 +112,7 @@
     <string name="preserve">Sačuvaj</string>
     <string name="apk_only">Samo APK datoteke</string>
     <string name="overlook">Pregled</string>
-    <string name="welcome_to_use">Dobro došli u DataBackup</string>
+    <string name="welcome_to_use">Dobro došao, dobro došla u DataBackup</string>
     <string name="start_subtitle">U skladu s relevantnim pravilima, pažljivo pročitaj i prihvati sljedeći „Korisnički ugovor” i „Pravila o privatnosti” prije korištenja ove aplikacije</string>
     <string name="start_desc">Svi podaci koje ova aplikacija generira koriste se samo za sigurnosne kopije/obnavljanje i spremaju se samo lokalno.</string>
     <string name="network_desc">Koristi se za dobijanje informacija o ažuriranju aplikacije i analitiku aplikacije</string>
@@ -141,7 +141,7 @@
     <string name="backup_itself_desc">Kopiraj APK datoteku u mapu sigurnosnih kopija nakon izrade sigurnosne kopije</string>
     <string name="compression_test">Test komprimiranja</string>
     <string name="compression_test_desc">Provjeri je li komprimirane arhiva isparvna nakon izrade</string>
-    <string name="backup_itself">Spremanje DataBackup aplikacije</string>
+    <string name="backup_itself">Sigurnosna kopija aplikacije</string>
     <string name="reset_backup_list_desc">Odznači odabire nakon izrade sigurnosne kopije</string>
     <string name="reset_restore_list_desc">Odznači odabire nakon obnavljanja</string>
     <string name="compatible_mode">Kompatibilni način</string>
@@ -315,10 +315,10 @@
     <string name="no_backups_found_warning">Nisu pronađene sigurnosne kopije, vratite se i pokušajte ponovno učitati</string>
     <string name="enter_the_setup_page_again">Ponovo otvorite stranicu za postavljanje</string>
     <string name="reload_version_desc">Na kojoj verziji ste napravili sigurnosnu kopiju?</string>
-    <string name="dump_apk">Izvoz APK-a</string>
-    <string name="dump_apk_desc">Izvršite izvoz APK-a kako biste dobili detaljnije informacije</string>
+    <string name="dump_apk">Ekstrahiraj apk</string>
+    <string name="dump_apk_desc">Pokušajte ekstrahirati apk datoteku kako biste dobili detaljnije informacije</string>
     <string name="third_party">Treća strana</string>
-    <string name="no_root_directory">Nemojte odabrati glavni direktorij</string>
+    <string name="no_root_directory">Nemoj odabrati glavni direktorij</string>
     <string name="about">O</string>
     <string name="about_app">O aplikaciji</string>
     <string name="donate">Doniraj</string>
@@ -378,7 +378,7 @@
     <string name="args_restored_at">Obnovljeno %1$s</string>
     <string name="task_details">Detalji zadatka</string>
     <string name="visit_details">Pogledaj detalje</string>
-    <string name="refresh">Aktualiziraj</string>
+    <string name="refresh">Osvježi</string>
     <string name="initializing_app_list">Inicijaliziranje popisa aplikacija</string>
     <string name="no_labels_here">Ovdje nema oznaka.</string>
     <string name="backup_configs">Konfiguracije sigurnosnih kopija</string>
@@ -391,7 +391,7 @@
     <string name="restore_permissions">Obnovi dozvole</string>
     <string name="compression_level_desc">Manji broj omogućuje brže komprimiranje, veći broj omogućuje efikasnije komprimiranje</string>
     <string name="restore_permissions_desc">Obnovi dozvole aplikacija</string>
-    <string name="restore_ssaid_desc">Obnovi Android ID aplikacija, zahtijeva ponovno pokretanje nakon obnavljanja</string>
+    <string name="restore_ssaid_desc">Obnovi Android ID aplikacije, zahtijeva ponovno pokretanje nakon obnavljanja</string>
     <string name="restore_ssaid">Obnovi Android ID</string>
     <string name="compression_level">Razina komprimiranja</string>
     <string name="insecure_server_connection">Dopusti nesigurnu vezu sa serverom</string>
@@ -481,4 +481,24 @@
     <string name="no_permissions">Nema dozvola</string>
     <string name="prompt_cancel_operation">Prekinuti tekuću operaciju?</string>
     <string name="error_no_space_left_desc">Nema više memorije na uređaju. Prije ove operacije provjeri je li tvoj uređaj ima dovoljno memorije</string>
+    <string name="apps_backup_strategy">Strategija izrade sigurnosnih kopija aplikacija</string>
+    <string name="unnamed">Bez imena</string>
+    <string name="not_created_yet">Još nije stvorena</string>
+    <string name="created_at">Stvorena</string>
+    <string name="updated_at">Aktualizirana</string>
+    <string name="edit_name">Uredi ime</string>
+    <string name="canceled">Obustavljeno</string>
+    <string name="advanced_settings">Napredne postavke</string>
+    <string name="app_theme_settings">Postavke teme aplikacije</string>
+    <string name="model">Model</string>
+    <string name="update">Aktualiziraj</string>
+    <string name="check_updates">Traži nove verzije</string>
+    <string name="checking_updates">Traženje novih verzija</string>
+    <string name="new_version_available">Dostupna je nova verzija</string>
+    <string name="version_up_to_date">Koristiš najnoviju verziju</string>
+    <string name="latest">Najnovija</string>
+    <string name="current">Trenutačna</string>
+    <string name="github_api_rate_limited">Dosegnuto je ograničenje brzine GitHub API-ja. Pokušaj ponovo nakon %1$s.</string>
+    <string name="retry_after">Pokušaj ponovo nakon: %1$s</string>
+    <string name="selected_first">Najprije odabrane</string>
 </resources>

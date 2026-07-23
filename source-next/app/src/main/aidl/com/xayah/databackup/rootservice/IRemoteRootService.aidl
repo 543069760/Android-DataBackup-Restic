@@ -23,4 +23,13 @@ interface IRemoteRootService {
     boolean mkdirs(String path);
     boolean exists(String path);
     boolean deleteRecursively(String path);
+    boolean copyRecursively(String source, String target, boolean overwrite);
+
+    // Rustic
+    void initRusticRepository(String repositoryPath, String password);
+    boolean rusticRepositoryExists(String repositoryPath);
+    void validateRusticRepository(String repositoryPath, String password);
+    String createRusticSnapshot(String repositoryPath, String password, in List<String> sourcePaths, in List<String> tags, ICallback callback);
+    void restoreRusticSnapshot(String repositoryPath, String password, String snapshotId, String destinationPath);
+    void checkRusticRepository(String repositoryPath, String password);
 }

@@ -7,11 +7,13 @@ import com.xayah.databackup.App
 import com.xayah.databackup.R
 import com.xayah.databackup.data.AppRepository
 import com.xayah.databackup.data.BackupConfigRepository
+import com.xayah.databackup.data.BackupProcessRepository
 import com.xayah.databackup.data.CallLogRepository
 import com.xayah.databackup.data.ContactRepository
 import com.xayah.databackup.data.FileRepository
 import com.xayah.databackup.data.MessageRepository
 import com.xayah.databackup.data.NetworkRepository
+import com.xayah.databackup.entity.BackupBackend
 import com.xayah.databackup.entity.BackupConfig
 import com.xayah.databackup.rootservice.RemoteRootService
 import com.xayah.databackup.ui.component.CallLogPermissions
@@ -49,6 +51,7 @@ const val MaxSelectedItems = 6
 
 open class BackupSetupViewModel(
     private val backupConfigRepo: BackupConfigRepository,
+    private val backupProcessRepo: BackupProcessRepository,
     appRepo: AppRepository,
     fileRepo: FileRepository,
     networkRepo: NetworkRepository,
@@ -164,12 +167,12 @@ open class BackupSetupViewModel(
             return@combine null
         }
         var count = 0
-        if (appsItem.selected) count++
-        if (filesItem.selected) count++
-        if (networksItem.selected) count++
-        if (contactsItem.selected) count++
-        if (callLogsItem.selected) count++
-        if (messagesItem.selected) count++
+        if (appsItem.selected && appsItem.selections.first > 0) count++
+        if (filesItem.selected && filesItem.selections.first > 0) count++
+        if (networksItem.selected && networksItem.selections.first > 0) count++
+        if (contactsItem.selected && contactsItem.selections.first > 0) count++
+        if (callLogsItem.selected && callLogsItem.selections.first > 0) count++
+        if (messagesItem.selected && messagesItem.selections.first > 0) count++
         count to MaxSelectedItems
     }.stateIn(
         scope = viewModelScope,
@@ -257,5 +260,13 @@ open class BackupSetupViewModel(
         withLock(Dispatchers.Default) {
             backupConfigRepo.selectBackup(index)
         }
+    }
+
+    fun resetProcessRepo() {
+        backupProcessRepo.reset()
+    }
+
+    fun isCurrentBackupRustic(): Boolean {
+        return backupConfigRepo.getCurrentConfig().backupBackend is BackupBackend.Rustic
     }
 }

@@ -362,4 +362,13 @@
     <string name="refresh">Yamgilash</string>
     <string name="initializing_app_list">Ilovalar roʻyxati ishga tushirilmoqda</string>
     <string name="updating_app_list">Ilovalar roʻyxati yangilanmoqda</string>
+    <string name="canceled">Bekor qilindi</string>
+    <string name="loading_backups">Zaxira nusxasi yuklanmoqda</string>
+    <string name="updating_file_list">Fayl ro\'yxati yangilanmoqda</string>
+    <string name="labels">Yorliqlar</string>
+    <string name="label">Yorliq</string>
+    <string name="add_label">Yorliq qo\'shish</string>
+    <string name="freeze">Muzlatish</string>
+    <string name="confirm_freeze">Bu ilova to\'xtatilsinmi?</string>
+    <string name="launch">Ishga tushirish</string>
 </resources>

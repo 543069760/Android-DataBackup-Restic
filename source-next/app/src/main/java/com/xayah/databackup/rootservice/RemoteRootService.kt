@@ -43,6 +43,7 @@ import com.xayah.databackup.util.PathHelper.TMP_PARCEL_PREFIX
 import com.xayah.databackup.util.PathHelper.TMP_SUFFIX
 import com.xayah.hiddenapi.castTo
 import com.xayah.libnative.NativeLib
+import com.xayah.libnative.Rustic
 import com.xayah.libnative.TarWrapper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -100,6 +101,8 @@ object RemoteRootService {
         init {
             System.loadLibrary("nativelib")
             System.loadLibrary("tar-wrapper")
+            System.loadLibrary("rustic")
+            Rustic.initLogger()
         }
 
         override fun onBind(intent: Intent): IBinder = Impl(applicationContext).apply { onBind() }
@@ -258,7 +261,7 @@ object RemoteRootService {
             val packageInfo = mPackageManagerHidden.getPackageInfoAsUser(packageName, 0, userId)
             packageInfo.applicationInfo?.sourceDir?.also { sourceDirList.add(it) }
             val splitSourceDirs = packageInfo.applicationInfo?.splitSourceDirs
-            if (!splitSourceDirs.isNullOrEmpty()) for (i in splitSourceDirs) sourceDirList.add(i)
+            if (splitSourceDirs.isNullOrEmpty().not()) for (i in splitSourceDirs) sourceDirList.add(i)
             return sourceDirList
         }
 
@@ -268,7 +271,7 @@ object RemoteRootService {
                     FileOutputStream(outputPath).use { fileOutputStream ->
                         CountingOutputStream(
                             source = fileOutputStream,
-                            onProgress = if (callback != null) { bytesWritten, speed -> callback.onProgress(bytesWritten, speed) } else null
+                            onProgress = if (callback != null) { bytesWritten, speed -> callback.onProgress(bytesWritten, speed, 0f) } else null
                         ).use { countingOutputStream ->
                             ZstdOutputStream(countingOutputStream, level).use { zstdOutputStream ->
                                 zstdOutputStream.setWorkers(Runtime.getRuntime().availableProcessors())
@@ -294,6 +297,40 @@ object RemoteRootService {
 
         override fun deleteRecursively(path: String): Boolean {
             return runCatching { File(path).deleteRecursively() }.getOrNull() ?: false
+        }
+
+        override fun copyRecursively(source: String, target: String, overwrite: Boolean): Boolean {
+            return runCatching { File(source).copyRecursively(File(target), overwrite) }.getOrNull() ?: false
+        }
+
+        override fun initRusticRepository(repositoryPath: String, password: String) {
+            Rustic.initRepository(repositoryPath, password)
+        }
+
+        override fun rusticRepositoryExists(repositoryPath: String): Boolean {
+            return Rustic.repositoryExists(repositoryPath)
+        }
+
+        override fun validateRusticRepository(repositoryPath: String, password: String) {
+            Rustic.validateRepository(repositoryPath, password)
+        }
+
+        override fun createRusticSnapshot(
+            repositoryPath: String,
+            password: String,
+            sourcePaths: List<String>,
+            tags: List<String>,
+            callback: ICallback?
+        ): String {
+            return Rustic.createSnapshot(repositoryPath, password, sourcePaths, tags, callback)
+        }
+
+        override fun restoreRusticSnapshot(repositoryPath: String, password: String, snapshotId: String, destinationPath: String) {
+            Rustic.restoreSnapshot(repositoryPath, password, snapshotId, destinationPath)
+        }
+
+        override fun checkRusticRepository(repositoryPath: String, password: String) {
+            Rustic.checkRepository(repositoryPath, password)
         }
     }
 
@@ -500,5 +537,39 @@ object RemoteRootService {
 
     suspend fun deleteRecursively(path: String): Boolean {
         return getService()?.deleteRecursively(path) ?: false
+    }
+
+    suspend fun copyRecursively(source: String, target: String, overwrite: Boolean = false): Boolean {
+        return getService()?.copyRecursively(source, target, overwrite) ?: false
+    }
+
+    suspend fun initRusticRepository(repositoryPath: String, password: String) {
+        getService()?.initRusticRepository(repositoryPath, password)
+    }
+
+    suspend fun rusticRepositoryExists(repositoryPath: String): Boolean {
+        return getService()?.rusticRepositoryExists(repositoryPath) ?: false
+    }
+
+    suspend fun validateRusticRepository(repositoryPath: String, password: String) {
+        getService()?.validateRusticRepository(repositoryPath, password)
+    }
+
+    suspend fun createRusticSnapshot(
+        repositoryPath: String,
+        password: String,
+        sourcePaths: List<String>,
+        tags: List<String> = emptyList(),
+        callback: ICallback? = null,
+    ): String {
+        return getService()?.createRusticSnapshot(repositoryPath, password, sourcePaths, tags, callback) ?: ""
+    }
+
+    suspend fun restoreRusticSnapshot(repositoryPath: String, password: String, snapshotId: String, destinationPath: String) {
+        getService()?.restoreRusticSnapshot(repositoryPath, password, snapshotId, destinationPath)
+    }
+
+    suspend fun checkRusticRepository(repositoryPath: String, password: String) {
+        getService()?.checkRusticRepository(repositoryPath, password)
     }
 }

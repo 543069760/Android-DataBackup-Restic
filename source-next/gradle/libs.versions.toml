@@ -1,35 +1,37 @@
 [versions]
 accompanistPermissions = "0.37.3"
-activityCompose = "1.10.1"
-agp = "8.11.0"
-animationGraphics = "1.8.3"
+activityCompose = "1.13.0"
+agp = "9.2.1"
+animationGraphics = "1.11.4"
 appcompat = "1.7.1"
-arrowOptics = "2.1.2"
-coilCompose = "3.2.0"
-composeBom = "2025.08.01" # https://developer.android.com/develop/ui/compose/bom/bom-mapping
-coreKtx = "1.16.0"
-coreSplashscreen = "1.0.1"
-datastorePreferences = "1.1.7"
-espressoCore = "3.6.1"
+arrowOptics = "2.2.3"
+coilCompose = "3.5.0"
+composeBom = "2026.06.01" # https://developer.android.com/develop/ui/compose/bom/bom-mapping
+coreKtx = "1.19.0"
+coreSplashscreen = "1.2.0"
+datastorePreferences = "1.2.1"
+espressoCore = "3.7.0"
+gson = "2.14.0"
 junit = "4.13.2"
-junitVersion = "1.2.1"
-koinAndroidxCompose = "4.1.1"
-kotlin = "2.2.0"
-kotlin-ksp = "2.2.0-2.0.2" # https://github.com/google/ksp/releases
-kotlinxSerializationJson = "1.9.0"
+junitVersion = "1.3.0"
+koinAndroidxCompose = "4.2.2"
+kotlin = "2.3.10"
+kotlin-ksp = "2.3.10" # https://github.com/google/ksp/releases
+kotlinxSerializationJson = "1.11.0"
+ktor = "3.5.1"
 libsu = "6.0.0"
-lifecycleRuntimeKtx = "2.9.1"
-material3 = "1.5.0-alpha07"
+lifecycleRuntimeKtx = "2.11.0"
+material3 = "1.5.0-alpha23"
 moshi = "1.15.2"
-navigationCompose = "2.9.0"
+navigation3 = "1.1.4"
 refine = "4.4.0"
-room = "2.7.2"
-workRuntimeKtx = "2.10.2"
+room = "2.8.4"
+workRuntimeKtx = "2.11.2"
 
 # Gradle
-compileSdk = "35"
+compileSdk = "37"
 minSdk = "24"
-targetSdk = "35"
+targetSdk = "37"
 versionCode = "3501150" # __(API)____(version)_(abi)
 versionName = "3.0.0"
 ndkVersion = "25.2.9519653"
@@ -48,7 +50,9 @@ androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-co
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
 androidx-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
-androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigationCompose" }
+androidx-lifecycle-viewmodel-navigation3 = { module = "androidx.lifecycle:lifecycle-viewmodel-navigation3", version.ref = "lifecycleRuntimeKtx" }
+androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "navigation3" }
+androidx-navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "navigation3" }
 androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
@@ -62,12 +66,17 @@ androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version
 arrow-optics = { module = "io.arrow-kt:arrow-optics", version.ref = "arrowOptics" }
 arrow-optics-ksp-plugin = { module = "io.arrow-kt:arrow-optics-ksp-plugin", version.ref = "arrowOptics" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coilCompose" }
+gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 koin-androidx-compose = { module = "io.insert-koin:koin-androidx-compose", version.ref = "koinAndroidxCompose" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
+ktor-client-android = { module = "io.ktor:ktor-client-android", version.ref = "ktor" }
+ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
+ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 libsu-core = { module = "com.github.topjohnwu.libsu:core", version.ref = "libsu" }
 libsu-service = { module = "com.github.topjohnwu.libsu:service", version.ref = "libsu" }
 moshi = { module = "com.squareup.moshi:moshi", version.ref = "moshi" }
+moshi-adapters = { module = "com.squareup.moshi:moshi-adapters", version.ref = "moshi" }
 moshi-kotlin-codegen = { module = "com.squareup.moshi:moshi-kotlin-codegen", version.ref = "moshi" }
 refine-annotation = { module = "dev.rikka.tools.refine:annotation", version.ref = "refine" }
 refine-annotation-processor = { module = "dev.rikka.tools.refine:annotation-processor", version.ref = "refine" }
@@ -75,9 +84,7 @@ refine-annotation-processor = { module = "dev.rikka.tools.refine:annotation-proc
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-ksp = { id = "com.google.devtools.ksp", version.ref = "kotlin-ksp" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 refine = { id = "dev.rikka.tools.refine", version.ref = "refine" }

@@ -7,8 +7,16 @@ import com.xayah.databackup.data.BackupProcessRepository
 import com.xayah.databackup.data.CallLogRepository
 import com.xayah.databackup.data.ContactRepository
 import com.xayah.databackup.data.FileRepository
+import com.xayah.databackup.data.GitHubReleaseRepository
 import com.xayah.databackup.data.MessageRepository
 import com.xayah.databackup.data.NetworkRepository
+import com.xayah.databackup.data.rustic.RusticAppSourcePlanner
+import com.xayah.databackup.data.rustic.RusticBackupCoordinator
+import com.xayah.databackup.data.rustic.RusticBackupGateway
+import com.xayah.databackup.data.rustic.RusticBackupSelectionProvider
+import com.xayah.databackup.data.rustic.RusticBackupSourceCollector
+import com.xayah.databackup.data.rustic.RusticStructuredDataSerializer
+import com.xayah.databackup.feature.backup.BackupConfigViewModel
 import com.xayah.databackup.feature.backup.BackupProcessViewModel
 import com.xayah.databackup.feature.backup.BackupSetupViewModel
 import com.xayah.databackup.feature.backup.apps.AppsViewModel
@@ -16,7 +24,14 @@ import com.xayah.databackup.feature.backup.call_logs.CallLogsViewModel
 import com.xayah.databackup.feature.backup.contacts.ContactsViewModel
 import com.xayah.databackup.feature.backup.messages.MessagesViewModel
 import com.xayah.databackup.feature.backup.networks.NetworksViewModel
+import com.xayah.databackup.feature.backup.rustic.RusticBackupProcessViewModel
+import com.xayah.databackup.feature.dashboard.DashboardViewModel
+import com.xayah.databackup.feature.update.UpdatesViewModel
 import com.xayah.databackup.service.util.BackupAppsHelper
+import com.xayah.databackup.service.util.BackupCallLogsHelper
+import com.xayah.databackup.service.util.BackupContactsHelper
+import com.xayah.databackup.service.util.BackupMessagesHelper
+import com.xayah.databackup.service.util.BackupNetworksHelper
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.core.context.GlobalContext.startKoin
@@ -39,15 +54,30 @@ class App : Application() {
         singleOf(::CallLogRepository) bind CallLogRepository::class
         singleOf(::MessageRepository) bind MessageRepository::class
         singleOf(::BackupProcessRepository) bind BackupProcessRepository::class
+        singleOf(::GitHubReleaseRepository) bind GitHubReleaseRepository::class
         singleOf(::BackupAppsHelper) bind BackupAppsHelper::class
+        singleOf(::BackupNetworksHelper) bind BackupNetworksHelper::class
+        singleOf(::BackupContactsHelper) bind BackupContactsHelper::class
+        singleOf(::BackupCallLogsHelper) bind BackupCallLogsHelper::class
+        singleOf(::BackupMessagesHelper) bind BackupMessagesHelper::class
+        singleOf(::RusticAppSourcePlanner)
+        singleOf(::RusticStructuredDataSerializer)
+        singleOf(::RusticBackupGateway)
+        singleOf(::RusticBackupSelectionProvider)
+        singleOf(::RusticBackupSourceCollector)
+        singleOf(::RusticBackupCoordinator)
 
+        viewModelOf(::DashboardViewModel)
         viewModelOf(::BackupSetupViewModel)
         viewModelOf(::BackupProcessViewModel)
+        viewModelOf(::RusticBackupProcessViewModel)
+        viewModelOf(::BackupConfigViewModel)
         viewModelOf(::AppsViewModel)
         viewModelOf(::NetworksViewModel)
         viewModelOf(::ContactsViewModel)
         viewModelOf(::CallLogsViewModel)
         viewModelOf(::MessagesViewModel)
+        viewModelOf(::UpdatesViewModel)
     }
 
     override fun onCreate() {

@@ -1,11 +1,17 @@
 package com.xayah.databackup.data
 
+import arrow.optics.copy
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.adapter
+import com.squareup.moshi.adapters.PolymorphicJsonAdapterFactory
 import com.xayah.databackup.App
 import com.xayah.databackup.adapter.UuidJsonAdapter
+import com.xayah.databackup.entity.BackupBackend
 import com.xayah.databackup.entity.BackupConfig
 import com.xayah.databackup.entity.Source
+import com.xayah.databackup.entity.createdAt
+import com.xayah.databackup.entity.path
+import com.xayah.databackup.entity.source
 import com.xayah.databackup.rootservice.RemoteRootService
 import com.xayah.databackup.util.BackupConfigSelectedUuid
 import com.xayah.databackup.util.LogHelper
@@ -18,25 +24,36 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import kotlin.uuid.Uuid
 
 class BackupConfigRepository {
     companion object {
         private const val TAG = "BackupConfigRepository"
+
+        const val NEW_CONFIG_INDEX = -1
     }
 
-    private val moshi: Moshi = Moshi.Builder().add(UuidJsonAdapter()).build()
+    private val moshi: Moshi = Moshi.Builder()
+        .add(
+            PolymorphicJsonAdapterFactory.of(BackupBackend::class.java, "type")
+                .withSubtype(BackupBackend.Rustic::class.java, "rustic")
+                .withSubtype(BackupBackend.Archive::class.java, "archive")
+        )
+        .add(UuidJsonAdapter())
+        .build()
 
-    private var _selectedIndex: MutableStateFlow<Int> = MutableStateFlow(-1) // -1: Create a new backup
+    private var _selectedIndex: MutableStateFlow<Int> = MutableStateFlow(NEW_CONFIG_INDEX)
     private val _configs: MutableStateFlow<List<BackupConfig>> = MutableStateFlow(listOf())
     private val _newConfig: MutableStateFlow<BackupConfig> = MutableStateFlow(BackupConfig())
 
     val selectedIndex: StateFlow<Int> = _selectedIndex.asStateFlow()
     val configs: StateFlow<List<BackupConfig>> = _configs.asStateFlow()
+    val newConfig: StateFlow<BackupConfig> = _newConfig.asStateFlow()
 
     fun getCurrentConfig(): BackupConfig {
-        return if (_selectedIndex.value == -1) {
+        return if (_selectedIndex.value == NEW_CONFIG_INDEX) {
             _newConfig.value
         } else {
             _configs.value[_selectedIndex.value]
@@ -45,10 +62,10 @@ class BackupConfigRepository {
 
     suspend fun selectBackup(index: Int) {
         _selectedIndex.emit(index)
-        if (index == -1) {
+        if (index == NEW_CONFIG_INDEX) {
             App.application.saveString(BackupConfigSelectedUuid.first, "")
         } else {
-            App.application.saveString(BackupConfigSelectedUuid.first, _configs.value[_selectedIndex.value].uuid.toString())
+            App.application.saveString(BackupConfigSelectedUuid.first, _configs.value[_selectedIndex.value].uuidString)
         }
 
     }
@@ -67,15 +84,14 @@ class BackupConfigRepository {
 
     suspend fun createNewBackup(path: String) {
         val newConfigTimestamp = System.currentTimeMillis()
-        _newConfig.emit(
-            BackupConfig(
-                source = Source.LOCAL,
-                path = "$path/${TimeHelper.formatTimestampInDetail(newConfigTimestamp)}",
-                createdAt = newConfigTimestamp
-            )
-        )
-
-        LogHelper.i(TAG, "loadBackupConfigsFromLocal", "newConfig: ${_newConfig.value}")
+        _newConfig.update {
+            it.copy {
+                BackupConfig.source set Source.LOCAL
+                BackupConfig.path set "$path/${TimeHelper.formatTimestampInDetail(newConfigTimestamp)}"
+                BackupConfig.createdAt set newConfigTimestamp
+            }
+        }
+        LogHelper.i(TAG, "createNewBackup", "newConfig: ${_newConfig.value}")
     }
 
     suspend fun loadBackupConfigsFromLocal() {
@@ -98,7 +114,7 @@ class BackupConfigRepository {
             localConfigs.sortByDescending { it.updatedAt }
             _configs.emit(localConfigs)
             val selectedUuid = App.application.readString(BackupConfigSelectedUuid).first()
-            _selectedIndex.emit(_configs.value.indexOfFirst { it.uuid.toString() == selectedUuid })
+            _selectedIndex.emit(_configs.value.indexOfFirst { it.uuidString == selectedUuid })
             LogHelper.i(TAG, "loadBackupConfigsFromLocal", "configs: ${_configs.value}")
         }
     }
@@ -124,12 +140,37 @@ class BackupConfigRepository {
 
     suspend fun setupBackupConfig() {
         val currentConfig = getCurrentConfig()
-        currentConfig.createdAt = System.currentTimeMillis()
-        if (_selectedIndex.value == -1) {
-            App.application.saveString(BackupConfigSelectedUuid.first, currentConfig.uuid.toString())
+        currentConfig.updatedAt = System.currentTimeMillis()
+        if (_selectedIndex.value == NEW_CONFIG_INDEX) {
+            App.application.saveString(BackupConfigSelectedUuid.first, currentConfig.uuidString)
         }
         saveBackupConfig(currentConfig)
 
-        // We don't need update any flow here, 'cause loadBackupConfigsFromLocal() will be called once user return to setup page.
+        // We don't need to update any flow here, 'cause loadBackupConfigsFromLocal() will be called once user return to setup page.
+    }
+
+    suspend fun updateConfig(uuid: String, onUpdate: BackupConfig.() -> BackupConfig) {
+        _configs.update { currentConfigs ->
+            currentConfigs.map { config ->
+                if (uuid == config.uuidString) {
+                    val newConfig = onUpdate(config)
+                    saveBackupConfig(newConfig)
+                    newConfig
+                } else {
+                    config
+                }
+            }
+        }
+    }
+
+    fun updateNewConfig(onUpdate: BackupConfig.() -> BackupConfig) {
+        _newConfig.update { onUpdate(it) }
+    }
+
+    suspend fun deleteConfig(uuid: String) {
+        val config = _configs.value.firstOrNull { it.uuidString == uuid } ?: return
+        if (RemoteRootService.deleteRecursively(config.path)) {
+            _configs.update { list -> list.filterNot { it.uuidString == uuid } }
+        }
     }
 }

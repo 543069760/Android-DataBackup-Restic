@@ -2,6 +2,7 @@ package com.xayah.databackup.database.entity
 
 import android.provider.ContactsContract
 import androidx.room.Entity
+import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.adapter
 import com.xayah.databackup.App
@@ -9,6 +10,7 @@ import com.xayah.databackup.R
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
+@JsonClass(generateAdapter = true)
 @Entity(tableName = "contacts", primaryKeys = ["id"])
 data class Contact(
     var id: Long,
@@ -19,8 +21,8 @@ data class Contact(
 
 data class ContactDeserialized(
     var id: Long,
-    var rawContact: FiledMap,
-    var data: List<FiledMap>,
+    var rawContact: FieldMap,
+    var data: List<FieldMap>,
     var selected: Boolean,
 ) {
     val displayName: String by lazy {
@@ -31,8 +33,8 @@ data class ContactDeserialized(
 fun Flow<List<Contact>>.deserialize(): Flow<List<ContactDeserialized>> = map { flow ->
     val moshi: Moshi = Moshi.Builder().build()
     flow.map {
-        val rawContact = it.rawContact?.let { json -> moshi.adapter<FiledMap>().fromJson(json) }
-        val data = it.data?.let { json -> moshi.adapter<List<FiledMap>>().fromJson(json) }
+        val rawContact = it.rawContact?.let { json -> moshi.adapter<FieldMap>().fromJson(json) }
+        val data = it.data?.let { json -> moshi.adapter<List<FieldMap>>().fromJson(json) }
         ContactDeserialized(
             id = it.id,
             rawContact = rawContact ?: mapOf(),

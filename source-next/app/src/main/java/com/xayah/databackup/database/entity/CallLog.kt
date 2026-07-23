@@ -2,6 +2,7 @@ package com.xayah.databackup.database.entity
 
 import android.provider.CallLog.Calls
 import androidx.room.Entity
+import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.adapter
 import com.xayah.databackup.App
@@ -10,6 +11,7 @@ import com.xayah.databackup.util.DateUtil
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
+@JsonClass(generateAdapter = true)
 @Entity(tableName = "call_logs", primaryKeys = ["id"])
 data class CallLog(
     var id: Long,
@@ -19,7 +21,7 @@ data class CallLog(
 
 data class CallLogDeserialized(
     var id: Long,
-    var call: FiledMap,
+    var call: FieldMap,
     var selected: Boolean,
 ) {
     val number: String by lazy {
@@ -63,7 +65,7 @@ data class CallLogDeserialized(
 fun Flow<List<CallLog>>.deserialize(): Flow<List<CallLogDeserialized>> = map { flow ->
     val moshi: Moshi = Moshi.Builder().build()
     flow.map {
-        val calls = it.call?.let { json -> moshi.adapter<FiledMap>().fromJson(json) }
+        val calls = it.call?.let { json -> moshi.adapter<FieldMap>().fromJson(json) }
         CallLogDeserialized(
             id = it.id,
             call = calls ?: mapOf(),

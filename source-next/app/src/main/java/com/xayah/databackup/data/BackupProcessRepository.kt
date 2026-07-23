@@ -204,6 +204,7 @@ class BackupProcessRepository(
     }
 
     private suspend fun loadProcessItems() {
+        clearProcessAppItems()
         loadAppsProcessItems()
         loadFilesProcessItems()
         loadNetworksProcessItems()
@@ -262,12 +263,66 @@ class BackupProcessRepository(
         return _apps
     }
 
+    fun getNetworks(): List<Network> {
+        return _networks
+    }
+
+    fun getContacts(): List<Contact> {
+        return _contacts
+    }
+
+    fun getCallLogs(): List<CallLog> {
+        return _callLogs
+    }
+
+    fun getSmsList(): List<Sms> {
+        return _smsList
+    }
+
+    fun getMmsList(): List<Mms> {
+        return _mmsList
+    }
+
+    fun reset() {
+        updateAppsItem { ProcessItem() }
+        updateFilesItem { ProcessItem() }
+        updateNetworksItem { ProcessItem() }
+        updateContactsItem { ProcessItem() }
+        updateCallLogsItem { ProcessItem() }
+        updateMessagesItem { ProcessItem() }
+        clearProcessAppItems()
+    }
+
+    fun clearProcessAppItems() {
+        _processAppItems.value = listOf()
+    }
+
     fun getProcessAppItems(): MutableStateFlow<List<ProcessAppItem>> {
         return _processAppItems
     }
 
     fun updateAppsItem(onUpdate: ProcessItem.() -> ProcessItem) {
         _appsItem.value = onUpdate(_appsItem.value)
+    }
+
+    fun updateFilesItem(onUpdate: ProcessItem.() -> ProcessItem) {
+        _filesItem.value = onUpdate(_filesItem.value)
+    }
+
+    fun updateNetworksItem(onUpdate: ProcessItem.() -> ProcessItem) {
+        _networksItem.value = onUpdate(_networksItem.value)
+    }
+
+    fun updateContactsItem(onUpdate: ProcessItem.() -> ProcessItem) {
+        _contactsItem.value = onUpdate(_contactsItem.value)
+    }
+
+    fun updateCallLogsItem(onUpdate: ProcessItem.() -> ProcessItem) {
+        _callLogsItem.value = onUpdate(_callLogsItem.value)
+    }
+
+    fun updateMessagesItem(onUpdate: ProcessItem.() -> ProcessItem) {
+        _messagesItem.value = onUpdate(_messagesItem.value)
     }
 
     fun addProcessAppItem(item: ProcessAppItem) {

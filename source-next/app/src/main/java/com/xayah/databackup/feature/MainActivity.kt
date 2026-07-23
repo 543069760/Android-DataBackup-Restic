@@ -9,13 +9,13 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
+import androidx.compose.animation.togetherWith
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
@@ -23,13 +23,17 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.navigation
-import androidx.navigation.compose.rememberNavController
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
+import androidx.navigation3.runtime.entryProvider
+import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
+import androidx.navigation3.ui.NavDisplay
 import com.topjohnwu.superuser.Shell
 import com.xayah.databackup.App
 import com.xayah.databackup.R
+import com.xayah.databackup.feature.backup.BackupConfigScreen
+import com.xayah.databackup.feature.backup.BackupConfigViewModel
+import com.xayah.databackup.feature.backup.BackupProcessDetailsScreen
 import com.xayah.databackup.feature.backup.BackupProcessScreen
 import com.xayah.databackup.feature.backup.BackupSetupScreen
 import com.xayah.databackup.feature.backup.apps.BackupAppsScreen
@@ -37,13 +41,21 @@ import com.xayah.databackup.feature.backup.call_logs.BackupCallLogsScreen
 import com.xayah.databackup.feature.backup.contacts.BackupContactsScreen
 import com.xayah.databackup.feature.backup.messages.BackupMessagesScreen
 import com.xayah.databackup.feature.backup.networks.BackupNetworksScreen
+import com.xayah.databackup.feature.backup.rustic.RusticBackupProcessScreen
 import com.xayah.databackup.feature.dashboard.DashboardScreen
+import com.xayah.databackup.feature.settings.SettingsScreen
 import com.xayah.databackup.feature.setup.NoPermKey
 import com.xayah.databackup.feature.setup.SetupActivity
+import com.xayah.databackup.feature.update.UpdatesScreen
+import com.xayah.databackup.ui.component.DataBackupDialog
+import com.xayah.databackup.ui.component.DialogDestructiveButton
+import com.xayah.databackup.ui.component.DialogDismissButton
+import com.xayah.databackup.ui.component.DialogIcon
 import com.xayah.databackup.ui.theme.DataBackupTheme
 import com.xayah.databackup.util.FirstLaunch
 import com.xayah.databackup.util.LogHelper
 import com.xayah.databackup.util.NotificationHelper
+import com.xayah.databackup.util.Navigator
 import com.xayah.databackup.util.ProcessHelper
 import com.xayah.databackup.util.ShellHelper
 import com.xayah.databackup.util.preloadingDataStore
@@ -51,55 +63,39 @@ import com.xayah.databackup.util.readBoolean
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.Serializable
-
-@Serializable
-data object Dashboard
-
-@Serializable
-data object Backup
-
-@Serializable
-data object BackupSetup
-
-@Serializable
-data object BackupProcess
-
-@Serializable
-data object BackupApps
-
-@Serializable
-data object BackupNetworks
-
-@Serializable
-data object BackupContacts
-
-@Serializable
-data object BackupCallLogs
-
-@Serializable
-data object BackupMessages
+import org.koin.androidx.compose.koinViewModel
+import org.koin.core.parameter.parametersOf
 
 @Composable
 fun ErrorServiceDialog(onConfirm: () -> Unit, onRetry: () -> Unit) {
-    AlertDialog(
-        icon = { Icon(imageVector = ImageVector.vectorResource(R.drawable.ic_circle_x), contentDescription = stringResource(R.string.error)) },
-        title = { Text(text = stringResource(R.string.error)) },
-        text = { Text(text = stringResource(R.string.error_service_desc)) },
+    DataBackupDialog(
+        title = stringResource(R.string.error),
         onDismissRequest = {},
-        confirmButton = { TextButton(onClick = onConfirm) { Text(text = stringResource(R.string.confirm)) } },
-        dismissButton = { TextButton(onClick = onRetry) { Text(text = stringResource(R.string.retry)) } }
+        icon = { DialogIcon(imageVector = ImageVector.vectorResource(R.drawable.ic_circle_x)) },
+        iconContainerColor = MaterialTheme.colorScheme.errorContainer,
+        iconContentColor = MaterialTheme.colorScheme.onErrorContainer,
+        content = { Text(text = stringResource(R.string.error_service_desc)) },
+        confirmButton = {
+            DialogDestructiveButton(text = stringResource(R.string.confirm), onClick = onConfirm)
+        },
+        dismissButton = {
+            DialogDismissButton(text = stringResource(R.string.retry), onClick = onRetry)
+        },
     )
 }
 
 @Composable
 fun NoSpaceLeftDialog(onDismissRequest: () -> Unit) {
-    AlertDialog(
-        icon = { Icon(imageVector = ImageVector.vectorResource(R.drawable.ic_circle_x), contentDescription = stringResource(R.string.error)) },
-        title = { Text(text = stringResource(R.string.error)) },
-        text = { Text(text = stringResource(R.string.error_no_space_left_desc)) },
+    DataBackupDialog(
+        title = stringResource(R.string.error),
         onDismissRequest = onDismissRequest,
-        confirmButton = { TextButton(onClick = onDismissRequest) { Text(text = stringResource(R.string.confirm)) } },
+        icon = { DialogIcon(imageVector = ImageVector.vectorResource(R.drawable.ic_circle_x)) },
+        iconContainerColor = MaterialTheme.colorScheme.errorContainer,
+        iconContentColor = MaterialTheme.colorScheme.onErrorContainer,
+        content = { Text(text = stringResource(R.string.error_no_space_left_desc)) },
+        confirmButton = {
+            DialogDestructiveButton(text = stringResource(R.string.confirm), onClick = onDismissRequest)
+        },
     )
 }
 
@@ -107,6 +103,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val TAG = "MainActivity"
     }
+
     private lateinit var mMainViewModel: MainViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -146,7 +143,8 @@ class MainActivity : ComponentActivity() {
 
             DataBackupTheme {
                 val uiState by mMainViewModel.uiState.collectAsStateWithLifecycle()
-                val navController = rememberNavController()
+                val backStack = rememberNavBackStack(DashboardRoute)
+                val navigator = remember(backStack) { Navigator(backStack) }
 
                 if (uiState.showErrorServiceDialog) {
                     ErrorServiceDialog(onConfirm = { ProcessHelper.killSelf(this) }, onRetry = { mMainViewModel.checkRootService() })
@@ -159,68 +157,97 @@ class MainActivity : ComponentActivity() {
                 }
 
                 Surface {
-                    NavHost(
-                        navController = navController,
-                        startDestination = Dashboard,
-                        enterTransition = {
+                    NavDisplay(
+                        backStack = backStack,
+                        onBack = navigator::goBack,
+                        entryDecorators = listOf(
+                            rememberSaveableStateHolderNavEntryDecorator(),
+                            rememberViewModelStoreNavEntryDecorator(),
+                        ),
+                        transitionSpec = {
                             slideInHorizontally(
                                 initialOffsetX = { it },
                                 animationSpec = spring(Spring.DampingRatioNoBouncy, Spring.StiffnessMediumLow)
-                            )
-                        },
-                        exitTransition = {
-                            slideOutHorizontally(
+                            ) togetherWith slideOutHorizontally(
                                 targetOffsetX = { -it },
                                 animationSpec = spring(Spring.DampingRatioNoBouncy, Spring.StiffnessMediumLow)
                             )
                         },
-                        popEnterTransition = {
+                        popTransitionSpec = {
                             slideInHorizontally(
                                 initialOffsetX = { -it },
                                 animationSpec = spring(Spring.DampingRatioNoBouncy, Spring.StiffnessMediumLow)
-                            )
-                        },
-                        popExitTransition = {
-                            slideOutHorizontally(
+                            ) togetherWith slideOutHorizontally(
                                 targetOffsetX = { it },
                                 animationSpec = spring(Spring.DampingRatioNoBouncy, Spring.StiffnessMediumLow)
                             )
                         },
-                    ) {
-                        composable<Dashboard> {
-                            DashboardScreen(navController)
+                        predictivePopTransitionSpec = {
+                            slideInHorizontally(
+                                initialOffsetX = { -it },
+                                animationSpec = spring(Spring.DampingRatioNoBouncy, Spring.StiffnessMediumLow)
+                            ) togetherWith slideOutHorizontally(
+                                targetOffsetX = { it },
+                                animationSpec = spring(Spring.DampingRatioNoBouncy, Spring.StiffnessMediumLow)
+                            )
+                        },
+                        entryProvider = entryProvider {
+                            entry<DashboardRoute> {
+                                DashboardScreen(navigator)
+                            }
+
+                            entry<SettingsRoute> {
+                                SettingsScreen(navigator)
+                            }
+
+                            entry<UpdatesRoute> {
+                                UpdatesScreen(navigator)
+                            }
+
+                            entry<BackupSetupRoute> {
+                                BackupSetupScreen(navigator)
+                            }
+
+                            entry<BackupProcessRoute> {
+                                BackupProcessScreen(navigator)
+                            }
+
+                            entry<RusticBackupProcessRoute> {
+                                RusticBackupProcessScreen(navigator)
+                            }
+
+                            entry<BackupProcessDetailsRoute> {
+                                BackupProcessDetailsScreen(navigator)
+                            }
+
+                            entry<BackupConfigRoute> { route ->
+                                val viewModel = koinViewModel<BackupConfigViewModel> {
+                                    parametersOf(route)
+                                }
+                                BackupConfigScreen(navigator, viewModel)
+                            }
+
+                            entry<BackupAppsRoute> {
+                                BackupAppsScreen(navigator)
+                            }
+
+                            entry<BackupNetworksRoute> {
+                                BackupNetworksScreen(navigator)
+                            }
+
+                            entry<BackupContactsRoute> {
+                                BackupContactsScreen(navigator)
+                            }
+
+                            entry<BackupCallLogsRoute> {
+                                BackupCallLogsScreen(navigator)
+                            }
+
+                            entry<BackupMessagesRoute> {
+                                BackupMessagesScreen(navigator)
+                            }
                         }
-
-                        navigation<Backup>(startDestination = BackupSetup) {
-                            composable<BackupSetup> {
-                                BackupSetupScreen(navController)
-                            }
-
-                            composable<BackupProcess> {
-                                BackupProcessScreen(navController)
-                            }
-
-                            composable<BackupApps> {
-                                BackupAppsScreen(navController)
-                            }
-
-                            composable<BackupNetworks> {
-                                BackupNetworksScreen(navController)
-                            }
-
-                            composable<BackupContacts> {
-                                BackupContactsScreen(navController)
-                            }
-
-                            composable<BackupCallLogs> {
-                                BackupCallLogsScreen(navController)
-                            }
-
-                            composable<BackupMessages> {
-                                BackupMessagesScreen(navController)
-                            }
-                        }
-                    }
+                    )
                 }
             }
         }

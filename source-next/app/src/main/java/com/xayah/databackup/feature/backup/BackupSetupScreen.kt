@@ -32,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
@@ -39,19 +40,22 @@ import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavHostController
 import com.xayah.databackup.App
 import com.xayah.databackup.R
-import com.xayah.databackup.feature.BackupApps
-import com.xayah.databackup.feature.BackupCallLogs
-import com.xayah.databackup.feature.BackupContacts
-import com.xayah.databackup.feature.BackupMessages
-import com.xayah.databackup.feature.BackupNetworks
-import com.xayah.databackup.feature.BackupProcess
+import com.xayah.databackup.data.BackupConfigRepository
+import com.xayah.databackup.feature.BackupAppsRoute
+import com.xayah.databackup.feature.BackupCallLogsRoute
+import com.xayah.databackup.feature.BackupConfigRoute
+import com.xayah.databackup.feature.BackupContactsRoute
+import com.xayah.databackup.feature.BackupMessagesRoute
+import com.xayah.databackup.feature.BackupNetworksRoute
+import com.xayah.databackup.feature.BackupProcessRoute
+import com.xayah.databackup.feature.RusticBackupProcessRoute
 import com.xayah.databackup.ui.component.ActionButtonState
 import com.xayah.databackup.ui.component.AutoScreenOffSwitch
-import com.xayah.databackup.ui.component.IncrementalBackupAndCleanBackupSwitches
+import com.xayah.databackup.ui.component.PreferenceGroup
 import com.xayah.databackup.ui.component.ResetBackupListSwitch
+import com.xayah.databackup.ui.component.SectionHeader
 import com.xayah.databackup.ui.component.SelectableCardButton
 import com.xayah.databackup.ui.component.SmallCheckActionButton
 import com.xayah.databackup.ui.component.defaultLargeTopAppBarColors
@@ -68,6 +72,7 @@ import com.xayah.databackup.util.CallLogsOptionSelectedBackup
 import com.xayah.databackup.util.ContactsOptionSelectedBackup
 import com.xayah.databackup.util.LaunchedEffect
 import com.xayah.databackup.util.MessagesOptionSelectedBackup
+import com.xayah.databackup.util.Navigator
 import com.xayah.databackup.util.NetworksOptionSelectedBackup
 import com.xayah.databackup.util.items
 import com.xayah.databackup.util.navigateSafely
@@ -78,7 +83,7 @@ import org.koin.androidx.compose.koinViewModel
 
 @Composable
 fun BackupSetupScreen(
-    navController: NavHostController,
+    navigator: Navigator,
     viewModel: BackupSetupViewModel = koinViewModel(),
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
@@ -114,7 +119,7 @@ fun BackupSetupScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = { navController.popBackStackSafely() }) {
+                    IconButton(onClick = { navigator.popBackStackSafely() }) {
                         Icon(
                             imageVector = ImageVector.vectorResource(R.drawable.ic_arrow_left),
                             contentDescription = stringResource(R.string.back)
@@ -136,11 +141,11 @@ fun BackupSetupScreen(
                     .verticalScroll(scrollState)
                     .verticalFadingEdges(scrollState),
             ) {
-                TargetRow(navController = navController, viewModel = viewModel)
+                TargetRow(navigator = navigator, viewModel = viewModel)
 
                 StorageRow(viewModel = viewModel)
 
-                BackupRow(uiState = uiState, viewModel = viewModel)
+                BackupRow(navigator = navigator, uiState = uiState, viewModel = viewModel)
 
                 Settings()
 
@@ -160,7 +165,12 @@ fun BackupSetupScreen(
                     modifier = Modifier.wrapContentSize(),
                     enabled = nextBtnEnabled,
                     onClick = {
-                        navController.navigateSafely(BackupProcess)
+                        viewModel.resetProcessRepo()
+                        if (viewModel.isCurrentBackupRustic()) {
+                            navigator.navigateSafely(RusticBackupProcessRoute)
+                        } else {
+                            navigator.navigateSafely(BackupProcessRoute)
+                        }
                     }
                 ) {
                     Text(text = stringResource(R.string.next))
@@ -174,7 +184,7 @@ fun BackupSetupScreen(
 
 @Composable
 private fun TargetRow(
-    navController: NavHostController,
+    navigator: Navigator,
     viewModel: BackupSetupViewModel,
 ) {
     val appsItem by viewModel.appsItem.collectAsStateWithLifecycle(null)
@@ -184,13 +194,12 @@ private fun TargetRow(
     val callLogsItem by viewModel.callLogsItem.collectAsStateWithLifecycle(null)
     val messagesItem by viewModel.messagesItem.collectAsStateWithLifecycle(null)
 
-    Text(
+    SectionHeader(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp),
-        text = stringResource(R.string.target),
+        title = stringResource(R.string.target),
         color = MaterialTheme.colorScheme.primary,
-        style = MaterialTheme.typography.labelLarge
     )
 
     Column(
@@ -219,7 +228,7 @@ private fun TargetRow(
                     }
                 }
             ) {
-                navController.navigateSafely(BackupApps)
+                navigator.navigateSafely(BackupAppsRoute)
             }
 
             SmallCheckActionButton(
@@ -256,7 +265,7 @@ private fun TargetRow(
                     }
                 }
             ) {
-                navController.navigateSafely(BackupNetworks)
+                navigator.navigateSafely(BackupNetworksRoute)
             }
 
             val contactsPermissionState = rememberContactPermissionsState()
@@ -282,7 +291,7 @@ private fun TargetRow(
                 }
             ) {
                 if (contactsPermissionState.allPermissionsGranted) {
-                    navController.navigateSafely(BackupContacts)
+                    navigator.navigateSafely(BackupContactsRoute)
                 } else {
                     contactsPermissionState.launchMultiplePermissionRequest()
                 }
@@ -316,7 +325,7 @@ private fun TargetRow(
                 }
             ) {
                 if (callLogsPermissionState.allPermissionsGranted) {
-                    navController.navigateSafely(BackupCallLogs)
+                    navigator.navigateSafely(BackupCallLogsRoute)
                 } else {
                     callLogsPermissionState.launchMultiplePermissionRequest()
                 }
@@ -345,7 +354,7 @@ private fun TargetRow(
                 }
             ) {
                 if (messagesPermissionState.allPermissionsGranted) {
-                    navController.navigateSafely(BackupMessages)
+                    navigator.navigateSafely(BackupMessagesRoute)
                 } else {
                     messagesPermissionState.launchMultiplePermissionRequest()
                 }
@@ -360,13 +369,12 @@ private fun StorageRow(
 ) {
     val locationScrollState = rememberScrollState()
 
-    Text(
+    SectionHeader(
         modifier = Modifier
             .fillMaxWidth()
             .padding(16.dp),
-        text = stringResource(R.string.storage),
+        title = stringResource(R.string.storage),
         color = MaterialTheme.colorScheme.secondary,
-        style = MaterialTheme.typography.labelLarge
     )
     Row(
         modifier = Modifier
@@ -413,17 +421,17 @@ private fun StorageRow(
 
 @Composable
 private fun BackupRow(
+    navigator: Navigator,
     uiState: BackupSetupUiState,
     viewModel: BackupSetupViewModel,
 ) {
     val selectedConfigIndex by viewModel.selectedConfigIndex.collectAsStateWithLifecycle()
     val backupConfigs by viewModel.backupConfigs.collectAsStateWithLifecycle()
 
-    Text(
+    SectionHeader(
         modifier = Modifier.padding(16.dp),
-        text = stringResource(R.string.backup),
+        title = stringResource(R.string.backup),
         color = MaterialTheme.colorScheme.tertiary,
-        style = MaterialTheme.typography.labelLarge
     )
 
     val lazyListState = rememberLazyListState()
@@ -453,14 +461,18 @@ private fun BackupRow(
                 modifier = Modifier
                     .size(148.dp)
                     .animateItem(),
-                selected = selectedConfigIndex == -1,
+                selected = selectedConfigIndex == BackupConfigRepository.NEW_CONFIG_INDEX,
                 title = stringResource(R.string.new_backup),
                 titleShimmer = uiState.isLoadingConfigs,
                 colors = selectableCardButtonTertiaryColors(),
                 icon = ImageVector.vectorResource(R.drawable.ic_plus),
                 iconShimmer = uiState.isLoadingConfigs,
+                iconButton = ImageVector.vectorResource(R.drawable.ic_settings),
+                onIconButtonClick = {
+                    navigator.navigateSafely(BackupConfigRoute(index = BackupConfigRepository.NEW_CONFIG_INDEX))
+                },
             ) {
-                viewModel.selectBackup(-1)
+                viewModel.selectBackup(BackupConfigRepository.NEW_CONFIG_INDEX)
             }
         }
 
@@ -469,18 +481,21 @@ private fun BackupRow(
             LaunchedEffect(context = Dispatchers.IO, null) {
                 backupStorage = viewModel.getBackupStorage(item.path)
             }
+            val title = remember(item.name, item.createdAt) { item.displayTitle }
             SelectableCardButton(
                 modifier = Modifier
                     .size(148.dp)
                     .animateItem(),
                 selected = selectedConfigIndex == index,
-                title = item.displayTitle,
+                title = title,
                 subtitle = backupStorage,
                 subtitleShimmer = backupStorage.isEmpty(),
                 colors = selectableCardButtonTertiaryColors(),
                 icon = ImageVector.vectorResource(R.drawable.ic_archive),
-                iconButton = ImageVector.vectorResource(R.drawable.ic_trash),
-                onIconButtonClick = {},
+                iconButton = ImageVector.vectorResource(R.drawable.ic_settings),
+                onIconButtonClick = {
+                    navigator.navigateSafely(BackupConfigRoute(index = index))
+                },
             ) {
                 viewModel.selectBackup(index)
             }
@@ -494,18 +509,14 @@ private fun BackupRow(
 
 @Composable
 private fun Settings() {
-    Text(
-        modifier = Modifier
-            .padding(horizontal = 16.dp)
-            .padding(top = 16.dp),
-        text = stringResource(R.string.settings),
+    SectionHeader(
+        modifier = Modifier.padding(16.dp),
+        title = stringResource(R.string.settings),
         color = MaterialTheme.colorScheme.primary,
-        style = MaterialTheme.typography.labelLarge
     )
 
-    IncrementalBackupAndCleanBackupSwitches()
-
-    AutoScreenOffSwitch()
-
-    ResetBackupListSwitch()
+    PreferenceGroup(modifier = Modifier.padding(horizontal = 16.dp)) {
+        AutoScreenOffSwitch()
+        ResetBackupListSwitch()
+    }
 }

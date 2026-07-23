@@ -9,9 +9,21 @@ import android.os.Binder
 import android.os.IBinder
 import android.os.RemoteException
 import com.xayah.databackup.App
+import com.xayah.databackup.data.AppRepository
 import com.xayah.databackup.data.BackupConfigRepository
+import com.xayah.databackup.data.BackupProcessRepository
+import com.xayah.databackup.data.CallLogRepository
+import com.xayah.databackup.data.ContactRepository
+import com.xayah.databackup.data.MessageRepository
+import com.xayah.databackup.data.NetworkRepository
 import com.xayah.databackup.service.util.BackupAppsHelper
+import com.xayah.databackup.service.util.BackupCallLogsHelper
+import com.xayah.databackup.service.util.BackupContactsHelper
+import com.xayah.databackup.service.util.BackupMessagesHelper
+import com.xayah.databackup.service.util.BackupNetworksHelper
 import com.xayah.databackup.util.LogHelper
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
@@ -32,7 +44,17 @@ object BackupService {
 
     class BackupServiceImpl : Service() {
         private val mBackupConfigRepo: BackupConfigRepository by inject()
+        private val mBackupProcessRepo: BackupProcessRepository by inject()
+        private val mAppRepo: AppRepository by inject()
+        private val mNetworkRepo: NetworkRepository by inject()
+        private val mContactRepo: ContactRepository by inject()
+        private val mCallLogRepo: CallLogRepository by inject()
+        private val mMessageRepo: MessageRepository by inject()
         private val mBackupAppsHelper: BackupAppsHelper by inject()
+        private val mBackupNetworksHelper: BackupNetworksHelper by inject()
+        private val mBackupContactsHelper: BackupContactsHelper by inject()
+        private val mBackupCallLogsHelper: BackupCallLogsHelper by inject()
+        private val mBackupMessagesHelper: BackupMessagesHelper by inject()
         private val mBinder: Binder = Service()
 
         inner class Service : Binder() {
@@ -49,9 +71,72 @@ object BackupService {
             }
         }
 
+        suspend fun backupNetworks() {
+            mMutex.withLock {
+                mBackupNetworksHelper.start()
+            }
+        }
+
+        suspend fun backupContacts() {
+            mMutex.withLock {
+                mBackupContactsHelper.start()
+            }
+        }
+
+        suspend fun backupCallLogs() {
+            mMutex.withLock {
+                mBackupCallLogsHelper.start()
+            }
+        }
+
+        suspend fun backupMessages() {
+            mMutex.withLock {
+                mBackupMessagesHelper.start()
+            }
+        }
+
         suspend fun setupBackupConfig() {
             mMutex.withLock {
                 mBackupConfigRepo.setupBackupConfig()
+            }
+        }
+
+        private fun ensureNotCanceled(stage: String) {
+            if (mBackupProcessRepo.mIsCanceled) {
+                throw CancellationException("Backup canceled before $stage.")
+            }
+        }
+
+        suspend fun start() {
+            try {
+                ensureNotCanceled("apps backup")
+                if (mAppRepo.isBackupAppsSelected.first()) {
+                    backupApps()
+                }
+
+                ensureNotCanceled("networks backup")
+                if (mNetworkRepo.isBackupNetworksSelected.first()) {
+                    backupNetworks()
+                }
+
+                ensureNotCanceled("contacts backup")
+                if (mContactRepo.isBackupMessagesSelected.first()) {
+                    backupContacts()
+                }
+
+                ensureNotCanceled("call logs backup")
+                if (mCallLogRepo.isBackupCallLogsSelected.first()) {
+                    backupCallLogs()
+                }
+
+                ensureNotCanceled("messages backup")
+                if (mMessageRepo.isBackupContactsSelected.first()) {
+                    backupMessages()
+                }
+
+                setupBackupConfig()
+            } catch (e: CancellationException) {
+                LogHelper.i(TAG, "start", "Backup pipeline canceled and exited early: ${e.message}")
             }
         }
     }
@@ -121,7 +206,6 @@ object BackupService {
     }
 
     suspend fun start() {
-        getService()?.backupApps()
-        getService()?.setupBackupConfig()
+        getService()?.start()
     }
 }

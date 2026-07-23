@@ -6,6 +6,8 @@ import arrow.optics.optics
 import com.xayah.databackup.data.BackupProcessRepository
 import com.xayah.databackup.data.ProcessAppItem
 import com.xayah.databackup.data.ProcessItem
+import com.xayah.databackup.data.STATUS_CANCEL
+import com.xayah.databackup.data.isFailedStatus
 import com.xayah.databackup.util.BaseViewModel
 import com.xayah.databackup.util.combine
 import kotlinx.coroutines.Dispatchers
@@ -19,14 +21,24 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
+enum class BackupProcessStatus {
+    Processing,
+    Canceling,
+    Canceled,
+    Finished,
+}
+
 @optics
 data class BackupProcessUiState(
     val isLoaded: Boolean = false,
-    val isProcessing: Boolean = true,
+    val status: BackupProcessStatus = BackupProcessStatus.Processing,
 ) {
     companion object
 
-    val canBeCanceled: Boolean = isLoaded && isProcessing
+    val isProcessing: Boolean = status == BackupProcessStatus.Processing
+    val isCanceling: Boolean = status == BackupProcessStatus.Canceling
+    val isCanceled: Boolean = status == BackupProcessStatus.Canceled
+    val canBeCanceled: Boolean = isLoaded && status == BackupProcessStatus.Processing
 }
 
 open class BackupProcessViewModel(private val backupProcessRepo: BackupProcessRepository) : BaseViewModel() {
@@ -34,11 +46,28 @@ open class BackupProcessViewModel(private val backupProcessRepo: BackupProcessRe
     val uiState: StateFlow<BackupProcessUiState> = _uiState.asStateFlow()
 
     val appsItem: StateFlow<ProcessItem> = backupProcessRepo.getAppsItem().asStateFlow()
-    val processingAppItem: StateFlow<ProcessAppItem?> = backupProcessRepo.getProcessAppItems().map { it.lastOrNull() }.stateIn(
-        scope = viewModelScope,
-        initialValue = null,
-        started = SharingStarted.WhileSubscribed(5_000),
-    )
+    val allProcessedAppItems = backupProcessRepo.getProcessAppItems().asStateFlow()
+    val failedProcessedAppItems: StateFlow<List<ProcessAppItem>> = allProcessedAppItems
+        .map { appItems -> appItems.filter { getAppProcessCategory(it) == AppProcessCategory.Failed } }
+        .stateIn(
+            scope = viewModelScope,
+            initialValue = listOf(),
+            started = SharingStarted.WhileSubscribed(5_000),
+        )
+    val canceledProcessedAppItems: StateFlow<List<ProcessAppItem>> = allProcessedAppItems
+        .map { appItems -> appItems.filter { getAppProcessCategory(it) == AppProcessCategory.Canceled } }
+        .stateIn(
+            scope = viewModelScope,
+            initialValue = listOf(),
+            started = SharingStarted.WhileSubscribed(5_000),
+        )
+    val succeededProcessedAppItems: StateFlow<List<ProcessAppItem>> = allProcessedAppItems
+        .map { appItems -> appItems.filter { getAppProcessCategory(it) == AppProcessCategory.Succeeded } }
+        .stateIn(
+            scope = viewModelScope,
+            initialValue = listOf(),
+            started = SharingStarted.WhileSubscribed(5_000),
+        )
 
     val filesItem: StateFlow<ProcessItem> = backupProcessRepo.getFilesItem().asStateFlow()
     val networksItem: StateFlow<ProcessItem> = backupProcessRepo.getNetworksItem().asStateFlow()
@@ -98,6 +127,12 @@ open class BackupProcessViewModel(private val backupProcessRepo: BackupProcessRe
     }
 
     fun cancel() {
+        if (uiState.value.canBeCanceled.not()) return
+        updateUiState {
+            copy {
+                BackupProcessUiState.status set BackupProcessStatus.Canceling
+            }
+        }
         viewModelScope.launch(Dispatchers.Default) {
             backupProcessRepo.cancel()
         }
@@ -109,15 +144,56 @@ open class BackupProcessViewModel(private val backupProcessRepo: BackupProcessRe
                 updateUiState {
                     copy {
                         BackupProcessUiState.isLoaded set true
+                        BackupProcessUiState.status set BackupProcessStatus.Processing
                     }
                 }
                 backupProcessRepo.onStart()
                 updateUiState {
                     copy {
-                        BackupProcessUiState.isProcessing set false
+                        BackupProcessUiState.status set if (status == BackupProcessStatus.Canceling) {
+                            BackupProcessStatus.Canceled
+                        } else {
+                            BackupProcessStatus.Finished
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+private enum class AppProcessCategory {
+    Failed,
+    Canceled,
+    Succeeded,
+}
+
+private fun isAppFailed(appItem: ProcessAppItem): Boolean {
+    return listOf(
+        appItem.apkItem.details,
+        appItem.intDataItem.details,
+        appItem.extDataItem.details,
+        appItem.addlDataItem.details,
+    ).any { detailList ->
+        detailList.any { isFailedStatus(it.status) }
+    }
+}
+
+private fun isAppCanceled(appItem: ProcessAppItem): Boolean {
+    return listOf(
+        appItem.apkItem.details,
+        appItem.intDataItem.details,
+        appItem.extDataItem.details,
+        appItem.addlDataItem.details,
+    ).any { detailList ->
+        detailList.any { it.status == STATUS_CANCEL }
+    }
+}
+
+private fun getAppProcessCategory(appItem: ProcessAppItem): AppProcessCategory {
+    return when {
+        isAppFailed(appItem) -> AppProcessCategory.Failed
+        isAppCanceled(appItem) -> AppProcessCategory.Canceled
+        else -> AppProcessCategory.Succeeded
     }
 }

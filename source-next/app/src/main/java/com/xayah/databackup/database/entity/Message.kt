@@ -5,6 +5,7 @@ import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.room.Entity
+import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.adapter
 import com.xayah.databackup.App
@@ -18,6 +19,7 @@ object MessageConstant {
     const val INVALID_ADDR = "insert-address-token"
 }
 
+@JsonClass(generateAdapter = true)
 @Entity(tableName = "messages_sms", primaryKeys = ["id"])
 data class Sms(
     var id: Long,
@@ -27,7 +29,7 @@ data class Sms(
 
 data class SmsDeserialized(
     var id: Long,
-    var config: FiledMap,
+    var config: FieldMap,
     var selected: Boolean,
 ) {
     val address: String by lazy {
@@ -42,7 +44,7 @@ data class SmsDeserialized(
 fun Flow<List<Sms>>.deserializeSms(): Flow<List<SmsDeserialized>> = map { flow ->
     val moshi: Moshi = Moshi.Builder().build()
     flow.map {
-        val config = it.config?.let { json -> moshi.adapter<FiledMap>().fromJson(json) }
+        val config = it.config?.let { json -> moshi.adapter<FieldMap>().fromJson(json) }
         SmsDeserialized(
             id = it.id,
             config = config ?: mapOf(),
@@ -51,6 +53,7 @@ fun Flow<List<Sms>>.deserializeSms(): Flow<List<SmsDeserialized>> = map { flow -
     }
 }
 
+@JsonClass(generateAdapter = true)
 @Entity(tableName = "messages_mms", primaryKeys = ["id"])
 data class Mms(
     var id: Long,
@@ -62,9 +65,9 @@ data class Mms(
 
 data class MmsDeserialized(
     var id: Long,
-    var pdu: FiledMap,
-    var addr: List<FiledMap>,
-    var part: List<FiledMap>,
+    var pdu: FieldMap,
+    var addr: List<FieldMap>,
+    var part: List<FieldMap>,
     var selected: Boolean,
 ) {
     val iconMod = "[ICON]"
@@ -97,9 +100,9 @@ data class MmsDeserialized(
 fun Flow<List<Mms>>.deserializeMms(): Flow<List<MmsDeserialized>> = map { flow ->
     val moshi: Moshi = Moshi.Builder().build()
     flow.map {
-        val pdu = it.pdu?.let { json -> moshi.adapter<FiledMap>().fromJson(json) }
-        val addr = it.addr?.let { json -> moshi.adapter<List<FiledMap>>().fromJson(json) }
-        val part = it.part?.let { json -> moshi.adapter<List<FiledMap>>().fromJson(json) }
+        val pdu = it.pdu?.let { json -> moshi.adapter<FieldMap>().fromJson(json) }
+        val addr = it.addr?.let { json -> moshi.adapter<List<FieldMap>>().fromJson(json) }
+        val part = it.part?.let { json -> moshi.adapter<List<FieldMap>>().fromJson(json) }
         MmsDeserialized(
             id = it.id,
             pdu = pdu ?: mapOf(),

@@ -31,18 +31,31 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavHostController
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.xayah.databackup.util.Navigator
 import com.xayah.databackup.BuildConfig
 import com.xayah.databackup.R
-import com.xayah.databackup.feature.Backup
+import com.xayah.databackup.feature.BackupSetupRoute
+import com.xayah.databackup.feature.SettingsRoute
+import com.xayah.databackup.feature.UpdatesRoute
 import com.xayah.databackup.ui.component.ActionButton
+import com.xayah.databackup.ui.component.SectionHeader
 import com.xayah.databackup.ui.component.SmallActionButton
 import com.xayah.databackup.ui.component.StorageCard
+import com.xayah.databackup.util.LaunchedEffect
 import com.xayah.databackup.util.navigateSafely
+import kotlinx.coroutines.Dispatchers
+import org.koin.androidx.compose.koinViewModel
 
 @Composable
-fun DashboardScreen(navController: NavHostController) {
+fun DashboardScreen(navigator: Navigator, viewModel: DashboardViewModel = koinViewModel()) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
+    val storageUiState = viewModel.storageUiState.collectAsStateWithLifecycle()
+
+    LaunchedEffect(context = Dispatchers.IO, null) {
+        viewModel.initialize()
+    }
+
     Scaffold(
         modifier = Modifier
             .nestedScroll(scrollBehavior.nestedScrollConnection)
@@ -66,7 +79,7 @@ fun DashboardScreen(navController: NavHostController) {
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = { /* do something */ }) {
+                    IconButton(onClick = { navigator.navigateSafely(UpdatesRoute) }) {
                         BadgedBox(
                             badge = {
                                 Badge()
@@ -74,13 +87,13 @@ fun DashboardScreen(navController: NavHostController) {
                         ) {
                             Icon(
                                 imageVector = ImageVector.vectorResource(R.drawable.ic_badge_info),
-                                contentDescription = "Localized description"
+                                contentDescription = stringResource(R.string.update)
                             )
                         }
                     }
                 },
                 actions = {
-                    IconButton(onClick = { /* do something */ }) {
+                    IconButton(onClick = { navigator.navigateSafely(SettingsRoute) }) {
                         Icon(
                             imageVector = ImageVector.vectorResource(R.drawable.ic_settings),
                             contentDescription = "Localized description"
@@ -102,16 +115,20 @@ fun DashboardScreen(navController: NavHostController) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .wrapContentHeight(),
-                    free = 0.25f,
-                    other = 0.5f,
-                    backups = 0.25f,
-                    title = "Internal storage",
-                    subtitle = "/data/media/0/DataBackup",
-                    progress = "28%",
-                    storage = "52 GB",
+                    free = storageUiState.value.free,
+                    other = storageUiState.value.other,
+                    backups = storageUiState.value.backups,
+                    freeBytes = storageUiState.value.freeBytes,
+                    otherBytes = storageUiState.value.otherBytes,
+                    backupsBytes = storageUiState.value.backupsBytes,
+                    totalBytes = storageUiState.value.totalBytes,
+                    isLoading = storageUiState.value.isLoading,
+                    title = stringResource(R.string.internal_storage),
+                    subtitle = storageUiState.value.subtitle,
+                    storage = storageUiState.value.storage,
                 ) {}
 
-                Text(stringResource(R.string.actions), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                SectionHeader(title = stringResource(R.string.actions))
 
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     SmallActionButton(
@@ -122,7 +139,7 @@ fun DashboardScreen(navController: NavHostController) {
                         title = stringResource(R.string.backup),
                         subtitle = stringResource(R.string.backup_your_data)
                     ) {
-                        navController.navigateSafely(Backup)
+                        navigator.navigateSafely(BackupSetupRoute)
                     }
 
                     SmallActionButton(

@@ -76,15 +76,11 @@ val KeyFiltersSystemAppsBackup = booleanPreferencesKey("filters_system_apps_back
 const val DefFiltersSystemAppsBackup = false
 val FiltersSystemAppsBackup = Pair(KeyFiltersSystemAppsBackup, DefFiltersSystemAppsBackup)
 
+val KeySortsSelectedFirstBackup = booleanPreferencesKey("sorts_selected_first_backup")
+const val DefSortsSelectedFirstBackup = false
+val SortsSelectedFirstBackup = Pair(KeySortsSelectedFirstBackup, DefSortsSelectedFirstBackup)
+
 // ----------------------------------------------------------------------------------------------------------------------------Settings
-
-val KeyIncrementalBackup = booleanPreferencesKey("incremental_backup")
-const val DefIncrementalBackup = true
-val IncrementalBackup = Pair(KeyIncrementalBackup, DefIncrementalBackup)
-
-val KeyCleanBackup = booleanPreferencesKey("clean_backup")
-const val DefCleanBackup = false
-val CleanBackup = Pair(KeyCleanBackup, DefCleanBackup)
 
 val KeyAutoScreenOff = booleanPreferencesKey("auto_screen_off")
 const val DefAutoScreenOff = true

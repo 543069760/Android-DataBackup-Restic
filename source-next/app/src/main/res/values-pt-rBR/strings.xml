@@ -479,4 +479,26 @@
     <string name="select_all_addl_data">Selecionar tudo: Dados adicionais</string>
     <string name="unselect_all_addl_data">Desmarcar tudo: Dados adicionais</string>
     <string name="additional_data">Dados adicionais</string>
+    <string name="error_no_space_left_desc">Não há espaço no dispositivo. Certifique-se de que o dispositivo tenha espaço livre suficiente antes desta operação</string>
+    <string name="prompt_cancel_operation">Interrompeu a operação em curso?</string>
+    <string name="apps_backup_strategy">Estratégia de backup dos aplicativos</string>
+    <string name="unnamed">Sem nome</string>
+    <string name="not_created_yet">Ainda não criada</string>
+    <string name="created_at">Criado em</string>
+    <string name="updated_at">Atualizado em</string>
+    <string name="edit_name">Editar nome</string>
+    <string name="canceled">Cancelado</string>
+    <string name="advanced_settings">Configurações avançadas</string>
+    <string name="app_theme_settings">Configurações de tema do app</string>
+    <string name="model">Modelo</string>
+    <string name="update">Atualizar</string>
+    <string name="check_updates">Confira as atualizações</string>
+    <string name="checking_updates">Verificando atualizações</string>
+    <string name="new_version_available">Uma nova versão está disponível.</string>
+    <string name="version_up_to_date">Você está usando a versão mais recente.</string>
+    <string name="latest">Mais recente</string>
+    <string name="current">Atual</string>
+    <string name="github_api_rate_limited">O limite de requisições da API do GitHub foi atingido. Por favor, tente novamente, %1$s.</string>
+    <string name="retry_after">Tentar novamente após: %1$s</string>
+    <string name="selected_first">Selecione primeiro</string>
 </resources>
