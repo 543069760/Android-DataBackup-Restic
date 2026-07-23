@@ -7,3 +7,6 @@
 [submodule "source-next/native/src/main/jni/external/zstd/zstd-jni"]
 	path = source-next/native/src/main/jni/external/zstd/zstd-jni
 	url = https://github.com/luben/zstd-jni
+[submodule "source/native/src/main/jni/external/rustic/rustic_core"]
+	path = source/native/src/main/jni/external/rustic/rustic_core
+	url = https://github.com/543069760/rustic_core
