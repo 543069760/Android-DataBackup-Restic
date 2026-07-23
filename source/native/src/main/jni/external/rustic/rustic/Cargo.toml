@@ -1,0 +1,32 @@
+[package]
+name = "rustic"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "rustic"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+android_logger = "0.15.1"
+jni = "0.22.4"
+log = "0.4.29"
+simplelog = "0.12.2"
+thiserror = "2.0.18"
+
+# rustic_core submodule（同级目录，比 source-next 骨架少一层 external/rustic）
+rustic_core = { path = "../rustic_core/crates/core" }
+rustic_backend = { path = "../rustic_core/crates/backend", default-features = false, features = ["opendal"] }
+
+# 静态编译 SQLite，用于 list_snapshots_db 直写 .db
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# 如 list_snapshots_db 需要序列化 snapshot 字段可保留，否则可删
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+panic = "abort"
+strip = true
