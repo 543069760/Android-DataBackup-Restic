@@ -54,6 +54,51 @@ class RusticInstrumentedTest {
     }
 
     @Test
+    fun repositoryLifecycleWithOpenDalFsOptions() {
+        logStep("Writing source file: $SOURCE_FILE")
+        workspace.writeSourceFile(SOURCE_FILE, SOURCE_CONTENT)
+
+        // opendal fs 后端：location 用 "opendal:fs"，仓库数据落在 options["root"] 指向的目录
+        val backendRoot = workspace.root.resolve("opendal-fs-root").apply { mkdirs() }
+        val options = mapOf("root" to backendRoot.absolutePath)
+        val location = "opendal:fs"
+
+        logStep("Initializing opendal:fs repository, root=${backendRoot.absolutePath}")
+        Rustic.initRepository(location, PASSWORD, options)
+
+        assertTrue(
+            "Repository should exist after init via opendal:fs",
+            Rustic.repositoryExists(location, options),
+        )
+
+        logStep("Creating snapshot via opendal:fs")
+        val snapshotId = Rustic.createSnapshot(
+            repositoryPath = location,
+            password = PASSWORD,
+            sourcePaths = listOf(workspace.sourcePath),
+            tags = listOf(SNAPSHOT_TAG),
+            options = options,
+        )
+        assertTrue("Snapshot ID should not be blank", snapshotId.isNotBlank())
+
+        logStep("Restoring snapshot $snapshotId to ${workspace.restorePath}")
+        Rustic.restoreSnapshot(location, PASSWORD, snapshotId, workspace.restorePath, options)
+
+        logStep("Checking repository integrity via opendal:fs")
+        Rustic.checkRepository(location, PASSWORD, options)
+
+        // 证据 1：仓库文件确实落进了 options["root"]，说明 map 透传到了 opendal 后端
+        assertTrue(
+            "opendal fs root should contain repository files",
+            backendRoot.walkTopDown().any(File::isFile),
+        )
+
+        // 证据 2：内容能端到端还原
+        val restoredFile = workspace.requireRestoredFile(SOURCE_FILE)
+        assertEquals(SOURCE_CONTENT, restoredFile.readText())
+    }
+
+    @Test
     fun getVersionReturnsNonBlankVersion() {
         logStep("Querying rustic version")
         val version = Rustic.getVersion()
