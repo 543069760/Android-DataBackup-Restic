@@ -117,51 +117,42 @@ class ResticViewModel @Inject constructor(
     /**
      * 核心逻辑：状态检查
      * 合并为一个支持 withContext 的挂起函数，确保 init 块时序正确
+     *
+     * 迁移说明：getVersion 已改走 JNI（librustic.so，经 RootService），
+     * 不再依赖 restic 二进制文件，因此移除“二进制文件存在/可执行”的前置门控，
+     * 否则删掉二进制后永远走不到 JNI 的 getVersion、UI 会被锁死。
      */
     suspend fun checkResticStatus() {
         withContext(Dispatchers.IO) {
             try {
-                val binaryPath = resticNative.getResticBinaryPath(context)
-                val binaryFile = File(binaryPath)
-
-                Log.d(TAG, "DEBUG: 检查二进制文件 -> 路径: $binaryPath")
-
-                // 1. 检查文件是否存在
-                if (!binaryFile.exists()) {
-                    Log.e(TAG, "DEBUG: 失败原因 -> 文件不存在")
-                    _resticVersionState.value = null
-                    return@withContext
-                }
-
-                // 2. 修复执行权限
-                if (!binaryFile.canExecute()) {
-                    Log.w(TAG, "DEBUG: 文件不可执行，尝试修复权限...")
-                    binaryFile.setExecutable(true, false)
-                }
-
-                // 3. 获取版本号 (通过 libsu 执行)
+                // 1. 获取版本号（通过 JNI：Rustic.getVersion → RootService）
+                //    不再检查二进制文件是否存在/可执行
                 val version = resticRepo.getVersion()
                 Log.d(TAG, "DEBUG: 尝试获取版本结果: $version")
                 _resticVersionState.value = version
 
-                // 4. 如果版本获取成功，清除下载标志位
+                // 2. 版本获取成功则清除下载标志位；失败则直接返回（UI 显示未检测到）
                 if (version != null) {
                     resticNative.clearDownloadFlag(context)
                 } else {
+                    _resticInitializedState.value = false
+                    _resticRepoPathState.value = ""
                     return@withContext
                 }
 
-                // 5. 获取并同步仓库路径
+                // 3. 获取并同步仓库路径
                 val repoPath = getRepoPath()
                 _repoPathState.value = repoPath
 
+                // 4. 仓库校验 / 快照数（注意：checkRepository / listSnapshots 仍走 CLI，
+                //    尚未迁移到 JNI；删除二进制后这两步会失败，属预期，
+                //    不影响上面 getVersion 的验证结论）
                 val password = getResticPassword()
                 val isInitialized = resticRepo.checkRepository(repoPath, password)
-
                 _resticInitializedState.value = isInitialized
 
                 if (!isInitialized) {
-                    // 仓库不存在,清除已保存的路径
+                    // 仓库不存在，清除已保存的路径
                     context.saveResticRepoPath("")
                     _resticRepoPathState.value = ""
                     _resticSnapshotCountState.value = 0

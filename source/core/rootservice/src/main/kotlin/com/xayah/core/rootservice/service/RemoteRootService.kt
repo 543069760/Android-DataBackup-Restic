@@ -348,8 +348,20 @@ class RemoteRootService(private val context: Context) {
     suspend fun createRusticSnapshot(repositoryPath: String, password: String, sourcePaths: List<String>, tags: List<String> = emptyList(), options: Map<String, String> = emptyMap(), callback: ICallback? = null): String =
         runCatching { getService().createRusticSnapshot(repositoryPath, password, sourcePaths, tags, options, callback) }.onFailure(onFailure).getOrElse { "" }
 
-    suspend fun restoreRusticSnapshot(repositoryPath: String, password: String, snapshotId: String, destinationPath: String, options: Map<String, String> = emptyMap()) =
-        runCatching { getService().restoreRusticSnapshot(repositoryPath, password, snapshotId, destinationPath, options) }.onFailure(onFailure)
+    suspend fun restoreRusticSnapshot(
+        repositoryPath: String,
+        password: String,
+        snapshotId: String,
+        destinationPath: String,
+        options: Map<String, String> = emptyMap(),
+        includeGlob: String = "",
+        callback: ICallback? = null,
+    ) = runCatching {
+        getService().restoreRusticSnapshot(
+            repositoryPath, password, snapshotId, destinationPath,
+            options, includeGlob, callback
+        )
+    }.onFailure(onFailure)
 
     suspend fun checkRusticRepository(repositoryPath: String, password: String, options: Map<String, String> = emptyMap()) =
         runCatching { getService().checkRusticRepository(repositoryPath, password, options) }.onFailure(onFailure)

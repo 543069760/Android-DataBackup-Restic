@@ -56,7 +56,9 @@ object Rustic {
         password: String,
         snapshotId: String,
         destinationPath: String,
+        includeGlob: String = "",
         options: Map<String, String> = emptyMap(),
+        callback: Any? = null,
     ) {
         val (optionKeys, optionValues) = options.toKeyValueArrays()
         nativeRestoreSnapshot(
@@ -66,6 +68,8 @@ object Rustic {
             optionValues,
             snapshotId,
             destinationPath,
+            includeGlob,
+            callback,
         )
     }
 
@@ -158,6 +162,8 @@ object Rustic {
         optionValues: Array<String>,
         snapshotId: String,
         destinationPath: String,
+        includeGlob: String,
+        callback: Any?,
     )
 
     private external fun nativeCheckRepository(

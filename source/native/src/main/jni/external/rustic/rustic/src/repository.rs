@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use rusqlite::{Connection, params};
 use rustic_backend::BackendOptions;
 use rustic_core::{
-    BackupOptions, CheckOptions, ConfigOptions, Credentials, KeyOptions, LimitOption,
+    BackupOptions, CheckOptions, ConfigOptions, Credentials, Excludes, KeyOptions, LimitOption,
     LocalDestination, LsOptions, OpenStatus, PathList, PruneOptions, Repository,
     RepositoryBackends, RepositoryOptions, RestoreOptions, SnapshotOptions,
 };
@@ -124,6 +124,55 @@ pub fn restore_snapshot(
     Ok(())
 }
 
+pub struct RestorePlanStats {
+    pub files_total: u64,
+    pub bytes_total: u64,
+    pub files_skipped: u64,
+    pub bytes_skipped: u64,
+}
+
+pub fn restore_snapshot_with_progress<C: RusticProgressCallback>(
+    repository_path: &str,
+    password: &str,
+    snapshot_id: &str,
+    destination_path: &str,
+    options: &HashMap<String, String>,
+    include_glob: Option<&str>,
+    callback: C,
+) -> Result<RestorePlanStats> {
+    // 复用 backup 那套 ProgressBars：字节进度自动经 callback.on_progress 回传
+    let repo =
+        open_repository_with_progress(repository_path, password, options, callback)?
+            .to_indexed()?;
+
+    let node = repo.node_from_snapshot_path(snapshot_id, |_| true)?;
+
+    // glob 承载在 LsOptions(=TreeStreamerOptions) 的内嵌 Excludes.globs 上，
+    // 且 include 语义要用 restic 风格的 "!" 前缀（纯 pattern 为 exclude）。
+    let ls_options = match include_glob {
+        Some(glob) => LsOptions::default()
+            .excludes(Excludes::default().globs(vec![format!("!{glob}")])),
+        None => LsOptions::default(),
+    };
+    let nodes = repo.ls(&node, &ls_options)?;
+
+    let destination = LocalDestination::new(destination_path, true, !node.is_dir())?;
+    let restore_options = RestoreOptions::default();
+    let restore_plan =
+        repo.prepare_restore(&restore_options, nodes.clone(), &destination, false)?;
+
+    // 从 plan 一次性抽统计（字段名以你 fork 的 RestorePlan/RestoreStats 为准）
+    let stats = RestorePlanStats {
+        files_total:   restore_plan.stats.files.restore,
+        bytes_total:   restore_plan.restore_size,
+        files_skipped: restore_plan.stats.files.unchanged,
+        bytes_skipped: restore_plan.matched_size,
+    };
+
+    repo.restore(restore_plan, &restore_options, nodes, &destination)?;
+    Ok(stats)
+}
+
 pub fn check_repository(
     repository_path: &str,
     password: &str,
@@ -238,8 +287,6 @@ pub fn list_snapshots_db(
 }
 
 /// schema 常量：4 张表 + `v_snapshots_full` 视图。
-/// 列名与视图定义必须与 fork 的 `write_snapshots_as_sql` 内联 SQL 逐字一致，
-/// 否则 Kotlin 侧查询 `v_snapshots_full` 会因列名/视图不匹配而失败。
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS snapshots (
     id TEXT PRIMARY KEY,

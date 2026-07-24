@@ -541,8 +541,24 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         Rustic.createSnapshot(repositoryPath, password, sourcePaths, tags, options.toStringMap(), callback)
     }
 
-    override fun restoreRusticSnapshot(repositoryPath: String, password: String, snapshotId: String, destinationPath: String, options: MutableMap<Any?, Any?>?): Unit = synchronized(lock) {
-        Rustic.restoreSnapshot(repositoryPath, password, snapshotId, destinationPath, options.toStringMap())
+    override fun restoreRusticSnapshot(
+        repositoryPath: String,
+        password: String,
+        snapshotId: String,
+        destinationPath: String,
+        options: MutableMap<Any?, Any?>?,          // AIDL Map 落地类型，按你本机 stub 生成的签名
+        includeGlob: String,
+        callback: ICallback?
+    ) {
+        Rustic.restoreSnapshot(
+            repositoryPath = repositoryPath,
+            password = password,
+            snapshotId = snapshotId,
+            destinationPath = destinationPath,
+            includeGlob = includeGlob,          // 从 AIDL 传下来的 glob（没有就传 ""）
+            options = options.toStringMap(),
+            callback = callback,                // ICallback? → Any? 子类型，OK
+        )
     }
 
     override fun checkRusticRepository(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?): Unit = synchronized(lock) {

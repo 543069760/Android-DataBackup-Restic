@@ -14,6 +14,7 @@ dependencies {
     implementation(project(":core:datastore"))
     implementation(project(":core:model"))
     implementation(project(":core:util"))
+    implementation(project(":core:rootservice"))
     // 序列化依赖
     implementation(libs.gson)
     implementation(libs.kotlinx.serialization.json)
