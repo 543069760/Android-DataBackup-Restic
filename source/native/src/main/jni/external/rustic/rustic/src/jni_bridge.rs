@@ -8,8 +8,9 @@ use jni::sys::jboolean;
 use crate::error::NativeError;
 use crate::jni_progress::JniProgressCallback;
 use crate::repository::{
-    check_repository, create_snapshot, create_snapshot_with_progress, get_version, init_repository,
-    repository_exists, restore_snapshot, validate_repository,
+    check_repository, create_snapshot, create_snapshot_with_progress, forget_snapshot,
+    get_version, init_repository, prune_repository, repository_exists, restore_snapshot,
+    validate_repository,
 };
 
 #[unsafe(no_mangle)]
@@ -115,7 +116,6 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeCreateSnapshot<'loc
                 .map_err(NativeError::from)?
             } else {
                 let vm = env.get_java_vm()?;
-                // Progress can be reported after this JNI frame returns to rustic internals.
                 let callback = env.new_global_ref(&callback)?;
                 let callback = JniProgressCallback::new(env, vm, callback)?;
                 create_snapshot_with_progress(
@@ -170,6 +170,48 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeCheckRepository<'lo
                 &repository_path.to_string(),
                 &password.to_string(),
                 &HashMap::new(),
+            )
+            .map_err(NativeError::from)
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeForgetSnapshot<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    repository_path: JString<'local>,
+    password: JString<'local>,
+    snapshot_id: JString<'local>,
+) {
+    unowned_env
+        .with_env(|_env| -> Result<(), NativeError> {
+            forget_snapshot(
+                &repository_path.to_string(),
+                &password.to_string(),
+                &HashMap::new(),
+                &snapshot_id.to_string(),
+            )
+            .map_err(NativeError::from)
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_xayah_libnative_Rustic_nativePruneRepository<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    repository_path: JString<'local>,
+    password: JString<'local>,
+    max_unused: JString<'local>,
+) {
+    unowned_env
+        .with_env(|_env| -> Result<(), NativeError> {
+            prune_repository(
+                &repository_path.to_string(),
+                &password.to_string(),
+                &HashMap::new(),
+                &max_unused.to_string(),
             )
             .map_err(NativeError::from)
         })

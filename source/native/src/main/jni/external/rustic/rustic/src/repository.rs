@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, HashMap};
 
 use rustic_backend::BackendOptions;
 use rustic_core::{
-    BackupOptions, CheckOptions, ConfigOptions, Credentials, KeyOptions, LocalDestination,
-    LsOptions, OpenStatus, PathList, Repository, RepositoryBackends, RepositoryOptions,
-    RestoreOptions, SnapshotOptions,
+    BackupOptions, CheckOptions, ConfigOptions, Credentials, KeyOptions, LimitOption,
+    LocalDestination, LsOptions, OpenStatus, PathList, PruneOptions, Repository,
+    RepositoryBackends, RepositoryOptions, RestoreOptions, SnapshotOptions,
 };
 
 use crate::Result;
@@ -128,6 +128,36 @@ pub fn check_repository(
     let repo = open_repository(repository_path, password, options)?;
 
     repo.check(CheckOptions::default().trust_cache(true))?;
+
+    Ok(())
+}
+
+pub fn forget_snapshot(
+    repository_path: &str,
+    password: &str,
+    options: &HashMap<String, String>,
+    snapshot_id: &str,
+) -> Result<()> {
+    let repo = open_repository(repository_path, password, options)?;
+    let snapshot = repo.get_snapshot_from_str(snapshot_id, |_| true)?;
+    repo.delete_snapshots(&[snapshot.id])?;
+
+    Ok(())
+}
+
+pub fn prune_repository(
+    repository_path: &str,
+    password: &str,
+    options: &HashMap<String, String>,
+    max_unused: &str,
+) -> Result<()> {
+    let repo = open_repository(repository_path, password, options)?;
+
+    let mut prune_options = PruneOptions::default();
+    prune_options.max_unused = max_unused.parse::<LimitOption>()?;
+
+    let prune_plan = repo.prune_plan(&prune_options)?;
+    repo.prune(&prune_options, prune_plan)?;
 
     Ok(())
 }

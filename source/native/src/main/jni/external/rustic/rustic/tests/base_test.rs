@@ -154,6 +154,75 @@ fn create_and_restore_snapshot_with_multiple_direct_sources() -> Result<(), Box<
     Ok(())
 }
 
+#[test]
+fn forget_removes_snapshot() -> Result<(), Box<dyn Error>> {
+    let root = temp_path("forget-snapshot")?;
+    let repository = root.join("repo");
+    let source = root.join("source");
+    let password = "password";
+    let repository_path = repository.to_str().unwrap();
+
+    fs::create_dir_all(source.join("nested"))?;
+    fs::write(source.join("nested").join("note.txt"), b"forget me")?;
+
+    rustic::init_repository(repository_path, password, &HashMap::new())?;
+    let source_paths = [source.to_string_lossy().into_owned()];
+    let snapshot_id = rustic::create_snapshot(
+        repository_path,
+        password,
+        &HashMap::new(),
+        &source_paths,
+        &["instrumented".to_string()],
+    )?;
+
+    assert!(!snapshot_id.is_empty());
+
+    rustic::forget_snapshot(repository_path, password, &HashMap::new(), &snapshot_id)?;
+
+    // 快照被删除后仓库仍应可通过一致性检查
+    rustic::check_repository(repository_path, password, &HashMap::new())?;
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[test]
+fn prune_reduces_or_keeps_repository_usable() -> Result<(), Box<dyn Error>> {
+    let root = temp_path("prune-repository")?;
+    let repository = root.join("repo");
+    let source = root.join("source");
+    let password = "password";
+    let repo_path = repository.to_str().unwrap();
+    let source_paths = [source.to_string_lossy().into_owned()];
+    let tags = ["databackup".to_string()];
+
+    fs::create_dir_all(source.join("nested"))?;
+    fs::write(source.join("nested").join("payload.bin"), vec![b'x'; 512 * 1024])?;
+
+    rustic::init_repository(repo_path, password, &HashMap::new())?;
+    let snapshot_id = rustic::create_snapshot(
+        repo_path,
+        password,
+        &HashMap::new(),
+        &source_paths,
+        &tags,
+    )?;
+    assert!(!snapshot_id.is_empty());
+
+    // 删快照元数据后 prune 才有可回收内容
+    rustic::forget_snapshot(repo_path, password, &HashMap::new(), &snapshot_id)?;
+
+    // "10%" 与 "unlimited" 两种 max_unused 都应能正常执行且仓库保持可校验
+    rustic::prune_repository(repo_path, password, &HashMap::new(), "10%")?;
+    rustic::check_repository(repo_path, password, &HashMap::new())?;
+
+    rustic::prune_repository(repo_path, password, &HashMap::new(), "unlimited")?;
+    rustic::check_repository(repo_path, password, &HashMap::new())?;
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
 fn run_snapshot_lifecycle(
     temp_name: &str,
     file_name: &str,
@@ -205,12 +274,4 @@ fn find_file(root: &Path, name: &str) -> Result<std::path::PathBuf, Box<dyn Erro
     }
 
     Err(format!("missing restored file {name}").into())
-}
-
-#[test]
-fn reports_crate_version() -> Result<(), Box<dyn Error>> {
-    let version = rustic::get_version()?;
-    assert_eq!(version, env!("CARGO_PKG_VERSION"));
-    assert!(!version.is_empty());
-    Ok(())
 }

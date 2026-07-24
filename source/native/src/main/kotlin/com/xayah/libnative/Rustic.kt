@@ -35,6 +35,14 @@ object Rustic {
         nativeCheckRepository(repositoryPath, password)
     }
 
+    fun forgetSnapshot(repositoryPath: String, password: String, snapshotId: String) {
+        nativeForgetSnapshot(repositoryPath, password, snapshotId)
+    }
+
+    fun pruneRepository(repositoryPath: String, password: String, maxUnused: String) {
+        nativePruneRepository(repositoryPath, password, maxUnused)
+    }
+
     private external fun nativeInitLogger()
     private external fun nativeGetVersion(): String
     private external fun nativeInitRepository(repositoryPath: String, password: String)
@@ -56,4 +64,8 @@ object Rustic {
     )
 
     private external fun nativeCheckRepository(repositoryPath: String, password: String)
+
+    private external fun nativeForgetSnapshot(repositoryPath: String, password: String, snapshotId: String)
+
+    private external fun nativePruneRepository(repositoryPath: String, password: String, maxUnused: String)
 }
