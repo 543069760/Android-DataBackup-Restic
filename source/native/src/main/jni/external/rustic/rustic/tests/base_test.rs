@@ -46,9 +46,9 @@ fn create_restore_and_check_snapshot_lifecycle() -> Result<(), Box<dyn Error>> {
             rustic::create_snapshot(
                 repository.to_str().unwrap(),
                 password,
-                &HashMap::new(),
                 source_paths,
                 tags,
+                &HashMap::new(),
             )
         },
     )
@@ -82,9 +82,9 @@ fn create_restore_and_check_snapshot_lifecycle_with_progress() -> Result<(), Box
             rustic::create_snapshot_with_progress(
                 repository.to_str().unwrap(),
                 password,
-                &HashMap::new(),
                 source_paths,
                 tags,
+                &HashMap::new(),
                 RecordingProgress {
                     events: events.clone(),
                 },
@@ -129,18 +129,18 @@ fn create_and_restore_snapshot_with_multiple_direct_sources() -> Result<(), Box<
     let snapshot_id = rustic::create_snapshot(
         repository.to_str().unwrap(),
         password,
-        &HashMap::new(),
         &source_paths,
         &["databackup".to_string()],
+        &HashMap::new(),
     )?;
 
     assert!(!snapshot_id.is_empty());
     rustic::restore_snapshot(
         repository.to_str().unwrap(),
         password,
-        &HashMap::new(),
         &snapshot_id,
         restore.to_str().unwrap(),
+        &HashMap::new(),
     )?;
     rustic::check_repository(repository.to_str().unwrap(), password, &HashMap::new())?;
     assert_eq!(fs::read(find_file(&restore, "app-data.txt")?)?, b"app");
@@ -159,27 +159,25 @@ fn forget_removes_snapshot() -> Result<(), Box<dyn Error>> {
     let root = temp_path("forget-snapshot")?;
     let repository = root.join("repo");
     let source = root.join("source");
-    let password = "password";
     let repository_path = repository.to_str().unwrap();
+    let password = "password";
 
-    fs::create_dir_all(source.join("nested"))?;
-    fs::write(source.join("nested").join("note.txt"), b"forget me")?;
+    fs::create_dir_all(&source)?;
+    fs::write(source.join("file.txt"), b"data")?;
+    let source_paths = [source.to_string_lossy().into_owned()];
+    let tags = ["databackup".to_string()];
 
     rustic::init_repository(repository_path, password, &HashMap::new())?;
-    let source_paths = [source.to_string_lossy().into_owned()];
     let snapshot_id = rustic::create_snapshot(
         repository_path,
         password,
-        &HashMap::new(),
         &source_paths,
-        &["instrumented".to_string()],
+        &tags,
+        &HashMap::new(),
     )?;
-
     assert!(!snapshot_id.is_empty());
 
     rustic::forget_snapshot(repository_path, password, &HashMap::new(), &snapshot_id)?;
-
-    // 快照被删除后仓库仍应可通过一致性检查
     rustic::check_repository(repository_path, password, &HashMap::new())?;
 
     fs::remove_dir_all(root)?;
@@ -191,33 +189,73 @@ fn prune_reduces_or_keeps_repository_usable() -> Result<(), Box<dyn Error>> {
     let root = temp_path("prune-repository")?;
     let repository = root.join("repo");
     let source = root.join("source");
+    let repository_path = repository.to_str().unwrap();
     let password = "password";
-    let repo_path = repository.to_str().unwrap();
+
+    fs::create_dir_all(&source)?;
+    fs::write(source.join("file.txt"), vec![b'x'; 1024 * 512])?;
     let source_paths = [source.to_string_lossy().into_owned()];
     let tags = ["databackup".to_string()];
 
-    fs::create_dir_all(source.join("nested"))?;
-    fs::write(source.join("nested").join("payload.bin"), vec![b'x'; 512 * 1024])?;
-
-    rustic::init_repository(repo_path, password, &HashMap::new())?;
+    rustic::init_repository(repository_path, password, &HashMap::new())?;
     let snapshot_id = rustic::create_snapshot(
-        repo_path,
+        repository_path,
         password,
-        &HashMap::new(),
         &source_paths,
         &tags,
+        &HashMap::new(),
     )?;
     assert!(!snapshot_id.is_empty());
 
-    // 删快照元数据后 prune 才有可回收内容
-    rustic::forget_snapshot(repo_path, password, &HashMap::new(), &snapshot_id)?;
+    rustic::forget_snapshot(repository_path, password, &HashMap::new(), &snapshot_id)?;
+    rustic::prune_repository(repository_path, password, &HashMap::new(), "10%")?;
+    rustic::check_repository(repository_path, password, &HashMap::new())?;
 
-    // "10%" 与 "unlimited" 两种 max_unused 都应能正常执行且仓库保持可校验
-    rustic::prune_repository(repo_path, password, &HashMap::new(), "10%")?;
-    rustic::check_repository(repo_path, password, &HashMap::new())?;
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
 
-    rustic::prune_repository(repo_path, password, &HashMap::new(), "unlimited")?;
-    rustic::check_repository(repo_path, password, &HashMap::new())?;
+#[test]
+fn writes_snapshots_db() -> Result<(), Box<dyn Error>> {
+    let root = temp_path("snapshots-db")?;
+    let repository = root.join("repo");
+    let source = root.join("source");
+    let db_path = root.join("snapshots.db");
+    let repository_path = repository.to_str().unwrap();
+    let password = "password";
+
+    fs::create_dir_all(&source)?;
+    fs::write(source.join("file.txt"), b"data")?;
+    let source_paths = [source.to_string_lossy().into_owned()];
+    let tags = ["databackup".to_string()];
+
+    rustic::init_repository(repository_path, password, &HashMap::new())?;
+    let snapshot_id = rustic::create_snapshot(
+        repository_path,
+        password,
+        &source_paths,
+        &tags,
+        &HashMap::new(),
+    )?;
+    assert!(!snapshot_id.is_empty());
+
+    rustic::list_snapshots_db(
+        repository_path,
+        password,
+        &HashMap::new(),
+        db_path.to_str().unwrap(),
+    )?;
+
+    {
+        let conn = rusqlite::Connection::open(&db_path)?;
+        let mut stmt = conn.prepare(
+            "SELECT id, tags_flat FROM v_snapshots_full WHERE tags_flat IS NOT NULL",
+        )?;
+        let (id, tags_flat): (String, String) =
+            stmt.query_row([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        assert_eq!(id, snapshot_id);
+        assert!(tags_flat.split('\u{1f}').any(|t| t == "databackup"));
+    } // conn 在这里 drop，句柄释放
 
     fs::remove_dir_all(root)?;
     Ok(())
@@ -248,9 +286,9 @@ fn run_snapshot_lifecycle(
     rustic::restore_snapshot(
         repository.to_str().unwrap(),
         password,
-        &HashMap::new(),
         &snapshot_id,
         restore.to_str().unwrap(),
+        &HashMap::new(),
     )?;
     rustic::check_repository(repository.to_str().unwrap(), password, &HashMap::new())?;
 

@@ -9,8 +9,8 @@ use crate::error::NativeError;
 use crate::jni_progress::JniProgressCallback;
 use crate::repository::{
     check_repository, create_snapshot, create_snapshot_with_progress, forget_snapshot,
-    get_version, init_repository, prune_repository, repository_exists, restore_snapshot,
-    validate_repository,
+    get_version, init_repository, list_snapshots_db, prune_repository, repository_exists,
+    restore_snapshot, validate_repository,
 };
 
 #[unsafe(no_mangle)]
@@ -45,12 +45,8 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeInitRepository<'loc
 ) {
     unowned_env
         .with_env(|_env| -> Result<(), NativeError> {
-            init_repository(
-                &repository_path.to_string(),
-                &password.to_string(),
-                &HashMap::new(),
-            )
-            .map_err(NativeError::from)
+            init_repository(&repository_path.to_string(), &password.to_string(), &HashMap::new())
+                .map_err(NativeError::from)
         })
         .resolve::<ThrowRuntimeExAndDefault>()
 }
@@ -79,12 +75,8 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeValidateRepository<
 ) {
     unowned_env
         .with_env(|_env| -> Result<(), NativeError> {
-            validate_repository(
-                &repository_path.to_string(),
-                &password.to_string(),
-                &HashMap::new(),
-            )
-            .map_err(NativeError::from)
+            validate_repository(&repository_path.to_string(), &password.to_string(), &HashMap::new())
+                .map_err(NativeError::from)
         })
         .resolve::<ThrowRuntimeExAndDefault>()
 }
@@ -106,14 +98,8 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeCreateSnapshot<'loc
             let repository_path = repository_path.to_string();
             let password = password.to_string();
             let snapshot_id = if callback.as_raw().is_null() {
-                create_snapshot(
-                    &repository_path,
-                    &password,
-                    &HashMap::new(),
-                    &source_paths,
-                    &tags,
-                )
-                .map_err(NativeError::from)?
+                create_snapshot(&repository_path, &password, &source_paths, &tags, &HashMap::new())
+                    .map_err(NativeError::from)?
             } else {
                 let vm = env.get_java_vm()?;
                 let callback = env.new_global_ref(&callback)?;
@@ -121,9 +107,9 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeCreateSnapshot<'loc
                 create_snapshot_with_progress(
                     &repository_path,
                     &password,
-                    &HashMap::new(),
                     &source_paths,
                     &tags,
+                    &HashMap::new(),
                     callback,
                 )
                 .map_err(NativeError::from)?
@@ -148,9 +134,9 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeRestoreSnapshot<'lo
             restore_snapshot(
                 &repository_path.to_string(),
                 &password.to_string(),
-                &HashMap::new(),
                 &snapshot_id.to_string(),
                 &destination_path.to_string(),
+                &HashMap::new(),
             )
             .map_err(NativeError::from)
         })
@@ -166,12 +152,8 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeCheckRepository<'lo
 ) {
     unowned_env
         .with_env(|_env| -> Result<(), NativeError> {
-            check_repository(
-                &repository_path.to_string(),
-                &password.to_string(),
-                &HashMap::new(),
-            )
-            .map_err(NativeError::from)
+            check_repository(&repository_path.to_string(), &password.to_string(), &HashMap::new())
+                .map_err(NativeError::from)
         })
         .resolve::<ThrowRuntimeExAndDefault>()
 }
@@ -212,6 +194,27 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativePruneRepository<'lo
                 &password.to_string(),
                 &HashMap::new(),
                 &max_unused.to_string(),
+            )
+            .map_err(NativeError::from)
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeListSnapshotsDb<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    repository_path: JString<'local>,
+    password: JString<'local>,
+    db_path: JString<'local>,
+) {
+    unowned_env
+        .with_env(|_env| -> Result<(), NativeError> {
+            list_snapshots_db(
+                &repository_path.to_string(),
+                &password.to_string(),
+                &HashMap::new(),
+                &db_path.to_string(),
             )
             .map_err(NativeError::from)
         })
