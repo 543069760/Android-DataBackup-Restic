@@ -36,11 +36,13 @@ import com.xayah.core.rootservice.parcelables.StorageStatsParcelable
 import com.xayah.core.rootservice.util.ExceptionUtil.tryOn
 import com.xayah.core.rootservice.util.ExceptionUtil.tryWithBoolean
 import com.xayah.core.rootservice.util.SsaidUtil
+import com.xayah.core.rootservice.ICallback
 import com.xayah.core.util.FileUtil
 import com.xayah.core.util.HashUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.command.BaseUtil.setAllPermissions
 import com.xayah.libnative.NativeLib
+import com.xayah.libnative.Rustic
 import java.io.File
 import java.io.IOException
 import java.nio.file.FileVisitResult
@@ -516,4 +518,46 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
     }
 
     override fun calculateMD5(src: String): String = synchronized(lock) { HashUtil.calculateMD5(src) }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun Map<*, *>?.toStringMap(): Map<String, String> =
+        this?.entries?.associate { (k, v) -> k.toString() to v.toString() } ?: emptyMap()
+
+    override fun getRusticVersion(): String = synchronized(lock) { Rustic.getVersion() }
+
+    override fun initRusticRepository(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?): Unit = synchronized(lock) {
+        Rustic.initRepository(repositoryPath, password, options.toStringMap())
+    }
+
+    override fun rusticRepositoryExists(repositoryPath: String, options: MutableMap<Any?, Any?>?): Boolean = synchronized(lock) {
+        Rustic.repositoryExists(repositoryPath, options.toStringMap())
+    }
+
+    override fun validateRusticRepository(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?): Unit = synchronized(lock) {
+        Rustic.validateRepository(repositoryPath, password, options.toStringMap())
+    }
+
+    override fun createRusticSnapshot(repositoryPath: String, password: String, sourcePaths: MutableList<String>, tags: MutableList<String>, options: MutableMap<Any?, Any?>?, callback: ICallback?): String = synchronized(lock) {
+        Rustic.createSnapshot(repositoryPath, password, sourcePaths, tags, options.toStringMap(), callback)
+    }
+
+    override fun restoreRusticSnapshot(repositoryPath: String, password: String, snapshotId: String, destinationPath: String, options: MutableMap<Any?, Any?>?): Unit = synchronized(lock) {
+        Rustic.restoreSnapshot(repositoryPath, password, snapshotId, destinationPath, options.toStringMap())
+    }
+
+    override fun checkRusticRepository(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?): Unit = synchronized(lock) {
+        Rustic.checkRepository(repositoryPath, password, options.toStringMap())
+    }
+
+    override fun forgetRusticSnapshot(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?, snapshotId: String): Unit = synchronized(lock) {
+        Rustic.forgetSnapshot(repositoryPath, password, snapshotId, options.toStringMap())
+    }
+
+    override fun pruneRusticRepository(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?, maxUnused: String): Unit = synchronized(lock) {
+        Rustic.pruneRepository(repositoryPath, password, maxUnused, options.toStringMap())
+    }
+
+    override fun listRusticSnapshotsDb(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?, dbPath: String): Unit = synchronized(lock) {
+        Rustic.listSnapshotsDb(repositoryPath, password, dbPath, options.toStringMap())
+    }
 }

@@ -3,6 +3,7 @@ package com.xayah.core.rootservice;
 import com.xayah.core.rootservice.parcelables.StatFsParcelable;
 import com.xayah.core.rootservice.parcelables.StorageStatsParcelable;
 import com.xayah.core.model.database.PackagePermission;
+import com.xayah.core.rootservice.ICallback;
 
 interface IRemoteRootService {
     StatFsParcelable readStatFs(String path);
@@ -47,4 +48,16 @@ interface IRemoteRootService {
     void setOpsMode(int code, int uid, String packageName, int mode);
 
     String calculateMD5(String src);
+
+    // Rustic
+    String getRusticVersion();
+    void initRusticRepository(String repositoryPath, String password, in Map options);
+    boolean rusticRepositoryExists(String repositoryPath, in Map options);
+    void validateRusticRepository(String repositoryPath, String password, in Map options);
+    String createRusticSnapshot(String repositoryPath, String password, in List<String> sourcePaths, in List<String> tags, in Map options, ICallback callback);
+    void restoreRusticSnapshot(String repositoryPath, String password, String snapshotId, String destinationPath, in Map options);
+    void checkRusticRepository(String repositoryPath, String password, in Map options);
+    void forgetRusticSnapshot(String repositoryPath, String password, in Map options, String snapshotId);
+    void pruneRusticRepository(String repositoryPath, String password, in Map options, String maxUnused);
+    void listRusticSnapshotsDb(String repositoryPath, String password, in Map options, String dbPath);
 }

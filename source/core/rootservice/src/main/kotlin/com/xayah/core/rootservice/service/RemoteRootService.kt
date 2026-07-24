@@ -23,11 +23,13 @@ import com.xayah.core.rootservice.parcelables.StatFsParcelable
 import com.xayah.core.rootservice.parcelables.StorageStatsParcelable
 import com.xayah.core.rootservice.util.ExceptionUtil.tryOnScope
 import com.xayah.core.rootservice.util.withMainContext
+import com.xayah.core.rootservice.ICallback
 import com.xayah.core.util.GsonUtil
 import com.xayah.core.util.LogUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.model.ShellResult
 import com.xayah.core.util.withLog
+import com.xayah.libnative.Rustic
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
@@ -60,8 +62,11 @@ class RemoteRootService(private val context: Context) {
 
     class RemoteRootService : RootService() {
         init {
-            if (Process.myUid() == 0)
+            if (Process.myUid() == 0) {
                 System.loadLibrary("nativelib")
+                System.loadLibrary("rustic")
+                Rustic.initLogger()
+            }
         }
 
         override fun onBind(intent: Intent): IBinder = RemoteRootServiceImpl(applicationContext)
@@ -327,6 +332,36 @@ class RemoteRootService(private val context: Context) {
 
     suspend fun calculateMD5(src: String): String? =
         runCatching { getService().calculateMD5(src) }.onFailure(onFailure).getOrNull()
+
+    suspend fun getRusticVersion(): String =
+        runCatching { getService().rusticVersion }.onFailure(onFailure).getOrElse { "" }
+
+    suspend fun initRusticRepository(repositoryPath: String, password: String, options: Map<String, String> = emptyMap()) =
+        runCatching { getService().initRusticRepository(repositoryPath, password, options) }.onFailure(onFailure)
+
+    suspend fun rusticRepositoryExists(repositoryPath: String, options: Map<String, String> = emptyMap()): Boolean =
+        runCatching { getService().rusticRepositoryExists(repositoryPath, options) }.onFailure(onFailure).getOrElse { false }
+
+    suspend fun validateRusticRepository(repositoryPath: String, password: String, options: Map<String, String> = emptyMap()) =
+        runCatching { getService().validateRusticRepository(repositoryPath, password, options) }.onFailure(onFailure)
+
+    suspend fun createRusticSnapshot(repositoryPath: String, password: String, sourcePaths: List<String>, tags: List<String> = emptyList(), options: Map<String, String> = emptyMap(), callback: ICallback? = null): String =
+        runCatching { getService().createRusticSnapshot(repositoryPath, password, sourcePaths, tags, options, callback) }.onFailure(onFailure).getOrElse { "" }
+
+    suspend fun restoreRusticSnapshot(repositoryPath: String, password: String, snapshotId: String, destinationPath: String, options: Map<String, String> = emptyMap()) =
+        runCatching { getService().restoreRusticSnapshot(repositoryPath, password, snapshotId, destinationPath, options) }.onFailure(onFailure)
+
+    suspend fun checkRusticRepository(repositoryPath: String, password: String, options: Map<String, String> = emptyMap()) =
+        runCatching { getService().checkRusticRepository(repositoryPath, password, options) }.onFailure(onFailure)
+
+    suspend fun forgetRusticSnapshot(repositoryPath: String, password: String, snapshotId: String, options: Map<String, String> = emptyMap()) =
+        runCatching { getService().forgetRusticSnapshot(repositoryPath, password, options, snapshotId) }.onFailure(onFailure)
+
+    suspend fun pruneRusticRepository(repositoryPath: String, password: String, maxUnused: String, options: Map<String, String> = emptyMap()) =
+        runCatching { getService().pruneRusticRepository(repositoryPath, password, options, maxUnused) }.onFailure(onFailure)
+
+    suspend fun listRusticSnapshotsDb(repositoryPath: String, password: String, dbPath: String, options: Map<String, String> = emptyMap()) =
+        runCatching { getService().listRusticSnapshotsDb(repositoryPath, password, options, dbPath) }.onFailure(onFailure)
 
     suspend fun writeJson(data: Any, dst: String): ShellResult = runCatching {
         var isSuccess: Boolean
