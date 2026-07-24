@@ -5,16 +5,30 @@ object Rustic {
 
     fun getVersion(): String = nativeGetVersion()
 
-    fun initRepository(repositoryPath: String, password: String) {
-        nativeInitRepository(repositoryPath, password)
+    fun initRepository(
+        repositoryPath: String,
+        password: String,
+        options: Map<String, String> = emptyMap(),
+    ) {
+        val (optionKeys, optionValues) = options.toKeyValueArrays()
+        nativeInitRepository(repositoryPath, password, optionKeys, optionValues)
     }
 
-    fun repositoryExists(repositoryPath: String): Boolean {
-        return nativeRepositoryExists(repositoryPath)
+    fun repositoryExists(
+        repositoryPath: String,
+        options: Map<String, String> = emptyMap(),
+    ): Boolean {
+        val (optionKeys, optionValues) = options.toKeyValueArrays()
+        return nativeRepositoryExists(repositoryPath, optionKeys, optionValues)
     }
 
-    fun validateRepository(repositoryPath: String, password: String) {
-        nativeValidateRepository(repositoryPath, password)
+    fun validateRepository(
+        repositoryPath: String,
+        password: String,
+        options: Map<String, String> = emptyMap(),
+    ) {
+        val (optionKeys, optionValues) = options.toKeyValueArrays()
+        nativeValidateRepository(repositoryPath, password, optionKeys, optionValues)
     }
 
     fun createSnapshot(
@@ -22,39 +36,116 @@ object Rustic {
         password: String,
         sourcePaths: List<String>,
         tags: List<String> = emptyList(),
+        options: Map<String, String> = emptyMap(),
         callback: Any? = null,
     ): String {
-        return nativeCreateSnapshot(repositoryPath, password, sourcePaths.toTypedArray(), tags.toTypedArray(), callback)
+        val (optionKeys, optionValues) = options.toKeyValueArrays()
+        return nativeCreateSnapshot(
+            repositoryPath,
+            password,
+            optionKeys,
+            optionValues,
+            sourcePaths.toTypedArray(),
+            tags.toTypedArray(),
+            callback,
+        )
     }
 
-    fun restoreSnapshot(repositoryPath: String, password: String, snapshotId: String, destinationPath: String) {
-        nativeRestoreSnapshot(repositoryPath, password, snapshotId, destinationPath)
+    fun restoreSnapshot(
+        repositoryPath: String,
+        password: String,
+        snapshotId: String,
+        destinationPath: String,
+        options: Map<String, String> = emptyMap(),
+    ) {
+        val (optionKeys, optionValues) = options.toKeyValueArrays()
+        nativeRestoreSnapshot(
+            repositoryPath,
+            password,
+            optionKeys,
+            optionValues,
+            snapshotId,
+            destinationPath,
+        )
     }
 
-    fun checkRepository(repositoryPath: String, password: String) {
-        nativeCheckRepository(repositoryPath, password)
+    fun checkRepository(
+        repositoryPath: String,
+        password: String,
+        options: Map<String, String> = emptyMap(),
+    ) {
+        val (optionKeys, optionValues) = options.toKeyValueArrays()
+        nativeCheckRepository(repositoryPath, password, optionKeys, optionValues)
     }
 
-    fun forgetSnapshot(repositoryPath: String, password: String, snapshotId: String) {
-        nativeForgetSnapshot(repositoryPath, password, snapshotId)
+    fun forgetSnapshot(
+        repositoryPath: String,
+        password: String,
+        snapshotId: String,
+        options: Map<String, String> = emptyMap(),
+    ) {
+        val (optionKeys, optionValues) = options.toKeyValueArrays()
+        nativeForgetSnapshot(repositoryPath, password, optionKeys, optionValues, snapshotId)
     }
 
-    fun pruneRepository(repositoryPath: String, password: String, maxUnused: String) {
-        nativePruneRepository(repositoryPath, password, maxUnused)
+    fun pruneRepository(
+        repositoryPath: String,
+        password: String,
+        maxUnused: String,
+        options: Map<String, String> = emptyMap(),
+    ) {
+        val (optionKeys, optionValues) = options.toKeyValueArrays()
+        nativePruneRepository(repositoryPath, password, optionKeys, optionValues, maxUnused)
     }
 
-    fun listSnapshotsDb(repositoryPath: String, password: String, dbPath: String) {
-        nativeListSnapshotsDb(repositoryPath, password, dbPath)
+    fun listSnapshotsDb(
+        repositoryPath: String,
+        password: String,
+        dbPath: String,
+        options: Map<String, String> = emptyMap(),
+    ) {
+        val (optionKeys, optionValues) = options.toKeyValueArrays()
+        nativeListSnapshotsDb(repositoryPath, password, optionKeys, optionValues, dbPath)
+    }
+
+    // keys 与 values 来自同一个 entry 迭代，保证按位一一对应，
+    // 与 jni_bridge.rs 的 string_arrays_to_map(zip) 配对方式一致
+    private fun Map<String, String>.toKeyValueArrays(): Pair<Array<String>, Array<String>> {
+        val entries = entries.toList()
+        val keys = Array(entries.size) { entries[it].key }
+        val values = Array(entries.size) { entries[it].value }
+        return keys to values
     }
 
     private external fun nativeInitLogger()
+
     private external fun nativeGetVersion(): String
-    private external fun nativeInitRepository(repositoryPath: String, password: String)
-    private external fun nativeRepositoryExists(repositoryPath: String): Boolean
-    private external fun nativeValidateRepository(repositoryPath: String, password: String)
+
+    private external fun nativeInitRepository(
+        repositoryPath: String,
+        password: String,
+        optionKeys: Array<String>,
+        optionValues: Array<String>,
+    )
+
+    private external fun nativeRepositoryExists(
+        repositoryPath: String,
+        optionKeys: Array<String>,
+        optionValues: Array<String>,
+    ): Boolean
+
+    private external fun nativeValidateRepository(
+        repositoryPath: String,
+        password: String,
+        optionKeys: Array<String>,
+        optionValues: Array<String>,
+    )
+
     private external fun nativeCreateSnapshot(
         repositoryPath: String,
         password: String,
+        optionKeys: Array<String>,
+        optionValues: Array<String>,
         sourcePaths: Array<String>,
         tags: Array<String>,
         callback: Any?,
@@ -63,12 +154,40 @@ object Rustic {
     private external fun nativeRestoreSnapshot(
         repositoryPath: String,
         password: String,
+        optionKeys: Array<String>,
+        optionValues: Array<String>,
         snapshotId: String,
         destinationPath: String,
     )
 
-    private external fun nativeCheckRepository(repositoryPath: String, password: String)
-    private external fun nativeForgetSnapshot(repositoryPath: String, password: String, snapshotId: String)
-    private external fun nativePruneRepository(repositoryPath: String, password: String, maxUnused: String)
-    private external fun nativeListSnapshotsDb(repositoryPath: String, password: String, dbPath: String)
+    private external fun nativeCheckRepository(
+        repositoryPath: String,
+        password: String,
+        optionKeys: Array<String>,
+        optionValues: Array<String>,
+    )
+
+    private external fun nativeForgetSnapshot(
+        repositoryPath: String,
+        password: String,
+        optionKeys: Array<String>,
+        optionValues: Array<String>,
+        snapshotId: String,
+    )
+
+    private external fun nativePruneRepository(
+        repositoryPath: String,
+        password: String,
+        optionKeys: Array<String>,
+        optionValues: Array<String>,
+        maxUnused: String,
+    )
+
+    private external fun nativeListSnapshotsDb(
+        repositoryPath: String,
+        password: String,
+        optionKeys: Array<String>,
+        optionValues: Array<String>,
+        dbPath: String,
+    )
 }
