@@ -28,6 +28,7 @@ FetchContent_MakeAvailable(Corrosion)
 corrosion_import_crate(
         MANIFEST_PATH ${CMAKE_CURRENT_SOURCE_DIR}/../external/rustic/rustic/Cargo.toml
         LOCKED
+        PROFILE release
 )
 
 # librustic.so is produced by linking the Rust staticlib into this JNI anchor.
