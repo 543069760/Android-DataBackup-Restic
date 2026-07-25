@@ -36,5 +36,5 @@ dependencies {
     implementation(libs.dotlottie.android)
 
     // PickYou
-    implementation(libs.pickyou)
+    implementation(project(":libpickyou"))
 }

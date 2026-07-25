@@ -1,58 +1,41 @@
 plugins {
-    alias(libs.plugins.com.android.library)
-    alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.compose.compiler)
-    id("maven-publish")
+    alias(libs.plugins.library.common)
+    alias(libs.plugins.library.compose)
 }
 
 android {
     namespace = "com.xayah.libpickyou"
-    compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
-        minSdk = libs.versions.minSdk.get().toInt()
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        vectorDrawables {
-            useSupportLibrary = true
-        }
         consumerProguardFiles("consumer-rules.pro")
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+
+    // convention 里只开了 compose，aidl 需在这里补上
     buildFeatures {
-        compose = true
         aidl = true
     }
 }
 
 dependencies {
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.appcompat)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.activity.compose)
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.ui.graphics)
-    implementation(libs.androidx.compose.ui.tooling.preview)
-    implementation(libs.androidx.compose.material3)
+    // 说明：core-ktx / appcompat / activity-compose / lifecycle-runtime(-ktx/-compose) /
+    //       compose-bom / compose-ui(-graphics) / material3 / material-icons-extended
+    //       都由 library.compose convention 统一注入，这里不再重复声明。
+
+    // library.compose 未注入的 compose 扩展
     implementation(libs.androidx.lifecycle.viewmodel.compose)
 
     // Accompanist
     implementation(libs.accompanist.systemuicontroller)
-    // Permissions
     implementation(libs.accompanist.permissions)
 
     // libsu
@@ -61,15 +44,4 @@ dependencies {
 
     // document
     implementation(libs.androidx.documentfile)
-}
-
-afterEvaluate {
-    publishing {
-        publications {
-            create<MavenPublication>("release") {
-                from(components["release"])
-                groupId = "com.github.XayahSuSuSu"
-            }
-        }
-    }
 }

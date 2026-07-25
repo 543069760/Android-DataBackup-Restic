@@ -27,5 +27,5 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
 
     // PickYou
-    implementation(libs.pickyou)
+    implementation(project(":libpickyou"))
 }

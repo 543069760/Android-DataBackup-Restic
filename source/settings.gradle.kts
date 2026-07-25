@@ -48,3 +48,7 @@ include(":feature:flavor:foss")
 include(":feature:flavor:premium")
 include(":feature:flavor:alpha")
 include(":native")
+
+// libpickyou 本地源码模块(库模块在子目录 libpickyou/libpickyou)
+include(":libpickyou")
+project(":libpickyou").projectDir = file("libpickyou/libpickyou")

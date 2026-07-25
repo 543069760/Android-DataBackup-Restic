@@ -30,5 +30,5 @@ dependencies {
     implementation(libs.libsu.core)
 
     // PickYou
-    implementation(libs.pickyou)
+    implementation(project(":libpickyou"))
 }

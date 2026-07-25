@@ -45,5 +45,5 @@ dependencies {
     implementation(libs.sardine.next)
 
     // PickYou
-    implementation(libs.pickyou)
+    implementation(project(":libpickyou"))
 }

@@ -33,7 +33,7 @@ dependencies {
     implementation(libs.libsu.core)
 
     // PickYou
-    implementation(libs.pickyou)
+    implementation(project(":libpickyou"))
 
     // Work manager
     implementation(libs.androidx.work.runtime.ktx)
