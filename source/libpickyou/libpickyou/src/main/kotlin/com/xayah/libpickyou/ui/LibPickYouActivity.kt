@@ -1,10 +1,12 @@
 package com.xayah.libpickyou.ui
 
+import android.util.Log
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
@@ -46,7 +48,6 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.style.TextAlign
-import androidx.core.view.WindowCompat
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.xayah.libpickyou.R
 import com.xayah.libpickyou.ui.components.Button
@@ -82,13 +83,14 @@ internal class LibPickYouActivity : ComponentActivity() {
     @ExperimentalAnimationApi
     @ExperimentalMaterial3Api
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()          // 必须在 super.onCreate() 之前，与主工程 MainActivity 一致
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContent {
             LibPickYouTheme {
                 val dialogState = LocalSlotScope.current!!.dialogSlot
                 val uiState by viewModel.uiState.collectAsState()
+                Log.d("PickYouDbg", "showBottomSheet=${uiState.showBottomSheet}, firstResume=${uiState.firstResume}")
                 val permissionsState = PermissionUtil.getPermissionsState()
                 val owner = LocalLifecycleOwner.current
                 val scope = rememberCoroutineScope()
@@ -186,6 +188,7 @@ internal class LibPickYouActivity : ComponentActivity() {
                     },
                     onFabClick = if (Launcher.pickerType == PickerType.DIRECTORY) {
                         {
+                            Log.d("PickYouDbg", "FAB(confirm dir) clicked")
                             scope.launch {
                                 val (dismissState, _) = dialogState.openConfirm(
                                     title = getString(R.string.pick),
@@ -239,8 +242,11 @@ internal class LibPickYouActivity : ComponentActivity() {
                                     }
                                 } else {
                                     AnimatedContent(targetState = uiState, label = AnimationToken.ANIMATED_CONTENT_LABEL) {
+                                        Log.d("PickYouDbg", "render grid: canUp=${it.canUp}, dirs=${it.children.directories.size}, files=${it.children.files.size}, isLoading=${it.isLoading}")
                                         LazyVerticalStaggeredGrid(
-                                            modifier = Modifier.paddingHorizontal(SizeTokens.Level24),
+                                            modifier = Modifier
+                                                .fillMaxSize()                                   // ← 加这行
+                                                .paddingHorizontal(SizeTokens.Level24),
                                             columns = StaggeredGridCells.Fixed(2),
                                             horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level8),
                                         ) {
@@ -266,6 +272,7 @@ internal class LibPickYouActivity : ComponentActivity() {
                                             items(items = it.children.directories) {
                                                 AssistChip(
                                                     onClick = {
+                                                        Log.d("PickYouDbg", "dir chip onClick: ${it.name}")
                                                         viewModel.emitIntentOnIO(IndexUiIntent.Enter(context, it))
                                                     },
                                                     label = {

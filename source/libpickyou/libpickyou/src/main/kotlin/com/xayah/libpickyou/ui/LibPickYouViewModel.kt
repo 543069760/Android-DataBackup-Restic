@@ -1,5 +1,6 @@
 package com.xayah.libpickyou.ui
 
+import android.util.Log
 import android.app.Activity.RESULT_OK
 import android.content.Context
 import android.content.Intent
@@ -116,6 +117,7 @@ internal class LibPickYouViewModel : BaseViewModel<IndexUiState, IndexUiIntent, 
             is IndexUiIntent.UpdatePathList -> {
                 val context = intent.context
                 emitState(uiState.value.copy(isLoading = true))
+                Log.d("PickYouDbg", "UpdatePathList START, path=${uiState.value.pathList.toPath()}, isRoot=${PickYouLauncher.sIsRootMode}")
                 runCatching {
                     val children: DirChildrenParcelable
                     val path = uiState.value.pathList.toPath()
@@ -137,16 +139,21 @@ internal class LibPickYouViewModel : BaseViewModel<IndexUiState, IndexUiIntent, 
                             }
                         }
                     }
+                    Log.d("PickYouDbg", "traverse OK, dirs=${children.directories.size}, files=${children.files.size}")
                     emitIntent(IndexUiIntent.SetExceptionMessage(null))
                     emitState(state.copy(children = children, canUp = isAccessible(uiState.value.pathList.toMutableList().apply { removeLastOrNull() })))
+                    Log.d("PickYouDbg", "emitState children done, canUp=${uiState.value.canUp}")
                 }.onFailure {
+                    Log.e("PickYouDbg", "traverse FAILED: ${it.localizedMessage}", it)
                     emitIntent(IndexUiIntent.SetExceptionMessage(it.localizedMessage))
                 }
                 emitState(uiState.value.copy(isLoading = false))
+                Log.d("PickYouDbg", "UpdatePathList END, isLoading=false")
             }
 
             is IndexUiIntent.Enter -> {
                 val item = intent.item
+                Log.d("PickYouDbg", "Enter clicked: name=${item.name}, link=${item.link}")
                 val context = intent.context
 
                 if (item.link.isNullOrEmpty().not()) {
@@ -156,6 +163,7 @@ internal class LibPickYouViewModel : BaseViewModel<IndexUiState, IndexUiIntent, 
                     val path = state.pathList.toMutableList()
                     path.add(item.name)
                     emitState(state.copy(pathList = path.toList()))
+                    Log.d("PickYouDbg", "Enter newPathList=${path}")
 
                     checkSpecialPath(context, path)
                     emitIntent(IndexUiIntent.UpdatePathList(context))

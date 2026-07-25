@@ -53,7 +53,7 @@ fun ResticInitializationScreen() {
     var repoPathToDelete by remember { mutableStateOf("") }
 
     val directoryLauncher = PickYouLauncher(
-        checkPermission = true,
+        checkPermission = false,
         title = stringResource(id = R.string.select_directory),
         pickerType = PickerType.DIRECTORY,
         permissionType = PermissionType.ROOT,

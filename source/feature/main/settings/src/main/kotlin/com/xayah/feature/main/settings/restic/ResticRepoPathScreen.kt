@@ -34,7 +34,7 @@ fun ResticRepoPathScreen() {
     // 与 ResticInitializationScreen 中已稳定运行的用法保持一致，
     // 通过 root 直接遍历文件系统，避免 SAF Uri→路径转换在不同 ROM 下崩溃。
     val directoryLauncher = PickYouLauncher(
-        checkPermission = true,
+        checkPermission = false,
         title = stringResource(id = R.string.select_directory),
         pickerType = PickerType.DIRECTORY,
         permissionType = PermissionType.ROOT,

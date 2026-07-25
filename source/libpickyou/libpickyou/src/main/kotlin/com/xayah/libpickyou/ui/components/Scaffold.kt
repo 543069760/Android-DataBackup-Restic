@@ -1,5 +1,6 @@
 package com.xayah.libpickyou.ui.components
 
+import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
@@ -7,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
@@ -71,7 +73,8 @@ internal fun PickYouScaffold(
             }
         }
     ) { innerPadding ->
-        Column {
+        Log.d("PickYouDbg", "PickYouScaffold content: topPadding=${innerPadding.calculateTopPadding()}, isLoading=$isLoading")
+        Column(modifier = Modifier.fillMaxSize()) {   // ← 加 fillMaxSize()
             Spacer(
                 modifier = Modifier
                     .fillMaxWidth()

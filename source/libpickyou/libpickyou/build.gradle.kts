@@ -35,7 +35,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
 
     // Accompanist
-    implementation(libs.accompanist.systemuicontroller)
     implementation(libs.accompanist.permissions)
 
     // libsu

@@ -17,7 +17,6 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
-import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import com.xayah.libpickyou.ui.components.LocalSlotScope
 import com.xayah.libpickyou.ui.components.rememberSlotScope
 import com.xayah.libpickyou.util.PreferencesUtil
@@ -61,20 +60,6 @@ internal fun LibPickYouTheme(content: @Composable () -> Unit) {
             window.statusBarColor = colorScheme.primary.toArgb()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkTheme
         }
-    }
-
-    // Transparent system bars
-    val systemUiController = rememberSystemUiController()
-    SideEffect {
-        systemUiController.setStatusBarColor(
-            color = Color.Transparent,
-            darkIcons = !darkTheme
-        )
-        systemUiController.setNavigationBarColor(
-            color = Color.Transparent,
-            darkIcons = !darkTheme,
-            navigationBarContrastEnforced = false
-        )
     }
 
     MaterialTheme(
