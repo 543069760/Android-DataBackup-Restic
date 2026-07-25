@@ -1,0 +1,18 @@
+<resources>
+    <string name="lib_name" translatable="false">PickYou</string>
+    <string name="selected">Selected</string>
+    <string name="none">None</string>
+    <string name="pick">Pick</string>
+    <string name="confirm">Confirm</string>
+    <string name="cancel">Cancel</string>
+    <string name="selection_empty">Selection is empty</string>
+    <string name="max_limitation">Max limitation</string>
+    <string name="confirm_your_selections">Confirm your selections</string>
+    <string name="necessary_permissions">Necessary permissions</string>
+    <string name="storage">Storage</string>
+    <string name="failed_to_grant_permission">Failed to grant permission!</string>
+    <string name="created">Created</string>
+    <string name="failed_to_create">Failed to create</string>
+    <string name="create_folder">Create folder</string>
+    <string name="name">Name</string>
+</resources>
