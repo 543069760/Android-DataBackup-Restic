@@ -110,7 +110,7 @@ jobs:
           if [ "${BUILD_FOSS}" = 'true' ]; then  
             TASKS="$TASKS assembleArm64-v8aFossDebug assembleArmeabi-v7aFossDebug assembleX86FossDebug assembleX86_64FossDebug"  
           fi  
-          
+          TASKS="$(echo "$TASKS" | xargs)"
           if [ -z "${TASKS}" ]; then  
             TASKS="assembleDebug"  
           fi  
