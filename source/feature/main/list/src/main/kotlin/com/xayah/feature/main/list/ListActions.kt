@@ -97,7 +97,7 @@ internal fun ListActions(
                             AddItem(enabled = uiState.isUpdating.not()) {
                                 moreExpanded = false
                                 PickYouLauncher(
-                                    checkPermission = true,
+                                    checkPermission = false,
                                     title = selectTargetDirectoryText,
                                     pickerType = PickerType.DIRECTORY,
                                     permissionType = PermissionType.ROOT,
