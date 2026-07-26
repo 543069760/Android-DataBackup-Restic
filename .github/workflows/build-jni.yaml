@@ -45,16 +45,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch }}
           fetch-depth: 0            # 获取完整提交历史以统计 commit 数量
-          submodules: recursive     # 拉取 tar / zstd-jni 子模块（rustic_core 用下面的 clone 步骤单独获取）
-
-      # ── 获取 rustic_core（非子模块，显式 clone 并固定 commit）──────────
-      - name: Fetch rustic_core (pinned)
-        run: |
-          git clone https://github.com/543069760/rustic_core \  
-            source/native/src/main/jni/external/rustic/rustic_core  
-          git -C source/native/src/main/jni/external/rustic/rustic_core \  
-            checkout 82f32a4
-      # ─────────────────────────────────────────────────────────────────
+          submodules: recursive     # 拉取 tar / zstd-jni / rustic_core 子模块（rustic_core 已固定在 82f32a4）
 
       - name: Validate gradle wrapper
         uses: gradle/wrapper-validation-action@v1
