@@ -4,3 +4,6 @@
 [submodule "source/native/src/main/jni/external/rustic/rustic_core"]
 	path = source/native/src/main/jni/external/rustic/rustic_core
 	url = https://github.com/543069760/rustic_core
+[submodule "source-next/native/src/main/jni/external/rustic/rustic_core"]
+	path = source-next/native/src/main/jni/external/rustic/rustic_core
+	url = https://github.com/543069760/rustic_core
