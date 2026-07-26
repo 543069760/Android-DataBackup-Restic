@@ -1,0 +1,172 @@
+name: Build (JNI)
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Target Branch'
+        required: true
+        default: 'rustic-jni'
+      Alpha:
+        description: 'Alpha'
+        required: true
+        default: 'true'
+      Premium:
+        description: 'Premium'
+        required: true
+        default: 'true'
+      Foss:
+        description: 'Foss'
+        required: true
+        default: 'true'
+      release_type:
+        description: 'Release Type'
+        required: true
+        type: choice
+        options:
+          - pre-release
+          - release
+        default: 'pre-release'
+      version_name:
+        description: 'Version Name (e.g., 3.0.1-S3)'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    name: "Build APKs"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+          fetch-depth: 0            # 获取完整提交历史以统计 commit 数量
+          submodules: recursive     # 拉取 tar / zstd-jni 子模块（rustic_core 用下面的 clone 步骤单独获取）
+
+      # ── 获取 rustic_core（非子模块，显式 clone 并固定 commit）──────────
+      - name: Fetch rustic_core (pinned)
+        run: |
+          git clone https://github.com/543069760/rustic_core \  
+            source/native/src/main/jni/external/rustic/rustic_core  
+          git -C source/native/src/main/jni/external/rustic/rustic_core \  
+            checkout 82f32a4
+      # ─────────────────────────────────────────────────────────────────
+
+      - name: Validate gradle wrapper
+        uses: gradle/wrapper-validation-action@v1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: 17
+
+      - name: Setup gradle
+        uses: gradle/gradle-build-action@v3
+
+      # ── Rust 工具链（编译 librustic.so 所需）──────────────────────────
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable   # edition 2024 需 Rust >= 1.85
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: source/native/src/main/jni/external/rustic/rustic
+      # ─────────────────────────────────────────────────────────────────
+
+      - name: Calculate Dynamic Version
+        id: calc_version
+        run: |
+          # 核心逻辑：基础 30000 + Commit 总数  
+          COMMITS=$(git rev-list --count HEAD)  
+          BASE_CODE=30000  
+          DYNAMIC_CODE=$((BASE_CODE + COMMITS))  
+          echo "code=$DYNAMIC_CODE" >> $GITHUB_OUTPUT  
+          
+          # 确定版本名称  
+          if [ -n "${{ github.event.inputs.version_name }}" ]; then  
+            VERSION_NAME="${{ github.event.inputs.version_name }}"  
+          else  
+            VERSION_NAME=$(grep "versionName" gradle/libs.versions.toml | cut -d'"' -f2)  
+          fi  
+          echo "name=$VERSION_NAME" >> $GITHUB_OUTPUT  
+          
+          echo "Final Version Code: $DYNAMIC_CODE"  
+          echo "Final Version Name: $VERSION_NAME"
+        working-directory: source
+
+      - name: Build with gradle (Dynamic Version Injection)
+        id: gradle
+        env:
+          BUILD_ALPHA: ${{ github.event.inputs.Alpha }}
+          BUILD_PREMIUM: ${{ github.event.inputs.Premium }}
+          BUILD_FOSS: ${{ github.event.inputs.Foss }}
+        run: |
+          TASKS=""  
+          if [ "${BUILD_ALPHA}" = 'true' ]; then  
+            TASKS="$TASKS assembleArm64-v8aAlphaDebug assembleArmeabi-v7aAlphaDebug assembleX86AlphaDebug assembleX86_64AlphaDebug"  
+          fi  
+          if [ "${BUILD_PREMIUM}" = 'true' ]; then  
+            TASKS="$TASKS assembleArm64-v8aPremiumDebug assembleArmeabi-v7aPremiumDebug assembleX86PremiumDebug assembleX86_64PremiumDebug"  
+          fi  
+          if [ "${BUILD_FOSS}" = 'true' ]; then  
+            TASKS="$TASKS assembleArm64-v8aFossDebug assembleArmeabi-v7aFossDebug assembleX86FossDebug assembleX86_64FossDebug"  
+          fi  
+          
+          if [ -z "${TASKS}" ]; then  
+            TASKS="assembleDebug"  
+          fi  
+          
+          chmod +x gradlew  
+          # 注入版本参数，对应 build.gradle.kts 中的 project.hasProperty 逻辑  
+          ./gradlew $TASKS \  
+            -PversionCode=${{ steps.calc_version.outputs.code }} \  
+            -PversionName="${{ steps.calc_version.outputs.name }}" \  
+            --daemon --parallel
+        working-directory: source
+
+      - name: Move APKs to root
+        run: |
+          mkdir -p ../build-output  
+          find . -name "*.apk" -exec mv {} ../build-output/ \;  
+          echo "Collected APKs:"  
+          ls -R ../build-output/
+        working-directory: source
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: APKs-v${{ steps.calc_version.outputs.name }}-b${{ steps.calc_version.outputs.code }}
+          path: build-output/*.apk
+
+      - name: Create Release
+        if: github.event.inputs.release_type != ''
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.calc_version.outputs.name }}.${{ steps.calc_version.outputs.code }}
+          name: v${{ steps.calc_version.outputs.name }} (Build ${{ steps.calc_version.outputs.code }})
+          prerelease: ${{ github.event.inputs.release_type == 'pre-release' }}
+          files: build-output/*.apk
+          body: |
+            ## Release Info  
+            - **Version:** `${{ steps.calc_version.outputs.name }}`  
+            - **Build Code:** `${{ steps.calc_version.outputs.code }}` (Base 30000 + Commits)  
+            - **Branch:** `${{ github.event.inputs.branch }}`  
+            
+            ### Included Variants  
+            - Alpha: ${{ github.event.inputs.Alpha }}  
+            - Premium: ${{ github.event.inputs.Premium }}  
+            - Foss: ${{ github.event.inputs.Foss }}  
+            
+            ### Note  
+            ⚠️ This is a **DEBUG** build without formal signing, created for testing purposes.  
+            All ABIs in this build share the same Version Code.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

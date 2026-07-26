@@ -1,0 +1,7 @@
+.idea/
+**/build/
+**/.gradle/
+**/.cxx/
+**/.externalNativeBuild/
+**/target/
+.kotlin/
