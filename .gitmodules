@@ -7,3 +7,9 @@
 [submodule "source-next/native/src/main/jni/external/rustic/rustic_core"]
 	path = source-next/native/src/main/jni/external/rustic/rustic_core
 	url = https://github.com/543069760/rustic_core
+[submodule "source-next/native/src/main/jni/external/tar/tar"]
+	path = source-next/native/src/main/jni/external/tar/tar
+	url = https://github.com/XayahSuSuSu/tar
+[submodule "source-next/native/src/main/jni/external/zstd/zstd-jni"]
+	path = source-next/native/src/main/jni/external/zstd/zstd-jni
+	url = https://github.com/luben/zstd-jni
