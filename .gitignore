@@ -5,3 +5,4 @@
 **/.externalNativeBuild/
 **/target/
 .kotlin/
+source/native/src/main/jni/external/rustic/rustic_core/
