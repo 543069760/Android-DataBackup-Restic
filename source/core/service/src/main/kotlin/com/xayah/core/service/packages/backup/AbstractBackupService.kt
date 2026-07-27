@@ -31,6 +31,7 @@ import com.xayah.core.util.NotificationUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.command.PreparationUtil
 import com.xayah.core.restic.ResticRepository
+import com.xayah.core.restic.ResticRepositoryCos
 import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.datastore.readResticPassword
 import dagger.hilt.android.AndroidEntryPoint
@@ -46,6 +47,9 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
 
     @Inject
     lateinit var resticRepo: ResticRepository
+
+    @Inject
+    lateinit var resticRepoCos: ResticRepositoryCos
 
     override suspend fun onInitializingPreprocessingEntities(entities: MutableList<ProcessingInfoEntity>) {
         entities.apply {

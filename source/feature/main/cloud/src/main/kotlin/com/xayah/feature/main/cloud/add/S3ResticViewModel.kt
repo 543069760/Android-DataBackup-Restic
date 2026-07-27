@@ -14,7 +14,7 @@ import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.database.S3NetworkType
 import com.xayah.core.model.database.S3Protocol
 import com.xayah.core.restic.ResticNative
-import com.xayah.core.restic.ResticRepository
+import com.xayah.core.restic.ResticRepositoryCos
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.ui.viewmodel.BaseViewModel
 import com.xayah.core.ui.viewmodel.IndexUiEffect
@@ -38,7 +38,7 @@ sealed class S3ResticUiIntent : UiIntent
 @HiltViewModel
 class S3ResticViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val resticRepo: ResticRepository,
+    private val resticRepoCos: ResticRepositoryCos,
     private val rootService: RemoteRootService,
     private val resticNative: ResticNative
 ) : BaseViewModel<S3ResticUiState, S3ResticUiIntent, IndexUiEffect>(S3ResticUiState) {
@@ -89,11 +89,10 @@ class S3ResticViewModel @Inject constructor(
 
         return withContext(Dispatchers.IO) {
             try {
-                // 根据官方文档要求，ResticRepository.initS3Repository已经正确实现了：
-                // 1. 设置AWS_ACCESS_KEY_ID和AWS_SECRET_ACCESS_KEY环境变量
-                // 2. 构建正确的S3 URL格式：s3:https://endpoint/bucket/path 或 s3:s3.region.amazonaws.com/bucket/path
-                // 3. 设置RESTIC_PASSWORD环境变量
-                val result = resticRepo.initS3Repository(s3Extra, remotePath, password)
+                // 迁移到进程内 JNI：由 ResticRepositoryCos.initCosRepository 构建
+                // opendal:cos 后端 options（bucket/root/endpoint/secret_id/secret_key），
+                // 密码单独传入，经 AIDL → RemoteRootServiceImpl → Rustic 在 root 进程完成 init。
+                val result = resticRepoCos.initCosRepository(s3Extra, remotePath, password)
 
                 if (result.isSuccess) {
                     // 保存配置到DataStore

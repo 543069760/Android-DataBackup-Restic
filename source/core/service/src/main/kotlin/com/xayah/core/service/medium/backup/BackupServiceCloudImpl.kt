@@ -277,7 +277,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
 
             val unifiedRepoPath = mContext.readS3ResticRepoPath() ?: remotePath
 
-            val result = resticRepo.backupFileToS3(
+            val result = resticRepoCos.backupFileToCos(
                 extra = s3Extra,
                 remotePath = unifiedRepoPath,
                 filePath = compressedFile.absolutePath,

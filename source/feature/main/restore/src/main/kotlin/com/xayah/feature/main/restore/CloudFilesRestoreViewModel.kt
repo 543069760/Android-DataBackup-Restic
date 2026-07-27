@@ -17,8 +17,10 @@ import com.xayah.core.model.database.MediaEntity
 import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.restic.ResticBackupFiles
 import com.xayah.core.restic.ResticRepository
+import com.xayah.core.restic.ResticRepositoryCos
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.localBackupSaveDir
+import com.xayah.core.util.decodeURL
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,7 +37,7 @@ import java.io.File
 @HiltViewModel
 class CloudFilesRestoreViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val resticRepo: ResticRepository,
+    private val resticRepoCos: ResticRepositoryCos,
     private val mediaDao: MediaDao,
     private val filesRepo: FilesRepo,
     private val rootService: RemoteRootService,
@@ -60,7 +62,7 @@ class CloudFilesRestoreViewModel @Inject constructor(
         Log.d(TAG, "=== setCloudEntity 开始 ===")
         Log.d(TAG, "原始账户名: $accountName")
 
-        val cleanAccountName = accountName.replace("accountName=", "")
+        val cleanAccountName = accountName.replace("accountName=", "").decodeURL()
         this.accountName = cleanAccountName
         Log.d(TAG, "清理后账户名: $cleanAccountName")
 
@@ -102,14 +104,10 @@ class CloudFilesRestoreViewModel @Inject constructor(
                 }
                 Log.d(TAG, "S3 Restic密码配置已读取 (长度: ${password.length})")
 
-                // 优先使用 SQL 模式,失败时回退到 JSON 模式
-                Log.d(TAG, "开始调用 listBackedUpFilesFromS3WithSql (SQL 模式)")
-                val files: List<ResticBackupFiles> = try {
-                    resticRepo.listBackedUpFilesFromS3WithSql(cloudEntity, password)
-                } catch (e: Exception) {
-                    Log.w(TAG, "SQL 模式失败,回退到 JSON 模式", e)
-                    resticRepo.listBackedUpFilesFromS3(cloudEntity, password)
-                }
+                // JNI 模式获取文件备份列表
+                Log.d(TAG, "开始调用 listBackedUpFilesFromS3WithSqlJni (JNI 模式)")
+                val files: List<ResticBackupFiles> =
+                    resticRepoCos.listBackedUpFilesFromS3WithSqlJni(cloudEntity, password)
 
                 Log.d(TAG, "获取到 ${files.size} 个文件备份项")
 
@@ -186,7 +184,7 @@ class CloudFilesRestoreViewModel @Inject constructor(
                     currentDataTypeIndex = index
                 )
 
-                val success = resticRepo.forgetSnapshotFromS3(
+                val success = resticRepoCos.forgetSnapshotFromCos(
                     cloudEntity = cloudEntity,
                     password = password,
                     snapshotId = backup.snapshotId
@@ -202,7 +200,7 @@ class CloudFilesRestoreViewModel @Inject constructor(
                 currentDataTypeIndex = sortedBackups.size
             )
 
-            val pruneSuccess = resticRepo.pruneS3Repository(cloudEntity, password)
+            val pruneSuccess = resticRepoCos.pruneCosRepository(cloudEntity, password)
             _resticProgress.value = ResticProgressState()
 
             pruneSuccess
@@ -309,9 +307,9 @@ class CloudFilesRestoreViewModel @Inject constructor(
                     Log.d(TAG, "  包含文件: $includePath")
                     Log.d(TAG, "  快照ID: ${backup.snapshotId}")
 
-                    Log.d(TAG, "调用 restoreSnapshotFromS3")
+                    Log.d(TAG, "调用 restoreSnapshotFromCos")
                     val restoreStartTime = System.currentTimeMillis()
-                    val success = resticRepo.restoreSnapshotFromS3(
+                    val success = resticRepoCos.restoreSnapshotFromCos(
                         cloudEntity = cloudEntity,
                         password = password,
                         snapshotId = backup.snapshotId,
@@ -321,7 +319,7 @@ class CloudFilesRestoreViewModel @Inject constructor(
                         progressCallback = progressCallback
                     )
                     val restoreDuration = System.currentTimeMillis() - restoreStartTime
-                    Log.d(TAG, "restoreSnapshotFromS3 完成，结果: $success, 耗时: ${restoreDuration}ms")
+                    Log.d(TAG, "restoreSnapshotFromCos 完成，结果: $success, 耗时: ${restoreDuration}ms")
 
                     if (!success) {
                         Log.e(TAG, "恢复失败: ${backup.dataType.type}, 快照ID: ${backup.snapshotId}")

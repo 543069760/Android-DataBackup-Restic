@@ -267,7 +267,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
 
             val unifiedRepoPath = mContext.readS3ResticRepoPath() ?: remotePath
 
-            val result = resticRepo.backupFileToS3(
+            val result = resticRepoCos.backupFileToCos(
                 extra = s3Extra,
                 remotePath = unifiedRepoPath,
                 filePath = compressedFile.absolutePath,
@@ -286,7 +286,6 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                         percentDone: Float, bytesDone: Long,
                         bytesTotal: Long, filesDone: Long, filesTotal: Long
                     ) {
-                        // 更新进度到 UI
                         Log.d(mTAG, "Restic S3 backup progress: ${percentDone * 100}%")
                     }
                 }

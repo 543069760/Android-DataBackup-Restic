@@ -20,6 +20,7 @@ import com.xayah.core.restic.ResticRepository
 import com.xayah.core.restic.ResticRepositoryCos
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.GsonUtil
+import com.xayah.core.util.decodeURL
 import com.xayah.core.util.localBackupSaveDir
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -37,7 +38,6 @@ import java.io.File
 @HiltViewModel
 class CloudRestoreViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val resticRepo: ResticRepository,
     private val resticRepoCos: ResticRepositoryCos,
     private val appsDao: PackageDao,
     private val appsRepo: com.xayah.core.data.repository.AppsRepo,
@@ -56,7 +56,7 @@ class CloudRestoreViewModel @Inject constructor(
     val resticProgress: StateFlow<ResticProgressState> = _resticProgress.asStateFlow()
 
     fun setCloudEntity(accountName: String) {
-        val cleanAccountName = accountName.replace("accountName=", "")
+        val cleanAccountName = accountName.replace("accountName=", "").decodeURL()
         this.accountName = cleanAccountName // 存储账户名
         Log.d("CloudRestore", "setCloudEntity 被调用，账户名: $accountName")
         viewModelScope.launch {
@@ -84,14 +84,10 @@ class CloudRestoreViewModel @Inject constructor(
             }
             try {
                 // 明确指定类型，消除歧义
-                val apps: List<ResticBackupApp> = try {
-                    // JNI 模式（opendal:cos，走 rootService.listRusticSnapshotsDb + parseAppsDb）
+                // JNI 模式（opendal:cos，走 rootService.listRusticSnapshotsDb + parseAppsDb）
+                // 该方法内部已 try/catch，失败时返回 emptyList()，不再需要二进制 fallback
+                val apps: List<ResticBackupApp> =
                     resticRepoCos.listBackedUpAppsFromS3WithSqlJni(cloudEntity, password)
-                } catch (e: Exception) {
-                    Log.w("CloudRestore", "JNI 模式失败,回退到 JSON 模式", e)
-                    // Fallback 到现有 JSON 模式
-                    resticRepo.listBackedUpAppsFromS3(cloudEntity, password)
-                }
 
                 val groupedBackups = apps
                     .groupBy { "${it.userId}-${it.packageName}-${it.timestamp}" }
@@ -206,7 +202,7 @@ class CloudRestoreViewModel @Inject constructor(
                     }
                     val fullTargetPath = "${targetPath}apps/${backup.packageName}/user_${backup.userId}/"
 
-                    val success = resticRepo.restoreSnapshotFromS3(
+                    val success = resticRepoCos.restoreSnapshotFromCos(
                         cloudEntity = cloudEntity,
                         password = password,
                         snapshotId = backup.snapshotId,
@@ -267,7 +263,7 @@ class CloudRestoreViewModel @Inject constructor(
                     currentDataTypeIndex = index
                 )
 
-                val success = resticRepo.forgetSnapshotFromS3(
+                val success = resticRepoCos.forgetSnapshotFromCos(
                     cloudEntity = cloudEntity,
                     password = password,
                     snapshotId = backup.snapshotId
@@ -285,7 +281,7 @@ class CloudRestoreViewModel @Inject constructor(
                 currentDataTypeIndex = sortedBackups.size  // 最后一步
             )
 
-            val pruneSuccess = resticRepo.pruneS3Repository(cloudEntity, password)
+            val pruneSuccess = resticRepoCos.pruneCosRepository(cloudEntity, password)
 
             // 重置进度状态
             _resticProgress.value = ResticProgressState()
