@@ -13,6 +13,7 @@ jni = "0.22.4"
 log = "0.4.29"
 simplelog = "0.12.2"
 thiserror = "2.0.18"
+rustls-platform-verifier = "0.7"
 
 # rustic_core submodule（同级目录，比 source-next 骨架少一层 external/rustic）
 rustic_core = { path = "../rustic_core/crates/core" }

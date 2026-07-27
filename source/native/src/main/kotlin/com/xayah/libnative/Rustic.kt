@@ -1,6 +1,8 @@
 package com.xayah.libnative
 
 object Rustic {
+    fun initPlatformVerifier(context: android.content.Context) = nativeInitPlatformVerifier(context)
+
     fun initLogger() = nativeInitLogger()
 
     fun getVersion(): String = nativeGetVersion()
@@ -111,6 +113,8 @@ object Rustic {
         val (optionKeys, optionValues) = options.toKeyValueArrays()
         nativeListSnapshotsDb(repositoryPath, password, optionKeys, optionValues, dbPath)
     }
+
+    private external fun nativeInitPlatformVerifier(context: android.content.Context)
 
     // keys 与 values 来自同一个 entry 迭代，保证按位一一对应，
     // 与 jni_bridge.rs 的 string_arrays_to_map(zip) 配对方式一致

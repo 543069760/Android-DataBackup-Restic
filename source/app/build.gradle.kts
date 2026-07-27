@@ -187,4 +187,8 @@ dependencies {
     implementation(libs.bountycastle)
 
     implementation(libs.kotlinx.serialization.json)
+
+    // rustls-platform-verifier 的 Android JVM 支持组件（HTTPS 证书校验必需）
+    // 坐标须与 maven/.../0.1.1/rustls-platform-verifier-0.1.1.pom 的 groupId/artifactId/version 完全一致
+    implementation("rustls:rustls-platform-verifier:0.1.1")
 }

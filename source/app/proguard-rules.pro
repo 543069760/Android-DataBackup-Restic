@@ -73,3 +73,7 @@
 -keep class org.bouncycastle.jcajce.provider.** { *; }
 -keep class org.bouncycastle.jce.provider.** { *; }
 -keep class org.bouncycastle.crypto.** { *; }
+
+# rustls-platform-verifier（HTTPS 证书校验的 Android 支持组件）
+-dontwarn org.rustls.platformverifier.**
+-keep,includedescriptorclasses class org.rustls.platformverifier.** { *; }

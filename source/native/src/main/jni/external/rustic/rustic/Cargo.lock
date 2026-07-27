@@ -3783,6 +3783,7 @@ dependencies = [
  "rusqlite",
  "rustic_backend",
  "rustic_core",
+ "rustls-platform-verifier",
  "serde",
  "serde_json",
  "simplelog",

@@ -69,6 +69,13 @@ class RemoteRootService(private val context: Context) {
             }
         }
 
+        override fun onCreate() {
+            super.onCreate()
+            if (Process.myUid() == 0) {
+                Rustic.initPlatformVerifier(applicationContext)
+            }
+        }
+
         override fun onBind(intent: Intent): IBinder = RemoteRootServiceImpl(applicationContext)
     }
 

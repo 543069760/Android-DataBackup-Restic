@@ -6,6 +6,7 @@ use jni::objects::{JObject, JObjectArray, JString};
 use jni::signature::{Primitive, ReturnType};
 use jni::sys::jboolean;
 use jni::{JValue, jni_sig, jni_str};
+use jni::objects::JClass;
 
 use crate::error::NativeError;
 use crate::jni_progress::JniProgressCallback;
@@ -14,6 +15,18 @@ use crate::repository::{
     get_version, init_repository, list_snapshots_db, prune_repository, repository_exists,
     restore_snapshot, restore_snapshot_with_progress, validate_repository,
 };
+
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeInitPlatformVerifier<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    context: JObject<'local>,
+) {
+    unowned_env
+        .with_env(|env| rustls_platform_verifier::android::init_with_env(env, context))
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeInitLogger<'local>(

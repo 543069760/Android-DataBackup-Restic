@@ -17,6 +17,7 @@ import com.xayah.core.model.database.PackageEntity
 import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.restic.ResticRepository
+import com.xayah.core.restic.ResticRepositoryCos
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.GsonUtil
 import com.xayah.core.util.localBackupSaveDir
@@ -37,6 +38,7 @@ import java.io.File
 class CloudRestoreViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val resticRepo: ResticRepository,
+    private val resticRepoCos: ResticRepositoryCos,
     private val appsDao: PackageDao,
     private val appsRepo: com.xayah.core.data.repository.AppsRepo,
     private val rootService: RemoteRootService,
@@ -83,10 +85,10 @@ class CloudRestoreViewModel @Inject constructor(
             try {
                 // 明确指定类型，消除歧义
                 val apps: List<ResticBackupApp> = try {
-                    // 优先使用 SQL 模式(性能更好)
-                    resticRepo.listBackedUpAppsFromS3WithSql(cloudEntity, password)
+                    // JNI 模式（opendal:cos，走 rootService.listRusticSnapshotsDb + parseAppsDb）
+                    resticRepoCos.listBackedUpAppsFromS3WithSqlJni(cloudEntity, password)
                 } catch (e: Exception) {
-                    Log.w("CloudRestore", "SQL 模式失败,回退到 JSON 模式", e)
+                    Log.w("CloudRestore", "JNI 模式失败,回退到 JSON 模式", e)
                     // Fallback 到现有 JSON 模式
                     resticRepo.listBackedUpAppsFromS3(cloudEntity, password)
                 }
