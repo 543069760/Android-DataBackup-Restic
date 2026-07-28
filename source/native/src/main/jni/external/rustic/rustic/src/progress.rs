@@ -128,10 +128,16 @@ impl ThrottledProgressState {
         }
 
         // Rustic may call inc frequently; keep Java callbacks coarse-grained.
-        let should_emit = finish
-            || self.last_emit_at.is_none_or(|last_emit_at| {
-                now.duration_since(last_emit_at) >= PROGRESS_CALLBACK_INTERVAL
-            });
+                // For the very first event, measure from `started_at` (not "emit
+                // immediately"), so the first speed sample always spans at least one
+                // full interval and cannot be inflated by a tiny denominator.
+                let should_emit = finish
+                    || match self.last_emit_at {
+                        Some(last_emit_at) => {
+                            now.duration_since(last_emit_at) >= PROGRESS_CALLBACK_INTERVAL
+                        }
+                        None => now.duration_since(self.started_at) >= PROGRESS_CALLBACK_INTERVAL,
+                    };
 
         if !should_emit
             || self.bytes_done == 0
@@ -168,25 +174,32 @@ impl ThrottledProgressState {
     }
 }
 
+/// Lower bound on the time window used for speed calculation. Any interval
+/// shorter than this is clamped up, so a near-zero denominator can never
+/// inflate the reported speed (double insurance alongside the first-event
+/// throttling in `advance`).
+const MIN_SPEED_ELAPSED_SECS: f64 = 0.2;
+
 fn bytes_per_second(bytes: u64, elapsed: Duration) -> u64 {
     let seconds = elapsed.as_secs_f64();
     if seconds <= 0.0 {
         0
     } else {
-        (bytes as f64 / seconds).round() as u64
+        (bytes as f64 / seconds.max(MIN_SPEED_ELAPSED_SECS)).round() as u64
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+use super::*;
 
     #[test]
     fn progress_is_throttled_to_one_second() {
         let start = Instant::now();
         let mut state = ThrottledProgressState::new(start);
 
-        assert_eq!(state.advance(1024, start, false).unwrap().bytes_done, 1024);
+        // First inc no longer emits immediately; it must wait a full interval.
+        assert!(state.advance(1024, start, false).is_none());
         assert!(
             state
                 .advance(1024, start + Duration::from_millis(999), false)
@@ -198,7 +211,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(event.bytes_done, 3072);
-        assert_eq!(event.speed, 2048);
+        // First emitted sample spans start..+1s over the full 3072 bytes.
+        assert_eq!(event.speed, 3072);
     }
 
     #[test]
@@ -206,12 +220,13 @@ mod tests {
         let start = Instant::now();
         let mut state = ThrottledProgressState::new(start);
 
-        assert_eq!(state.advance(1024, start, false).unwrap().bytes_done, 1024);
+        // finish always emits regardless of throttling.
         let event = state
-            .advance(1024, start + Duration::from_millis(250), true)
+            .advance(2048, start + Duration::from_millis(250), true)
             .unwrap();
 
         assert_eq!(event.bytes_done, 2048);
+        // 0.25s > MIN_SPEED_ELAPSED_SECS, so unaffected by the clamp: 2048 / 0.25.
         assert_eq!(event.speed, 8192);
     }
 
@@ -220,7 +235,8 @@ mod tests {
         let start = Instant::now();
         let mut state = ThrottledProgressState::new(start);
 
-        assert!(state.advance(1024, start, false).is_some());
+        // First inc is throttled and does not emit.
+        assert!(state.advance(1024, start, false).is_none());
         let event = state
             .advance(0, start + Duration::from_millis(250), true)
             .unwrap();
@@ -230,16 +246,25 @@ mod tests {
     }
 
     #[test]
-    fn first_progress_event_uses_start_time_for_speed() {
+    fn first_progress_event_waits_for_full_interval() {
         let start = Instant::now();
         let mut state = ThrottledProgressState::new(start);
 
+        // Before the interval elapses, nothing is emitted (prevents the
+        // tiny-denominator speed spike at the start of a transfer).
+        assert!(
+            state
+                .advance(1024, start + Duration::from_millis(250), false)
+                .is_none()
+        );
+
+        // Once a full interval passes the first event is emitted using start time.
         let event = state
-            .advance(1024, start + Duration::from_millis(250), false)
+            .advance(1024, start + Duration::from_secs(1), false)
             .unwrap();
 
-        assert_eq!(event.bytes_done, 1024);
-        assert_eq!(event.speed, 4096);
+        assert_eq!(event.bytes_done, 2048);
+        assert_eq!(event.speed, 2048);
     }
 
     #[test]
@@ -249,9 +274,12 @@ mod tests {
 
         state.set_length(4096);
 
-        let first = state.advance(1024, start, false).unwrap();
+        // Space the events one interval apart so both pass throttling.
+        let first = state
+            .advance(1024, start + Duration::from_secs(1), false)
+            .unwrap();
         let second = state
-            .advance(2048, start + Duration::from_secs(1), false)
+            .advance(2048, start + Duration::from_secs(2), false)
             .unwrap();
 
         assert_eq!(first.progress, 0.25);

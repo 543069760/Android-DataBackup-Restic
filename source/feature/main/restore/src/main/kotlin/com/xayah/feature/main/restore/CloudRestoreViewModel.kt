@@ -182,7 +182,13 @@ class CloudRestoreViewModel @Inject constructor(
                         )
                     }
 
-                    override fun onBackupProgress(percentDone: Float, bytesDone: Long, bytesTotal: Long, filesDone: Long, filesTotal: Long) {}
+                    override fun onBackupProgress(
+                        percentDone: Float, bytesDone: Long,
+                        bytesTotal: Long, filesDone: Long, filesTotal: Long,
+                        speed: Long
+                    ) {
+                        // 原有方法体保持不变；restore 相关 VM 里 onBackupProgress 备份时不触发，可保留空/日志实现
+                    }
                 }
 
                 sortedBackups.forEachIndexed { index, backup ->

@@ -141,13 +141,11 @@ class ResticFilesRestoreViewModel @Inject constructor(
                     }
 
                     override fun onBackupProgress(
-                        percentDone: Float,
-                        bytesDone: Long,
-                        bytesTotal: Long,
-                        filesDone: Long,
-                        filesTotal: Long
+                        percentDone: Float, bytesDone: Long,
+                        bytesTotal: Long, filesDone: Long, filesTotal: Long,
+                        speed: Long
                     ) {
-                        // 备份进度（文件恢复时不使用）
+                        // 原有方法体保持不变；restore 相关 VM 里 onBackupProgress 备份时不触发，可保留空/日志实现
                     }
                 }
 

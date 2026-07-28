@@ -279,7 +279,13 @@ class CloudFilesRestoreViewModel @Inject constructor(
                         Log.v(TAG, "恢复进度: ${String.format("%.1f%%", progress * 100)}, 速度: $speedStr, 文件: $filesFinished/$filesTotal")
                     }
 
-                    override fun onBackupProgress(percentDone: Float, bytesDone: Long, bytesTotal: Long, filesDone: Long, filesTotal: Long) {}
+                    override fun onBackupProgress(
+                        percentDone: Float, bytesDone: Long,
+                        bytesTotal: Long, filesDone: Long, filesTotal: Long,
+                        speed: Long
+                    ) {
+                        // 原有方法体保持不变；restore 相关 VM 里 onBackupProgress 备份时不触发，可保留空/日志实现
+                    }
                 }
 
                 Log.d(TAG, "开始逐个恢复备份项")

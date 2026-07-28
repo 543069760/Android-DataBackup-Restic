@@ -495,9 +495,10 @@ class ResticRepository @Inject constructor(
                             progressCallback.onBackupProgress(
                                 percentDone = progress,
                                 bytesDone = bytesWritten,
-                                bytesTotal = 0L,   // JNI 进度不提供总量
+                                bytesTotal = 0L,
                                 filesDone = 0L,
-                                filesTotal = 0L
+                                filesTotal = 0L,
+                                speed = speed
                             )
                         }
                         override fun onRestorePlan(
@@ -534,11 +535,9 @@ class ResticRepository @Inject constructor(
     }
 
     interface ResticProgressCallback {
-        // 恢复进度（现有）
         fun onRestoreProgress(filesFinished: Long, filesTotal: Long, bytesWritten: Long, bytesTotal: Long, filesSkipped: Long, bytesSkipped: Long)
-
-        // 备份进度（新增）
-        fun onBackupProgress(percentDone: Float, bytesDone: Long, bytesTotal: Long, filesDone: Long, filesTotal: Long)
+        // 备份进度（新增 speed: Long，单位 bytes/s，JNI 原生已提供）
+        fun onBackupProgress(percentDone: Float, bytesDone: Long, bytesTotal: Long, filesDone: Long, filesTotal: Long, speed: Long = 0L)
     }
 }
 

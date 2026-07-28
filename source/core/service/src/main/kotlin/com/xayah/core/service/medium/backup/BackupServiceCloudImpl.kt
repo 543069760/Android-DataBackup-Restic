@@ -34,6 +34,7 @@ import com.xayah.core.model.database.S3Extra
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -144,7 +145,8 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                                     compressedFile = compressedFile,
                                     dataType = DataType.PACKAGE_MEDIA,
                                     s3Extra = s3Extra,
-                                    remotePath = "${m.archivesRelativeDir}"
+                                    remotePath = "${m.archivesRelativeDir}",
+                                    t = t
                                 )
 
                                 if (mediaSuccess) {
@@ -257,7 +259,8 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
         compressedFile: File,
         dataType: DataType,
         s3Extra: S3Extra,
-        remotePath: String
+        remotePath: String,
+        t: TaskDetailMediaEntity? = null
     ): Boolean {
         return try {
             // 根据文件类型确定标签后缀
@@ -286,9 +289,17 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                 progressCallback = object : ResticProgressCallback {
                     override fun onBackupProgress(
                         percentDone: Float, bytesDone: Long,
-                        bytesTotal: Long, filesDone: Long, filesTotal: Long
+                        bytesTotal: Long, filesDone: Long, filesTotal: Long,
+                        speed: Long
                     ) {
-                        Log.d(mTAG, "S3文件备份进度: ${percentDone * 100}%")
+                        val speedText = if (speed > 0) speed.formatToStorageSizePerSecond() else ""
+                        val content = if (speedText.isNotEmpty())
+                            "$speedText | ${(percentDone * 100).toInt()}%"
+                        else
+                            "${(percentDone * 100).toInt()}%"
+                        t?.let {
+                            runBlocking { it.update(content = content, progress = percentDone) }
+                        }
                     }
 
                     override fun onRestoreProgress(

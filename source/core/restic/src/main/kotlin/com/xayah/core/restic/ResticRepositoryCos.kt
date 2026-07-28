@@ -46,7 +46,7 @@ class ResticRepositoryCos @Inject constructor(
             val options = buildS3BackendOptions(extra, remotePath)
             val callback: ICallback? = if (progressCallback != null) object : ICallback.Stub() {
                 override fun onProgress(bytesWritten: Long, speed: Long, progress: Float) {
-                    progressCallback.onBackupProgress(progress, bytesWritten, 0L, 0L, 0L)
+                    progressCallback.onBackupProgress(progress, bytesWritten, 0L, 0L, 0L, speed)
                 }
                 override fun onRestorePlan(filesTotal: Long, bytesTotal: Long, filesSkipped: Long, bytesSkipped: Long) {}
             } else null

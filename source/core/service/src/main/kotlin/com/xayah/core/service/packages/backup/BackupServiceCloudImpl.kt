@@ -32,6 +32,7 @@ import com.xayah.core.service.util.PackagesBackupUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.localBackupSaveDir
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -162,7 +163,8 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                                     compressedFile = compressedFile,
                                     dataType = type,
                                     s3Extra = s3Extra,
-                                    remotePath = "${p.archivesRelativeDir}"
+                                    remotePath = "${p.archivesRelativeDir}",
+                                    t = t
                                 )
                                 if (resticSuccess) {
                                     Log.d(mTAG, "Restic S3 backup successful for ${p.packageName} $type")
@@ -250,7 +252,8 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
         compressedFile: File,
         dataType: DataType,
         s3Extra: S3Extra,
-        remotePath: String
+        remotePath: String,
+        t: TaskDetailPackageEntity
     ): Boolean {
         return try {
             // 从路径中提取用户信息
@@ -284,9 +287,18 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
 
                     override fun onBackupProgress(
                         percentDone: Float, bytesDone: Long,
-                        bytesTotal: Long, filesDone: Long, filesTotal: Long
+                        bytesTotal: Long, filesDone: Long, filesTotal: Long,
+                        speed: Long
                     ) {
-                        Log.d(mTAG, "Restic S3 backup progress: ${percentDone * 100}%")
+                        val speedText = if (speed > 0) speed.formatToStorageSizePerSecond() else ""
+                        val content = if (speedText.isNotEmpty())
+                            "$speedText | ${(percentDone * 100).toInt()}%"
+                        else
+                            "${(percentDone * 100).toInt()}%"
+                        Log.d(mTAG, "Restic S3 backup progress: $content")
+                        runBlocking {
+                            t.update(dataType = dataType, content = content, progress = percentDone)
+                        }
                     }
                 }
             )
