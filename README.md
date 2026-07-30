@@ -35,16 +35,17 @@ Free and open-source data backup application
 
 ### Cloud Storage Protocol Support
 
-> The JNI `rustic_core` path currently only covers **Local Storage**. All remote protocols (S3/FTP/SFTP/WebDAV/SMB) still run on the legacy path and are **pending migration to JNI** (see [TODO](#-todo)).
-
 | Feature | Legacy (DataBackup) | New (DataBackup Revived 3.0.0) |      
 |---------|------------------|----------------------------------|      
 | **Local Storage** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic, done)** |    
-| **S3 Protocol** | ❌ Not supported | ✅ **Block-level deduplication (JNI rustic, done)** |      
+| **Tencent COS Protocol** | ❌ Not supported | ✅ **Block-level deduplication (JNI rustic, done)** |      
 | **FTP Protocol** | ✅ Supported | ⏳ Pending migration to JNI |      
 | **SFTP Protocol** | ✅ Supported | ⏳ Pending migration to JNI |      
 | **WebDAV Protocol** | ✅ Supported | ⏳ Pending migration to JNI |      
 | **SMB/CIFS Protocol** | ✅ Multi-version support | ⏳ Pending migration to JNI |      
+
+> Currently, the JNI `rustic_core` path **overrides local storage**. Remote protocols (excluding Tencent Cloud COS), FTP, SFTP, WebDAV, and SMB still operate on the old path and are **pending migration to JNI**.
+> Tencent COS: This is an object storage service compatible with the S3 protocol. Please note: There may be parameter differences between S3 services (e.g., AWS S3, Tencent Cloud COS, Alibaba Cloud OSS). Currently, only Tencent Cloud COS is supported; other S3 object storage services are not yet supported but are being gradually adapted. Stay tuned.
 
 ### Backup Architecture Evolution
 
