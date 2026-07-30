@@ -6,13 +6,12 @@ use jni::objects::{JObject, JObjectArray, JString};
 use jni::signature::{Primitive, ReturnType};
 use jni::sys::jboolean;
 use jni::{JValue, jni_sig, jni_str};
-use jni::objects::JClass;
 
 use crate::error::NativeError;
 use crate::jni_progress::JniProgressCallback;
 use crate::repository::{
     check_repository, create_snapshot, create_snapshot_with_progress, forget_snapshot,
-    get_version, init_repository, list_snapshots_db, prune_repository, repository_exists,
+    get_version, init_repository, list_snapshots_db, prune_repository, reqpository_exists,
     restore_snapshot, restore_snapshot_with_progress, validate_repository,
 };
 

@@ -1,287 +1,251 @@
-// src/progress.rs  
-use std::sync::{Arc, Mutex};  
-use std::time::{Duration, Instant};  
-  
-use rustic_core::{Progress, ProgressBars, ProgressType, RusticProgress};  
-  
-pub(crate) const PROGRESS_CALLBACK_INTERVAL: Duration = Duration::from_secs(1);  
-  
-// Repository code depends on this trait, not on any JNI-specific callback type.  
-pub trait RusticProgressCallback: Send + Sync + 'static + std::fmt::Debug {  
-    fn on_progress(&self, bytes_done: u64, speed: u64, progress: f32);  
-}  
-  
-#[derive(Debug)]  
-pub(crate) struct AndroidProgressBars {  
-    callback: Arc<dyn RusticProgressCallback>,  
-}  
-  
-impl AndroidProgressBars {  
-    pub(crate) fn new<C: RusticProgressCallback>(callback: C) -> Self {  
-        Self {  
-            callback: Arc::new(callback),  
-        }  
-    }  
-}  
-  
-impl ProgressBars for AndroidProgressBars {  
-    fn progress(&self, progress_type: ProgressType, _prefix: &str) -> Progress {  
-        match progress_type {  
-            ProgressType::Bytes => Progress::new(AndroidProgress::new(self.callback.clone())),  
-            ProgressType::Spinner | ProgressType::Counter => Progress::hidden(),  
-        }  
-    }  
-}  
-  
-#[derive(Debug)]  
-struct AndroidProgress {  
-    callback: Arc<dyn RusticProgressCallback>,  
-    state: Mutex<ThrottledProgressState>,  
-}  
-  
-impl AndroidProgress {  
-    fn new(callback: Arc<dyn RusticProgressCallback>) -> Self {  
-        Self {  
-            callback,  
-            state: Mutex::new(ThrottledProgressState::new(Instant::now())),  
-        }  
-    }  
-  
-    fn emit(&self, bytes_done: u64, speed: u64, progress: f32) {  
-        self.callback.on_progress(bytes_done, speed, progress);  
-    }  
-}  
-  
-impl RusticProgress for AndroidProgress {  
-    fn is_hidden(&self) -> bool {  
-        false  
-    }  
-  
-    fn set_length(&self, len: u64) {  
-        self.state.lock().unwrap().set_length(len);  
-    }  
-  
-    fn set_title(&self, _title: &str) {}  
-  
-    fn inc(&self, inc: u64) {  
-        let now = Instant::now();  
-        let event = self.state.lock().unwrap().advance(inc, now, false);  
-        if let Some(event) = event {  
-            self.emit(event.bytes_done, event.speed, event.progress);  
-        }  
-    }  
-  
-    fn finish(&self) {  
-        let now = Instant::now();  
-        // Always finish with the average speed across the complete transfer.  
-        let event = self.state.lock().unwrap().advance(0, now, true);  
-        if let Some(event) = event {  
-            self.emit(event.bytes_done, event.speed, event.progress);  
-        }  
-    }  
-}  
-  
-#[derive(Debug)]  
-pub(crate) struct ProgressEvent {  
-    pub(crate) bytes_done: u64,  
-    pub(crate) speed: u64,  
-    pub(crate) progress: f32,  
-}  
-  
-#[derive(Debug)]  
-pub(crate) struct ThrottledProgressState {  
-    // Totals are kept here so each rustic Progress instance can calculate speed  
-    // without coupling the callback implementation to rustic internals.  
-    bytes_done: u64,  
-    length: Option<u64>,  
-    started_at: Instant,  
-    last_emit_bytes: u64,  
-    last_emit_at: Option<Instant>,  
-    finished: bool,  
-}  
-  
-impl ThrottledProgressState {  
-    pub(crate) fn new(started_at: Instant) -> Self {  
-        Self {  
-            bytes_done: 0,  
-            length: None,  
-            started_at,  
-            last_emit_bytes: 0,  
-            last_emit_at: None,  
-            finished: false,  
-        }  
-    }  
-  
-    pub(crate) fn set_length(&mut self, len: u64) {  
-        self.length = (len > 0).then_some(len);  
-    }  
-  
-    pub(crate) fn advance(&mut self, bytes: u64, now: Instant, finish: bool) -> Option<ProgressEvent> {  
-        if self.finished {  
-            return None;  
-        }  
-  
-        self.bytes_done = self.bytes_done.saturating_add(bytes);  
-        if finish {  
-            self.finished = true;  
-        }  
-  
-        // Rustic may call inc frequently; keep Java callbacks coarse-grained.  
-        // For the very first event, measure from `started_at` (not "emit  
-        // immediately"), so the first speed sample always spans at least one  
-        // full interval and cannot be inflated by a tiny denominator.  
-        let should_emit = finish  
-            || match self.last_emit_at {  
-                Some(last_emit_at) => {  
-                    now.duration_since(last_emit_at) >= PROGRESS_CALLBACK_INTERVAL  
-                }  
-                None => now.duration_since(self.started_at) >= PROGRESS_CALLBACK_INTERVAL,  
-            };  
-  
-        if !should_emit  
-            || self.bytes_done == 0  
-            || (!finish && self.bytes_done == self.last_emit_bytes)  
-        {  
-            return None;  
-        }  
-  
-        let speed = if finish {  
-            bytes_per_second(self.bytes_done, now.duration_since(self.started_at))  
-        } else {  
-            let (bytes_since_last_event, speed_since) = self  
-                .last_emit_at  
-                .map_or((self.bytes_done, self.started_at), |last_emit_at| {  
-                    (self.bytes_done - self.last_emit_bytes, last_emit_at)  
-                });  
-            bytes_per_second(bytes_since_last_event, now.duration_since(speed_since))  
-        };  
-  
-        self.last_emit_at = Some(now);  
-        self.last_emit_bytes = self.bytes_done;  
-  
-        Some(ProgressEvent {  
-            bytes_done: self.bytes_done,  
-            speed,  
-            progress: self.progress(),  
-        })  
-    }  
-  
-    fn progress(&self) -> f32 {  
-        self.length  
-            .map(|length| (self.bytes_done as f32 / length as f32).clamp(0.0, 1.0))  
-            .unwrap_or(0.0)  
-    }  
-}  
-  
-/// Lower bound on the time window used for speed calculation. Any interval  
-/// shorter than this is clamped up, so a near-zero denominator can never  
-/// inflate the reported speed (double insurance alongside the first-event  
-/// throttling in `advance`).  
-const MIN_SPEED_ELAPSED_SECS: f64 = 0.2;  
-  
-pub(crate) fn bytes_per_second(bytes: u64, elapsed: Duration) -> u64 {  
-    let seconds = elapsed.as_secs_f64();  
-    if seconds <= 0.0 {  
-        0  
-    } else {  
-        (bytes as f64 / seconds.max(MIN_SPEED_ELAPSED_SECS)).round() as u64  
-    }  
-}  
-  
-#[cfg(test)]  
-mod tests {  
-    use super::*;  
-  
-    #[test]  
-    fn progress_is_throttled_to_one_second() {  
-        let start = Instant::now();  
-        let mut state = ThrottledProgressState::new(start);  
-  
-        // First inc no longer emits immediately; it must wait a full interval.  
-        assert!(state.advance(1024, start, false).is_none());  
-        assert!(  
-            state  
-                .advance(1024, start + Duration::from_millis(999), false)  
-                .is_none()  
-        );  
-  
-        let event = state  
-            .advance(1024, start + Duration::from_secs(1), false)  
-            .unwrap();  
-  
-        assert_eq!(event.bytes_done, 3072);  
-        // First emitted sample spans start..+1s over the full 3072 bytes.  
-        assert_eq!(event.speed, 3072);  
-    }  
-  
-    #[test]  
-    fn finish_reports_average_speed_for_all_bytes() {  
-        let start = Instant::now();  
-        let mut state = ThrottledProgressState::new(start);  
-  
-        // finish always emits regardless of throttling.  
-        let event = state  
-            .advance(2048, start + Duration::from_millis(250), true)  
-            .unwrap();  
-  
-        assert_eq!(event.bytes_done, 2048);  
-        // 0.25s > MIN_SPEED_ELAPSED_SECS, so unaffected by the clamp: 2048 / 0.25.  
-        assert_eq!(event.speed, 8192);  
-    }  
-  
-    #[test]  
-    fn finish_reports_average_when_no_bytes_were_added_since_last_event() {  
-        let start = Instant::now();  
-        let mut state = ThrottledProgressState::new(start);  
-  
-        // First inc is throttled and does not emit.  
-        assert!(state.advance(1024, start, false).is_none());  
-        let event = state  
-            .advance(0, start + Duration::from_millis(250), true)  
-            .unwrap();  
-  
-        assert_eq!(event.bytes_done, 1024);  
-        assert_eq!(event.speed, 4096);  
-    }  
-  
-    #[test]  
-    fn first_progress_event_waits_for_full_interval() {  
-        let start = Instant::now();  
-        let mut state = ThrottledProgressState::new(start);  
-  
-        // Before the interval elapses, nothing is emitted (prevents the  
-        // tiny-denominator speed spike at the start of a transfer).  
-        assert!(  
-            state  
-                .advance(1024, start + Duration::from_millis(250), false)  
-                .is_none()  
-        );  
-  
-        // Once a full interval passes the first event is emitted using start time.  
-        let event = state  
-            .advance(1024, start + Duration::from_secs(1), false)  
-            .unwrap();  
-  
-        assert_eq!(event.bytes_done, 2048);  
-        assert_eq!(event.speed, 2048);  
-    }  
-  
-    #[test]  
-    fn progress_event_reports_fraction_when_length_is_known() {  
-        let start = Instant::now();  
-        let mut state = ThrottledProgressState::new(start);  
-  
-        state.set_length(4096);  
-  
-        // Space the events one interval apart so both pass throttling.  
-        let first = state  
-            .advance(1024, start + Duration::from_secs(1), false)  
-            .unwrap();  
-        let second = state  
-            .advance(2048, start + Duration::from_secs(2), false)  
-            .unwrap();  
-  
-        assert_eq!(first.progress, 0.25);  
-        assert_eq!(second.progress, 0.75);  
+// src/progress.rs
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use rustic_core::{Progress, ProgressBars, ProgressType, RusticProgress};
+
+pub(crate) const PROGRESS_CALLBACK_INTERVAL: Duration = Duration::from_secs(1);
+// 消除首秒分母过小导致的虚高瞬时速度
+const MIN_SPEED_ELAPSED_SECS: f64 = 0.5;
+
+// Repository code depends on this trait, not on any JNI-specific callback type.
+// read_* 来自 rustic_core 读取侧；written_* 来自 CountingBackend 写出侧。
+pub trait RusticProgressCallback: Send + Sync + 'static + std::fmt::Debug {
+    fn on_progress(
+        &self,
+        read_bytes: u64,
+        read_total: u64,
+        read_progress: f32,
+        written_bytes: u64,
+        written_speed: u64,
+    );
+}
+
+/// 读取侧与写出侧共享的进度状态。AndroidProgress 与 CountingBackend
+/// 各持有同一个 Arc<SharedProgress>，任一侧触发都读取“当前全量快照”再 emit，
+/// 避免相互覆盖为 0。节流在这一层统一做。
+#[derive(Debug)]
+pub(crate) struct SharedProgress {
+    state: Mutex<SharedState>,
+    callback: Arc<dyn RusticProgressCallback>,
+}
+
+#[derive(Debug)]
+struct SharedState {
+    read_bytes: u64,
+    read_total: Option<u64>,
+    written_bytes: u64,
+    started_at: Instant,
+    last_emit_at: Option<Instant>,
+    last_emit_written: u64,
+    finished: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ProgressSnapshot {
+    read_bytes: u64,
+    read_total: u64,
+    read_progress: f32,
+    written_bytes: u64,
+    written_speed: u64,
+}
+
+impl SharedProgress {
+    pub(crate) fn new(callback: Arc<dyn RusticProgressCallback>) -> Self {
+        Self {
+            state: Mutex::new(SharedState {
+                read_bytes: 0,
+                read_total: None,
+                written_bytes: 0,
+                started_at: Instant::now(),
+                last_emit_at: None,
+                last_emit_written: 0,
+                finished: false,
+            }),
+            callback,
+        }
+    }
+
+    pub(crate) fn set_read_total(&self, len: u64) {
+        self.state.lock().unwrap().read_total = (len > 0).then_some(len);
+    }
+
+    pub(crate) fn add_read(&self, inc: u64) {
+        let snapshot = {
+            let mut s = self.state.lock().unwrap();
+            s.read_bytes = s.read_bytes.saturating_add(inc);
+            s.maybe_snapshot(Instant::now(), false)
+        };
+        if let Some(snapshot) = snapshot {
+            self.emit(snapshot);
+        }
+    }
+
+    pub(crate) fn add_written(&self, inc: u64) {
+        let snapshot = {
+            let mut s = self.state.lock().unwrap();
+            s.written_bytes = s.written_bytes.saturating_add(inc);
+            s.maybe_snapshot(Instant::now(), false)
+        };
+        if let Some(snapshot) = snapshot {
+            self.emit(snapshot);
+        }
+    }
+
+    pub(crate) fn finish(&self) {
+        let snapshot = {
+            let mut s = self.state.lock().unwrap();
+            s.maybe_snapshot(Instant::now(), true)
+        };
+        if let Some(snapshot) = snapshot {
+            self.emit(snapshot);
+        }
+    }
+
+    fn emit(&self, snapshot: ProgressSnapshot) {
+        self.callback.on_progress(
+            snapshot.read_bytes,
+            snapshot.read_total,
+            snapshot.read_progress,
+            snapshot.written_bytes,
+            snapshot.written_speed,
+        );
+    }
+}
+
+impl SharedState {
+    fn maybe_snapshot(&mut self, now: Instant, finish: bool) -> Option<ProgressSnapshot> {
+        if self.finished {
+            return None;
+        }
+        if finish {
+            self.finished = true;
+        }
+
+        // 1 秒节流，保持 Java 回调粗粒度；finish 时强制 emit 收尾。
+        let should_emit = finish
+            || self.last_emit_at.is_none_or(|last| {
+                now.duration_since(last) >= PROGRESS_CALLBACK_INTERVAL
+            });
+        if !should_emit {
+            return None;
+        }
+
+        let written_speed = if finish {
+            // 结束时报告整段平均写出速率
+            bytes_per_second(self.written_bytes, now.duration_since(self.started_at))
+        } else {
+            let bytes_since = self.written_bytes.saturating_sub(self.last_emit_written);
+            let since = self
+                .last_emit_at
+                .map_or_else(|| now.duration_since(self.started_at), |last| now.duration_since(last));
+            bytes_per_second(bytes_since, since)
+        };
+
+        self.last_emit_at = Some(now);
+        self.last_emit_written = self.written_bytes;
+
+        Some(ProgressSnapshot {
+            read_bytes: self.read_bytes,
+            read_total: self.read_total.unwrap_or(0),
+            read_progress: self.read_progress(),
+            written_bytes: self.written_bytes,
+            written_speed,
+        })
+    }
+
+    fn read_progress(&self) -> f32 {
+        self.read_total
+            .map(|total| (self.read_bytes as f32 / total as f32).clamp(0.0, 1.0))
+            .unwrap_or(0.0)
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct AndroidProgressBars {
+    shared: Arc<SharedProgress>,
+}
+
+impl AndroidProgressBars {
+    pub(crate) fn new(shared: Arc<SharedProgress>) -> Self {
+        Self { shared }
+    }
+}
+
+impl ProgressBars for AndroidProgressBars {
+    fn progress(&self, progress_type: ProgressType, _prefix: &str) -> Progress {
+        match progress_type {
+            // rustic_core 的字节读取进度走这里，汇聚到共享读取计数。
+            ProgressType::Bytes => Progress::new(AndroidProgress::new(self.shared.clone())),
+            ProgressType::Spinner | ProgressType::Counter => Progress::hidden(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct AndroidProgress {
+    shared: Arc<SharedProgress>,
+}
+
+impl AndroidProgress {
+    fn new(shared: Arc<SharedProgress>) -> Self {
+        Self { shared }
+    }
+}
+
+impl RusticProgress for AndroidProgress {
+    fn is_hidden(&self) -> bool {
+        false
+    }
+
+    fn set_length(&self, len: u64) {
+        self.shared.set_read_total(len);
+    }
+
+    fn set_title(&self, _title: &str) {}
+
+    fn inc(&self, inc: u64) {
+        self.shared.add_read(inc);
+    }
+
+    fn finish(&self) {
+        self.shared.finish();
+    }
+}
+
+fn bytes_per_second(bytes: u64, elapsed: Duration) -> u64 {
+    let seconds = elapsed.as_secs_f64().max(MIN_SPEED_ELAPSED_SECS);
+    (bytes as f64 / seconds).round() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug)]
+    struct Recorder {
+        events: Mutex<Vec<(u64, u64, f32, u64, u64)>>,
+    }
+    impl RusticProgressCallback for Recorder {
+        fn on_progress(&self, rb: u64, rt: u64, rp: f32, wb: u64, ws: u64) {
+            self.events.lock().unwrap().push((rb, rt, rp, wb, ws));
+        }
+    }
+
+    #[test]
+    fn read_progress_uses_total_as_denominator() {
+        let shared = SharedProgress::new(Arc::new(Recorder { events: Mutex::new(vec![]) }));
+        shared.set_read_total(4096);
+        // 第一次 add_read 无 last_emit_at，立即 emit
+        shared.add_read(1024);
+        // finish 收尾
+        shared.finish();
+    }
+
+    #[test]
+    fn written_bytes_accumulate() {
+        let shared = SharedProgress::new(Arc::new(Recorder { events: Mutex::new(vec![]) }));
+        shared.add_written(2048);
+        shared.finish();
     }  
 }

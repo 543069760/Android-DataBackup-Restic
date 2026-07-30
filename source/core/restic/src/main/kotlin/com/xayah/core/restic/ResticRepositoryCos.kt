@@ -45,8 +45,18 @@ class ResticRepositoryCos @Inject constructor(
         try {
             val options = buildS3BackendOptions(extra, remotePath)
             val callback: ICallback? = if (progressCallback != null) object : ICallback.Stub() {
-                override fun onProgress(bytesWritten: Long, speed: Long, progress: Float) {
-                    progressCallback.onBackupProgress(progress, bytesWritten, 0L, 0L, 0L, speed)
+                override fun onProgress(
+                    readBytes: Long, readTotal: Long, readProgress: Float,
+                    writtenBytes: Long, writtenSpeed: Long
+                ) {
+                    progressCallback.onBackupProgress(
+                        percentDone = readProgress,
+                        bytesDone   = writtenBytes,
+                        bytesTotal  = readTotal,
+                        filesDone   = readBytes,
+                        filesTotal  = 0L,
+                        speed       = writtenSpeed
+                    )
                 }
                 override fun onRestorePlan(filesTotal: Long, bytesTotal: Long, filesSkipped: Long, bytesSkipped: Long) {}
             } else null
@@ -81,8 +91,14 @@ class ResticRepositoryCos @Inject constructor(
                     planFilesTotal = filesTotal; planBytesTotal = bytesTotal
                     planFilesSkipped = filesSkipped; planBytesSkipped = bytesSkipped
                 }
-                override fun onProgress(bytesWritten: Long, speed: Long, progress: Float) {
-                    progressCallback.onRestoreProgress(0L, planFilesTotal, bytesWritten, planBytesTotal, planFilesSkipped, planBytesSkipped)
+                override fun onProgress(
+                    readBytes: Long, readTotal: Long, readProgress: Float,
+                    writtenBytes: Long, writtenSpeed: Long
+                ) {
+                    progressCallback.onRestoreProgress(
+                        0L, planFilesTotal, readBytes, planBytesTotal,
+                        planFilesSkipped, planBytesSkipped
+                    )
                 }
             } else null
             val result = shared.rootService.restoreRusticSnapshot(

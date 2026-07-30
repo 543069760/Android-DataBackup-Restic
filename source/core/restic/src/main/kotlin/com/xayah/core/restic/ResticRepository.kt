@@ -139,13 +139,19 @@ class ResticRepository @Inject constructor(
                             planBytesSkipped = bytesSkipped
                         }
 
-                        override fun onProgress(bytesWritten: Long, speed: Long, progress: Float) {
-                            // native 只给字节进度；files 相关用 plan 缓存值，filesFinished 暂置 0
+                        override fun onProgress(
+                            readBytes: Long,
+                            readTotal: Long,
+                            readProgress: Float,
+                            writtenBytes: Long,
+                            writtenSpeed: Long
+                        ) {
+                            // 恢复走读取侧：已读回的字节即恢复进度，映射到 bytesWritten 槽
                             progressCallback.onRestoreProgress(
-                                0L,                 // filesFinished：native 不逐文件回传
+                                0L,               // filesFinished：native 不逐文件回传
                                 planFilesTotal,
-                                bytesWritten,
-                                planBytesTotal,
+                                readBytes,        // ← 改这里（原为 writtenBytes）
+                                planBytesTotal,   // 分母沿用 plan 统计
                                 planFilesSkipped,
                                 planBytesSkipped
                             )
@@ -491,16 +497,23 @@ class ResticRepository @Inject constructor(
                 // ICallback 适配：JNI 三参进度 → ResticProgressCallback.onBackupProgress 五参
                 val callback: ICallback? = if (progressCallback != null) {
                     object : ICallback.Stub() {
-                        override fun onProgress(bytesWritten: Long, speed: Long, progress: Float) {
+                        override fun onProgress(
+                            readBytes: Long,
+                            readTotal: Long,
+                            readProgress: Float,
+                            writtenBytes: Long,
+                            writtenSpeed: Long
+                        ) {
                             progressCallback.onBackupProgress(
-                                percentDone = progress,
-                                bytesDone = bytesWritten,
-                                bytesTotal = 0L,
-                                filesDone = 0L,
-                                filesTotal = 0L,
-                                speed = speed
+                                percentDone = readProgress,   // 读取百分比 → 第一行进度
+                                bytesDone = writtenBytes,     // 真实写出字节 → 第二行写出量
+                                bytesTotal = readTotal,       // 源总大小 → 第一行分母
+                                filesDone = readBytes,        // 已读原始字节 → 第一行分子
+                                filesTotal = 0L,              // 本地路径无文件数
+                                speed = writtenSpeed          // 写出速度 → 第二行速度
                             )
                         }
+
                         override fun onRestorePlan(
                             filesTotal: Long,
                             bytesTotal: Long,

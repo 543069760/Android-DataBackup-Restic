@@ -24,8 +24,10 @@ impl JniProgressCallback {
     ) -> jni::errors::Result<Self> {
         let callback_class = env.get_object_class(&callback)?;
         // Resolve once; progress callbacks should not repeat method lookups.
+        // 新签名:onProgress(readBytes, readTotal, readProgress, writtenBytes, writtenSpeed)
+        // (long, long, float, long, long) -> (JJFJJ)V
         let on_progress_method =
-            env.get_method_id(&callback_class, jni_str!("onProgress"), jni_sig!("(JJF)V"))?;
+            env.get_method_id(&callback_class, jni_str!("onProgress"), jni_sig!("(JJFJJ)V"))?;
         let callback_class = env.new_global_ref(&callback_class)?;
 
         Ok(Self {
@@ -38,16 +40,25 @@ impl JniProgressCallback {
 }
 
 impl RusticProgressCallback for JniProgressCallback {
-    fn on_progress(&self, bytes_done: u64, speed: u64, progress: f32) {
+    fn on_progress(
+        &self,
+        read_bytes: u64,
+        read_total: u64,
+        read_progress: f32,
+        written_bytes: u64,
+        written_speed: u64,
+    ) {
         let result: Result<(), jni::errors::Error> = self.vm.attach_current_thread(|env| {
             let args = [
-                JValue::Long(bytes_done as i64).as_jni(),
-                JValue::Long(speed as i64).as_jni(),
-                JValue::Float(progress).as_jni(),
+                JValue::Long(read_bytes as i64).as_jni(),
+                JValue::Long(read_total as i64).as_jni(),
+                JValue::Float(read_progress).as_jni(),
+                JValue::Long(written_bytes as i64).as_jni(),
+                JValue::Long(written_speed as i64).as_jni(),
             ];
 
             // SAFETY: on_progress_method is resolved once from callback's class
-            // with the exact `(JJF)V` signature, and the class is held globally.
+            // with the exact `(JJFJJ)V` signature, and the class is held globally.
             unsafe {
                 env.call_method_unchecked(
                     &self.callback,

@@ -56,16 +56,30 @@ fn create_restore_and_check_snapshot_lifecycle() -> Result<(), Box<dyn Error>> {
 
 #[derive(Debug)]
 struct RecordingProgress {
-    events: Arc<Mutex<Vec<(u64, u64, f32)>>>,
+    events: Arc<Mutex<Vec<(u64, u64, f32, u64, u64)>>>,
 }
 
 impl RusticProgressCallback for RecordingProgress {
-    fn on_progress(&self, bytes_done: u64, speed: u64, progress: f32) {
-        println!("progress: bytes_done={bytes_done}, speed={speed}, progress={progress}");
-        self.events
-            .lock()
-            .unwrap()
-            .push((bytes_done, speed, progress));
+    fn on_progress(
+        &self,
+        read_bytes: u64,
+        read_total: u64,
+        read_progress: f32,
+        written_bytes: u64,
+        written_speed: u64,
+    ) {
+        println!(
+            "progress: read_bytes={read_bytes}, read_total={read_total}, \
+             read_progress={read_progress}, written_bytes={written_bytes}, \
+             written_speed={written_speed}"
+        );
+        self.events.lock().unwrap().push((
+            read_bytes,
+            read_total,
+            read_progress,
+            written_bytes,
+            written_speed,
+        ));
     }
 }
 
@@ -93,16 +107,19 @@ fn create_restore_and_check_snapshot_lifecycle_with_progress() -> Result<(), Box
     )?;
 
     let events = events.lock().unwrap();
-    assert!(!events.is_empty());
-    assert!(
-        events
-            .iter()
-            .all(|(bytes_done, _speed, progress)| *bytes_done > 0
-                && *progress >= 0.0
-                && *progress <= 1.0)
-    );
-    assert!(events.windows(2).all(|window| window[0].0 <= window[1].0));
-    println!("progress events: {}", events.len());
+        assert!(!events.is_empty());
+        assert!(
+            events
+                .iter()
+                .all(|(read_bytes, _read_total, read_progress, _written_bytes, _written_speed)| {
+                    *read_bytes > 0 && *read_progress >= 0.0 && *read_progress <= 1.0
+                })
+        );
+        // 读取字节单调不减（元组第 0 位）
+        assert!(events.windows(2).all(|w| w[0].0 <= w[1].0));
+        // 写出字节单调不减（元组第 3 位）
+        assert!(events.windows(2).all(|w| w[0].3 <= w[1].3));
+        println!("progress events: {}", events.len());
 
     Ok(())
 }

@@ -6,12 +6,12 @@ use rustic_backend::BackendOptions;
 use rustic_core::{
     BackupOptions, CheckOptions, ConfigOptions, Credentials, Excludes, KeyOptions, LimitOption,
     LocalDestination, LsOptions, OpenStatus, PathList, PruneOptions, Repository,
-    RepositoryBackends, RepositoryOptions, RestoreOptions, SnapshotOptions,
+    RepositoryBackends, RepositoryOptions, RestoreOptions, SnapshotOptions, WriteBackend,
 };
 
 use crate::Result;
-use crate::counting_backend::{CountingBackend, UploadProgress};
-use crate::progress::{AndroidProgressBars, RusticProgressCallback};
+use crate::counting_backend::CountingBackend;
+use crate::progress::{AndroidProgressBars, RusticProgressCallback, SharedProgress};
 
 pub fn init_repository(
     repository_path: &str,
@@ -73,20 +73,24 @@ pub fn create_snapshot_with_progress<C: RusticProgressCallback>(
     options: &HashMap<String, String>,
     callback: C,
 ) -> Result<String> {
-    let callback: Arc<dyn RusticProgressCallback> = Arc::new(callback);
-    let (backends, upload) = backends_with_counter(repository_path, options, callback)?;
+    // backup 专用：读取侧（AndroidProgressBars）与写出侧（CountingBackend）共享同一份 SharedProgress，
+    // 任一路推进都读全量快照后 emit，避免相互覆盖为 0。
+    let shared = Arc::new(SharedProgress::new(Arc::new(callback)));
 
-    // 注意：backup 不再安装 AndroidProgressBars。计数 backend 是唯一进度源,
-    // 因此 bytes/speed 反映的是去重压缩后的真实上传量,而非源字节。
-    let repo = Repository::new(&RepositoryOptions::default(), &backends)?
-        .open(&Credentials::password(password))?;
+    let repo = Repository::new_with_progress(
+        &RepositoryOptions::default(),
+        &backends_with_counter(repository_path, options, shared.clone())?,
+        AndroidProgressBars::new(shared.clone()),
+    )?
+    .open(&Credentials::password(password))?;
 
-    let id = create_snapshot_from_repository(repo, source_paths, tags)?;
+    let result = create_snapshot_from_repository(repo, source_paths, tags);
 
-    // backup 结束后补发一次 finish 事件,报告整段平均速率。
-    upload.finish();
+    // 备份结束显式收尾，保证写出侧最后一批字节/速度被 emit（finish 必须幂等，
+    // 读取侧 rustic_core 结束时也会调一次 finish）。
+    shared.finish();
 
-    Ok(id)
+    result
 }
 
 fn create_snapshot_from_repository(
@@ -151,7 +155,8 @@ pub fn restore_snapshot_with_progress<C: RusticProgressCallback>(
     include_glob: Option<&str>,
     callback: C,
 ) -> Result<RestorePlanStats> {
-    // 复用 backup 那套 ProgressBars：字节进度自动经 callback.on_progress 回传
+    // 复用 backup 那套 ProgressBars：字节进度自动经 callback.on_progress 回传。
+    // restore 不注入 CountingBackend（无写出统计需求），只走读取进度。
     let repo =
         open_repository_with_progress(repository_path, password, options, callback)?
             .to_indexed()?;
@@ -363,36 +368,15 @@ fn open_repository_with_progress<C: RusticProgressCallback>(
     options: &HashMap<String, String>,
     callback: C,
 ) -> Result<Repository<OpenStatus>> {
+    // 只读/restore 路径：把 callback 包进 SharedProgress 再交给 AndroidProgressBars，
+    // 不注入 CountingBackend（无写出统计需求，写出侧读数恒为 0）。
+    let shared = Arc::new(SharedProgress::new(Arc::new(callback)));
     Ok(Repository::new_with_progress(
         &RepositoryOptions::default(),
         &backends(repository_path, options)?,
-        AndroidProgressBars::new(callback),
+        AndroidProgressBars::new(shared),
     )?
     .open(&Credentials::password(password))?)
-}
-
-/// 与 `backends` 相同,但把 repository backend 用 `CountingBackend` 包装,
-/// 用于在 backup 时统计真正写出到网络的字节。返回共享的 `UploadProgress`,
-/// 供调用方在结束时调用 `finish()`。
-fn backends_with_counter(
-    repository_path: &str,
-    options: &HashMap<String, String>,
-    callback: Arc<dyn RusticProgressCallback>,
-) -> Result<(RepositoryBackends, Arc<UploadProgress>)> {
-    // 复用现有 backends 构造(保留 .options(options) 链路)。
-    let raw = backends(repository_path, options)?;
-
-    let progress = Arc::new(UploadProgress::new(callback));
-
-    // 待确认：RepositoryBackends 在此 fork 中提供 repository()/repo_hot() 访问器
-    // 以及 new(repository, repo_hot) 构造器。若不同,需按其实际 API 取放。
-    let counted: Arc<dyn rustic_core::WriteBackend> =
-        Arc::new(CountingBackend::new(raw.repository(), progress.clone()));
-
-    // hot/cache backend(通常为 None)不是网络出口,保持不包装。
-    let backends = RepositoryBackends::new(counted, raw.repo_hot());
-
-    Ok((backends, progress))
 }
 
 fn backends(
@@ -407,4 +391,21 @@ fn backends(
         .repository(repository_path)
         .options(options)
         .to_backends()?)
+}
+
+/// backup 专用：用 CountingBackend 包装 write backend（网络/磁盘出口），统计真实写出字节。
+/// `raw.repository()` / `raw.repo_hot()` 均按值返回（内部已 clone Arc），故不加 `.clone()`；
+/// `RepositoryBackends::new(repository, repo_hot)` 参数顺序/类型与上游一致。
+fn backends_with_counter(
+    repository_path: &str,
+    options: &HashMap<String, String>,
+    shared: Arc<SharedProgress>,
+) -> Result<RepositoryBackends> {
+    let raw = backends(repository_path, options)?;
+
+    let counted: Arc<dyn WriteBackend> =
+        Arc::new(CountingBackend::new(raw.repository(), shared));
+
+    // hot/cache backend（通常为 None）不是数据出口，保持不包装。
+    Ok(RepositoryBackends::new(counted, raw.repo_hot()))
 }
