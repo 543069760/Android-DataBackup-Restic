@@ -40,7 +40,7 @@ Free and open-source data backup application
 | Feature | Legacy (DataBackup) | New (DataBackup Revived 3.0.0) |      
 |---------|------------------|----------------------------------|      
 | **Local Storage** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic, done)** |    
-| **S3 Protocol** | ❌ Not supported | ⏳ Pending migration to JNI |      
+| **S3 Protocol** | ❌ Not supported | ✅ **Block-level deduplication (JNI rustic, done)** |      
 | **FTP Protocol** | ✅ Supported | ⏳ Pending migration to JNI |      
 | **SFTP Protocol** | ✅ Supported | ⏳ Pending migration to JNI |      
 | **WebDAV Protocol** | ✅ Supported | ⏳ Pending migration to JNI |      
@@ -103,10 +103,6 @@ Raw data → **uncompressed** `tar` → **rustic block-level deduplication (JNI)
 | **Storage Footprint** | Linear growth | **60–90% space savings** |    
 | **Root Access** | Custom implementation | **libsu integration** |    
 | **Backup Runtime** | External CGO binary | **In-process `rustic_core` via JNI** |  
-
-### 📋 TODO
-
-- [ ] **Migrate remote protocols to JNI rustic**: Local backup/restore is fully migrated to the JNI `rustic_core` path and working normally. Remote protocols still run on the legacy path — **S3** on the external restic binary and **FTP/SFTP/WebDAV/SMB** on the direct-upload clients — and need to be migrated to JNI. This migration should also cover: (1) probing for an existing S3 repository with the provided password *before* initializing a new one, and deciding whether to reuse it or delete-and-reinitialize based on the probe result; (2) saving the S3 account/credentials only *after* the full initialization (including rustic) succeeds, so a premature exit does not persist invalid credentials; (3) refactoring the obsolete "Public / Private" network option (which now only affects the legacy concurrency path) into a more specific S3 provider selection (e.g. AWS S3, MINIO, Tencent COS, Alibaba OSS); and (4) extending remote support to file backups.
 
 > **DataBackup Revived is now a modern data management platform with local block-level deduplication (built-in rustic over JNI) and libsu integration; remote protocol migration to JNI is in progress.**
 
