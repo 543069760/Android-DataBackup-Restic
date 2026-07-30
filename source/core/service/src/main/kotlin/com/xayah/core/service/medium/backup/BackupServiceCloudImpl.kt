@@ -25,12 +25,14 @@ import com.xayah.core.service.util.MediumBackupUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.localBackupSaveDir
 import com.xayah.core.restic.ResticRepository
+import com.xayah.core.restic.ResticRepositoryCos
 import com.xayah.core.restic.ResticRepository.ResticProgressCallback
 import com.xayah.core.restic.ResticSnapshot
 import com.xayah.core.datastore.readS3ResticRepoPath
 import com.xayah.core.datastore.readS3ResticPassword
 import com.xayah.core.model.DataType
 import com.xayah.core.model.database.S3Extra
+import com.xayah.core.model.util.formatSize
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import dagger.hilt.android.AndroidEntryPoint
@@ -60,6 +62,9 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
 
     @Inject
     override lateinit var mTaskRepo: TaskRepository
+
+    @Inject
+    lateinit var resticRepoCos: ResticRepositoryCos
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -293,12 +298,12 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                         speed: Long
                     ) {
                         val speedText = if (speed > 0) speed.formatToStorageSizePerSecond() else ""
-                        val content = if (speedText.isNotEmpty())
-                            "$speedText | ${(percentDone * 100).toInt()}%"
-                        else
-                            "${(percentDone * 100).toInt()}%"
-                        t?.let {
-                            runBlocking { it.update(content = content, progress = percentDone) }
+                        val bytesText = bytesDone.toDouble().formatSize()
+                        val content = if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
+                        Log.d(mTAG, "Restic S3 backup progress: $content")
+                        runBlocking {
+                            // 不再传 progress = percentDone(恒为 0),避免 UI 进度条卡 0%
+                            t?.update(content = "$speedText | $bytesText")
                         }
                     }
 

@@ -2,6 +2,7 @@
 
 use std::error::Error;
 
+mod counting_backend;
 mod error;
 mod jni_bridge;
 mod jni_progress;

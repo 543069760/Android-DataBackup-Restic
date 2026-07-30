@@ -7,20 +7,29 @@ import com.xayah.core.database.dao.PackageDao
 import com.xayah.core.database.dao.TaskDao
 import com.xayah.core.model.DataType
 import com.xayah.core.model.OpType
+import com.xayah.core.model.OperationState
 import com.xayah.core.model.TaskType
 import com.xayah.core.model.database.PackageEntity
 import com.xayah.core.model.database.TaskDetailPackageEntity
 import com.xayah.core.model.database.TaskEntity
+import com.xayah.core.model.util.formatSize
+import com.xayah.core.model.util.formatToStorageSizePerSecond
+import com.xayah.core.model.util.get
+import com.xayah.core.restic.ResticRepository
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.service.util.CommonBackupUtil
 import com.xayah.core.service.util.PackagesBackupUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.localBackupSaveDir
-import com.xayah.core.model.OperationState
-import com.xayah.core.model.util.get
 import dagger.hilt.android.AndroidEntryPoint
-import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import javax.inject.Inject
+import kotlin.coroutines.coroutineContext
 
 @AndroidEntryPoint
 internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupService() {
@@ -79,15 +88,76 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
             return
         }
 
-        // 新增：在tar完成后使用 Restic 进行块备份
+        // 在tar完成后使用 Restic 进行块备份
         if (result.isSuccess && t.get(type).state != OperationState.SKIP) {
             Log.d("ResticFlow", "About to call backupWithRestic for ${p.packageName} $type")
-            // 查找压缩文件
             val compressedFile = findCompressedFile(dstDir, type)
             if (compressedFile != null) {
                 log { "COMPRESSED_FILE_FOUND: Found compressed file for $type at ${compressedFile.absolutePath}" }
-                // 调用 Restic 备份
-                val resticSuccess = backupWithRestic(p.packageName, compressedFile, type)
+
+                // ---- 进度展示:@Volatile/Atomic 跨线程 + 轮询协程刷 UI ----
+                // native 上传/写入线程负责赋值,轮询协程负责读取并写回 DB,
+                // 严禁在 native 回调线程里做阻塞式 DB 写。
+                val bytesDone = AtomicLong(0)
+                val nativeSpeed = AtomicLong(0)
+                val running = AtomicBoolean(true)
+
+                val progressCallback = object : ResticRepository.ResticProgressCallback {
+                    override fun onRestoreProgress(
+                        filesFinished: Long, filesTotal: Long,
+                        bytesWritten: Long, bytesTotal: Long,
+                        filesSkipped: Long, bytesSkipped: Long
+                    ) {
+                        // 备份链路不使用 restore 进度
+                    }
+
+                    override fun onBackupProgress(
+                        percentDone: Float, bytesDone2: Long,
+                        bytesTotal: Long, filesDone: Long, filesTotal: Long,
+                        speed: Long
+                    ) {
+                        // 备份为流式实时去重,无可预知总量 → 忽略 percentDone
+                        bytesDone.set(bytesDone2)
+                        nativeSpeed.set(speed)
+                    }
+                }
+
+                // 轮询协程:每 500ms 把「速度 | 累积字节」写回当前数据类型行
+                val pollJob = CoroutineScope(coroutineContext).launch {
+                    var lastBytes = 0L
+                    var lastTime = System.currentTimeMillis()
+                    var fallbackSpeed = 0L
+                    while (running.get()) {
+                        val b = bytesDone.get()
+                        val now = System.currentTimeMillis()
+                        val dt = now - lastTime
+                        if (dt >= 500) {
+                            val db = b - lastBytes
+                            fallbackSpeed = if (dt > 0) db * 1000 / dt else 0L
+                            lastTime = now
+                            lastBytes = b
+                        }
+                        // native 若透传了 speed 优先用它,否则用自算速率兜底
+                        val s = if (nativeSpeed.get() > 0) nativeSpeed.get() else fallbackSpeed
+                        if (b > 0) {
+                            val speedText = if (s > 0) s.formatToStorageSizePerSecond() else ""
+                            val content = if (speedText.isNotEmpty())
+                                "$speedText | ${b.toDouble().formatSize()}"
+                            else
+                                b.toDouble().formatSize()
+                            t.update(dataType = type, content = content)
+                        }
+                        delay(500)
+                    }
+                }
+
+                val resticSuccess = try {
+                    backupWithRestic(p.packageName, compressedFile, type, t)
+                } finally {
+                    running.set(false)
+                    pollJob.cancel()
+                }
+
                 Log.d("ResticFlow", "backupWithRestic returned: $resticSuccess")
                 if (resticSuccess) {
                     log { "Restic backup successful for ${p.packageName} $type" }
@@ -140,7 +210,6 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
     override val mAppsDir by lazy { mPathUtil.getLocalBackupAppsDir() }
     override val mConfigsDir by lazy { mPathUtil.getLocalBackupConfigsDir() }
 
-    // 实现清理未完成备份的逻辑
     override suspend fun onCleanupIncompleteBackup(currentIndex: Int) {
         log { "Cleaning up incomplete local backup from index: $currentIndex" }
 
@@ -158,7 +227,6 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
             }
         }
 
-        // 删除整个临时目录
         log { "Cleaning up temporary directory: $mRootDir" }
         runCatching {
             mRootService.deleteRecursively(mRootDir)
@@ -168,7 +236,6 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
             log { "Failed to delete temporary directory: ${e.message}" }
         }
 
-        // 【新增】清理停止文件
         cleanupStopFiles()
     }
 
@@ -183,7 +250,6 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
             log { "Failed to delete local backup directory: ${result.exceptionOrNull()?.message}" }
         }
 
-        // 【新增】清理停止文件
         cleanupStopFiles()
     }
 }

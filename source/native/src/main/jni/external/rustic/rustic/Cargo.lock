@@ -3778,6 +3778,7 @@ name = "rustic"
 version = "0.1.0"
 dependencies = [
  "android_logger",
+ "bytes",
  "jni",
  "log",
  "rusqlite",

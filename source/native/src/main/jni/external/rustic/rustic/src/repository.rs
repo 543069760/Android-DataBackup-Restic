@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
 
 use rusqlite::{Connection, params};
 use rustic_backend::BackendOptions;
@@ -9,6 +10,7 @@ use rustic_core::{
 };
 
 use crate::Result;
+use crate::counting_backend::{CountingBackend, UploadProgress};
 use crate::progress::{AndroidProgressBars, RusticProgressCallback};
 
 pub fn init_repository(
@@ -71,11 +73,20 @@ pub fn create_snapshot_with_progress<C: RusticProgressCallback>(
     options: &HashMap<String, String>,
     callback: C,
 ) -> Result<String> {
-    create_snapshot_from_repository(
-        open_repository_with_progress(repository_path, password, options, callback)?,
-        source_paths,
-        tags,
-    )
+    let callback: Arc<dyn RusticProgressCallback> = Arc::new(callback);
+    let (backends, upload) = backends_with_counter(repository_path, options, callback)?;
+
+    // 注意：backup 不再安装 AndroidProgressBars。计数 backend 是唯一进度源,
+    // 因此 bytes/speed 反映的是去重压缩后的真实上传量,而非源字节。
+    let repo = Repository::new(&RepositoryOptions::default(), &backends)?
+        .open(&Credentials::password(password))?;
+
+    let id = create_snapshot_from_repository(repo, source_paths, tags)?;
+
+    // backup 结束后补发一次 finish 事件,报告整段平均速率。
+    upload.finish();
+
+    Ok(id)
 }
 
 fn create_snapshot_from_repository(
@@ -358,6 +369,30 @@ fn open_repository_with_progress<C: RusticProgressCallback>(
         AndroidProgressBars::new(callback),
     )?
     .open(&Credentials::password(password))?)
+}
+
+/// 与 `backends` 相同,但把 repository backend 用 `CountingBackend` 包装,
+/// 用于在 backup 时统计真正写出到网络的字节。返回共享的 `UploadProgress`,
+/// 供调用方在结束时调用 `finish()`。
+fn backends_with_counter(
+    repository_path: &str,
+    options: &HashMap<String, String>,
+    callback: Arc<dyn RusticProgressCallback>,
+) -> Result<(RepositoryBackends, Arc<UploadProgress>)> {
+    // 复用现有 backends 构造(保留 .options(options) 链路)。
+    let raw = backends(repository_path, options)?;
+
+    let progress = Arc::new(UploadProgress::new(callback));
+
+    // 待确认：RepositoryBackends 在此 fork 中提供 repository()/repo_hot() 访问器
+    // 以及 new(repository, repo_hot) 构造器。若不同,需按其实际 API 取放。
+    let counted: Arc<dyn rustic_core::WriteBackend> =
+        Arc::new(CountingBackend::new(raw.repository(), progress.clone()));
+
+    // hot/cache backend(通常为 None)不是网络出口,保持不包装。
+    let backends = RepositoryBackends::new(counted, raw.repo_hot());
+
+    Ok((backends, progress))
 }
 
 fn backends(

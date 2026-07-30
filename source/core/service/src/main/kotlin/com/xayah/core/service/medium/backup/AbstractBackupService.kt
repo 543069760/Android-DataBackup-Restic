@@ -17,6 +17,8 @@ import com.xayah.core.model.database.MediaEntity
 import com.xayah.core.model.database.ProcessingInfoEntity
 import com.xayah.core.model.database.TaskDetailMediaEntity
 import com.xayah.core.model.util.set
+import com.xayah.core.model.util.formatSize
+import com.xayah.core.model.util.formatToStorageSizePerSecond
 import com.xayah.core.service.R
 import com.xayah.core.service.medium.AbstractMediumService
 import com.xayah.core.service.util.MediumBackupUtil
@@ -24,10 +26,12 @@ import com.xayah.core.util.DateUtil
 import com.xayah.core.util.NotificationUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.restic.ResticRepository
-import com.xayah.core.restic.ResticRepositoryCos
+import com.xayah.core.restic.ResticRepository.ResticProgressCallback
 import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.datastore.readResticPassword
 import dagger.hilt.android.AndroidEntryPoint
+import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -41,8 +45,12 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
     @Inject
     lateinit var resticRepo: ResticRepository
 
-    @Inject
-    lateinit var resticRepoCos: ResticRepositoryCos
+    // rustic 上传进度共享状态：写自 native 上传线程，读自轮询协程线程，必须 @Volatile 保证可见性
+    @Volatile
+    private var mResticSpeed: Long = 0L
+
+    @Volatile
+    private var mResticBytesDone: Long = 0L
 
     override suspend fun onInitializingPreprocessingEntities(entities: MutableList<ProcessingInfoEntity>) {
         entities.apply {
@@ -90,7 +98,7 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                     taskId = mTaskEntity.id,
                     mediaEntity = media,
                     mediaInfo = Info(title = mContext.getString(com.xayah.core.data.R.string.args_backup, DataType.PACKAGE_MEDIA.type.uppercase())),
-                    ).apply {
+                ).apply {
                     id = mTaskDao.upsert(this)
                 })
         }
@@ -159,10 +167,12 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
     }
 
     // Restic 无状态备份方法 - 支持DataType参数
+    // 新增 t：用于把 rustic 上传速度/累积字节刷到 UI（可空以兼容无 UI 场景）
     protected suspend fun backupWithRestic(
         mediaName: String,
         compressedFile: File,
-        dataType: DataType
+        dataType: DataType,
+        t: TaskDetailMediaEntity? = null
     ): Boolean {
         Log.d("ResticFlow", "backupWithRestic() ENTRY - mediaName: $mediaName, file: ${compressedFile.absolutePath}, type: $dataType")
         val repoPath = getResticRepoPath()
@@ -171,6 +181,51 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
         if (!resticRepo.checkRepository(repoPath, password)) {
             log { "Restic repository not initialized, skipping backup for $mediaName" }
             return false
+        }
+
+        // 每次备份前复位共享进度状态
+        mResticSpeed = 0L
+        mResticBytesDone = 0L
+
+        // 轮询协程：每 500ms 把 native 上报的速度/累积字节刷到 UI（不阻塞 native 上传线程）
+        var polling = true
+        val uiJob = CoroutineScope(coroutineContext).launch {
+            while (polling) {
+                if (t != null) {
+                    val speedText = if (mResticSpeed > 0) mResticSpeed.formatToStorageSizePerSecond() else ""
+                    val sizeText = mResticBytesDone.toDouble().formatSize()
+                    val content = if (speedText.isNotEmpty()) "$speedText | $sizeText" else sizeText
+                    t.update(content = content)
+                }
+                delay(500)
+            }
+        }
+
+        // native 上传线程回调：只做轻量赋值，绝不做阻塞式 DB 写入
+        val progressCallback = object : ResticProgressCallback {
+            override fun onRestoreProgress(
+                filesFinished: Long,
+                filesTotal: Long,
+                bytesWritten: Long,
+                bytesTotal: Long,
+                filesSkipped: Long,
+                bytesSkipped: Long
+            ) {
+                // 备份路径不使用 restore 进度
+            }
+
+            override fun onBackupProgress(
+                percentDone: Float,
+                bytesDone: Long,
+                bytesTotal: Long,
+                filesDone: Long,
+                filesTotal: Long,
+                speed: Long
+            ) {
+                // 流式去重无总量，忽略 percentDone；只记录真实上传字节与带宽
+                mResticBytesDone = bytesDone
+                mResticSpeed = speed
+            }
         }
 
         return try {
@@ -189,7 +244,14 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
             mCurrentProcessingTag = tag
 
             log { "Starting Restic backup for $mediaName with tag: $tag" }
-            val result = resticRepo.backupWithResticToLocal(repoPath, password, filePath, tags)
+            // 传入 progressCallback，令 JNI 走带进度的 create_snapshot_with_progress 分支
+            val result = resticRepo.backupWithResticToLocal(
+                repoPath = repoPath,
+                password = password,
+                filePath = filePath,
+                tags = tags,
+                progressCallback = progressCallback
+            )
 
             // 【新增】清除标签
             mCurrentProcessingTag = null
@@ -217,6 +279,15 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
             log { "Exception type: ${e.javaClass.simpleName}" }
             log { "Exception message: ${e.message}" }
             false
+        } finally {
+            // 停止轮询协程，并补刷一次最终数值
+            polling = false
+            uiJob.cancel()
+            if (t != null) {
+                val finalSpeed = if (mResticSpeed > 0) mResticSpeed.formatToStorageSizePerSecond() else ""
+                val finalSize = mResticBytesDone.toDouble().formatSize()
+                t.update(content = if (finalSpeed.isNotEmpty()) "$finalSpeed | $finalSize" else finalSize)
+            }
         }
     }
 
@@ -327,12 +398,12 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                         if (tarFile.exists() && configFile.exists()) {
                             Log.d("ResticFlow", "两个文件都存在，开始Restic备份: ${m.name}")
 
-                            // 备份tar文件 - 使用新的标签格式
-                            val tarSuccess = backupWithRestic(m.name, tarFile, DataType.PACKAGE_MEDIA)
+                            // 备份tar文件 - 传入 media 以刷 UI 进度
+                            val tarSuccess = backupWithRestic(m.name, tarFile, DataType.PACKAGE_MEDIA, media)
                             Log.d("ResticFlow", "tar文件Restic备份结果: $tarSuccess")
 
-                            // 备份配置文件 - 使用新的标签格式
-                            val configSuccess = backupWithRestic(m.name, configFile, DataType.PACKAGE_CONFIG)
+                            // 备份配置文件 - 传入 media 以刷 UI 进度
+                            val configSuccess = backupWithRestic(m.name, configFile, DataType.PACKAGE_CONFIG, media)
                             Log.d("ResticFlow", "配置文件Restic备份结果: $configSuccess")
 
                             // 检查Restic备份是否都成功

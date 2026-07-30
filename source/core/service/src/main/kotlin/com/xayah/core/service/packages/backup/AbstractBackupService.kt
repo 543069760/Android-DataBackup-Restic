@@ -22,6 +22,8 @@ import com.xayah.core.model.database.PackageEntity
 import com.xayah.core.model.database.ProcessingInfoEntity
 import com.xayah.core.model.database.TaskDetailPackageEntity
 import com.xayah.core.model.util.set
+import com.xayah.core.model.util.formatSize
+import com.xayah.core.model.util.formatToStorageSizePerSecond
 import com.xayah.core.service.R
 import com.xayah.core.service.model.NecessaryInfo
 import com.xayah.core.service.packages.AbstractPackagesService
@@ -31,15 +33,19 @@ import com.xayah.core.util.NotificationUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.command.PreparationUtil
 import com.xayah.core.restic.ResticRepository
-import com.xayah.core.restic.ResticRepositoryCos
+import com.xayah.core.restic.ResticRepository.ResticProgressCallback
 import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.datastore.readResticPassword
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import kotlinx.coroutines.delay
+import kotlin.coroutines.coroutineContext
 
 @AndroidEntryPoint
 internal abstract class AbstractBackupService : AbstractPackagesService() {
@@ -47,9 +53,6 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
 
     @Inject
     lateinit var resticRepo: ResticRepository
-
-    @Inject
-    lateinit var resticRepoCos: ResticRepositoryCos
 
     override suspend fun onInitializingPreprocessingEntities(entities: MutableList<ProcessingInfoEntity>) {
         entities.apply {
@@ -411,10 +414,12 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
     }
 
     // Restic 无状态备份方法
+    // 【修改】新增 t 参数，用于把本地备份进度（速度 | 累积已上传字节）刷到对应数据类型行
     protected suspend fun backupWithRestic(
         packageName: String,
         compressedFile: File,
-        dataType: DataType
+        dataType: DataType,
+        t: TaskDetailPackageEntity
     ): Boolean {
         Log.d("ResticFlow", "backupWithRestic() ENTRY - packageName: $packageName, file: ${compressedFile.absolutePath}, type: $dataType")
         val repoPath = getResticRepoPath()
@@ -423,6 +428,44 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
         if (!resticRepo.checkRepository(repoPath, password)) {
             log { "Restic repository not initialized, skipping backup for $packageName" }
             return false
+        }
+
+        // 进度累加：回调由 native 上传线程触发，只写入原子字段，不在该线程做阻塞 DB 写
+        val bytesDoneRef = AtomicLong(0L)
+        val speedRef = AtomicLong(0L)
+        val polling = AtomicBoolean(true)
+
+        // 备份是流式实时去重，无可预知总量 => 不显示百分比，只显示 速度 | 累积字节
+        val progressCallback = object : ResticProgressCallback {
+            override fun onRestoreProgress(
+                filesFinished: Long, filesTotal: Long,
+                bytesWritten: Long, bytesTotal: Long,
+                filesSkipped: Long, bytesSkipped: Long
+            ) {
+                // 恢复进度，备份不使用
+            }
+
+            override fun onBackupProgress(
+                percentDone: Float, bytesDone: Long,
+                bytesTotal: Long, filesDone: Long, filesTotal: Long,
+                speed: Long
+            ) {
+                // percentDone 恒为 0（无总量），忽略；仅记录累积字节与速度
+                bytesDoneRef.set(bytesDone)
+                speedRef.set(speed)
+            }
+        }
+
+        // 轮询协程：每 500ms 把 速度 | 累积字节 写回 UI
+        val pollingJob = with(CoroutineScope(coroutineContext)) {
+            launch {
+                while (polling.get()) {
+                    val speedText = speedRef.get().formatToStorageSizePerSecond()
+                    val bytesText = bytesDoneRef.get().toDouble().formatSize()
+                    t.update(dataType = dataType, content = "$speedText | $bytesText")
+                    delay(500)
+                }
+            }
         }
 
         return try {
@@ -447,7 +490,8 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                 password = password,
                 filePath = filePath,
                 tags = tags,
-                additionalEnv = additionalEnv
+                additionalEnv = additionalEnv,
+                progressCallback = progressCallback
             )
 
             // 【新增】清除当前标签
@@ -455,6 +499,11 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
 
             if (result.first == 0) {
                 log { "Restic backup completed successfully for $packageName" }
+                // 结束时把最终累积字节定格到 UI
+                val finalSpeed = speedRef.get().formatToStorageSizePerSecond()
+                val finalBytes = bytesDoneRef.get().toDouble().formatSize()
+                t.update(dataType = dataType, content = "$finalSpeed | $finalBytes")
+
                 val snapshotId = extractSnapshotIdFromJson(result.second)
                 if (snapshotId != null) {
                     updateResticInfo(packageName, snapshotId)
@@ -476,6 +525,10 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
             log { "Exception type: ${e.javaClass.simpleName}" }
             log { "Exception message: ${e.message}" }
             false
+        } finally {
+            // 停止轮询协程，避免泄漏
+            polling.set(false)
+            pollingJob.cancel()
         }
     }
 

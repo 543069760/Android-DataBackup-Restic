@@ -2,6 +2,7 @@ package com.xayah.core.service.packages.backup
 
 import android.util.Log
 import com.xayah.core.restic.ResticRepository
+import com.xayah.core.restic.ResticRepositoryCos
 import com.xayah.core.restic.ResticRepository.ResticProgressCallback
 import com.xayah.core.restic.ResticSnapshot
 import com.xayah.core.model.util.formatToStorageSizePerSecond
@@ -24,6 +25,8 @@ import com.xayah.core.model.database.TaskDetailPackageEntity
 import com.xayah.core.model.database.TaskEntity
 import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.util.get
+import com.xayah.core.model.util.formatToStorageSizePerSecond
+import com.xayah.core.model.util.formatSize
 import com.xayah.core.network.client.CloudClient
 import com.xayah.core.network.client.S3ClientImpl
 import com.xayah.core.rootservice.service.RemoteRootService
@@ -60,6 +63,9 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
 
     @Inject
     override lateinit var mTaskRepo: TaskRepository
+
+    @Inject
+    lateinit var resticRepoCos: ResticRepositoryCos
 
     override val mTaskEntity by lazy {
         TaskEntity(
@@ -291,13 +297,12 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                         speed: Long
                     ) {
                         val speedText = if (speed > 0) speed.formatToStorageSizePerSecond() else ""
-                        val content = if (speedText.isNotEmpty())
-                            "$speedText | ${(percentDone * 100).toInt()}%"
-                        else
-                            "${(percentDone * 100).toInt()}%"
+                        val bytesText = bytesDone.toDouble().formatSize()
+                        val content = if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
                         Log.d(mTAG, "Restic S3 backup progress: $content")
                         runBlocking {
-                            t.update(dataType = dataType, content = content, progress = percentDone)
+                            // 不再传 progress = percentDone(恒为 0),避免 UI 进度条卡 0%
+                            t.update(dataType = dataType, content = content)
                         }
                     }
                 }
