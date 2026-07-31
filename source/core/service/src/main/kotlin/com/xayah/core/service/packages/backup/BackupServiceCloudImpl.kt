@@ -274,14 +274,14 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
             Log.d("ResticTag", "Setting current tag: $tag")
             mCurrentProcessingTag = tag
 
-            val unifiedRepoPath = mContext.readS3ResticRepoPath() ?: remotePath
+            val unifiedRepoPath = mCloudEntity.remote
 
             val result = resticRepoCos.backupFileToCos(
                 extra = s3Extra,
                 remotePath = unifiedRepoPath,
                 filePath = compressedFile.absolutePath,
                 tags = tags,
-                password = mContext.readS3ResticPassword() ?: getResticPassword(),
+                password = s3Extra.resticPassword.ifEmpty { mContext.readS3ResticPassword() ?: getResticPassword() },
                 progressCallback = object : ResticProgressCallback {
                     override fun onRestoreProgress(
                         filesFinished: Long, filesTotal: Long,

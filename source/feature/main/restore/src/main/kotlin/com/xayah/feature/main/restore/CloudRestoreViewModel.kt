@@ -55,6 +55,8 @@ class CloudRestoreViewModel @Inject constructor(
     private val _resticProgress = MutableStateFlow(ResticProgressState())
     val resticProgress: StateFlow<ResticProgressState> = _resticProgress.asStateFlow()
 
+    private val json = Json { ignoreUnknownKeys = true }
+
     fun setCloudEntity(accountName: String) {
         val cleanAccountName = accountName.replace("accountName=", "").decodeURL()
         this.accountName = cleanAccountName // 存储账户名
@@ -77,7 +79,8 @@ class CloudRestoreViewModel @Inject constructor(
         Log.d("CloudRestore", "=== loadCloudBackedUpApps 开始 ===")
         viewModelScope.launch {
             _uiState.value = CloudRestoreUiState.Loading
-            val password = context.readS3ResticPassword()
+            val s3Extra = runCatching { json.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
+            val password = s3Extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readS3ResticPassword()
             if (password.isNullOrEmpty()) {
                 _uiState.value = CloudRestoreUiState.Error("Restic密码未配置")
                 return@launch
@@ -132,7 +135,9 @@ class CloudRestoreViewModel @Inject constructor(
         return withContext(Dispatchers.IO) {
             try {
                 val cloudEntity = cloudRepo.queryByName(accountName) ?: return@withContext false
-                val password = context.readS3ResticPassword() ?: return@withContext false
+                val s3Extra = runCatching { json.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
+                val password = (s3Extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readS3ResticPassword())
+                    ?: return@withContext false
 
                 // 按优先级排序数据类型
                 val sortedBackups = group.backups.sortedBy { backup ->
@@ -236,7 +241,9 @@ class CloudRestoreViewModel @Inject constructor(
     suspend fun deleteCloudSnapshots(group: ResticBackupGroup): Boolean = withContext(Dispatchers.IO) {
         try {
             val cloudEntity = cloudRepo.queryByName(accountName) ?: return@withContext false
-            val password = context.readS3ResticPassword() ?: return@withContext false
+            val s3Extra = runCatching { json.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
+            val password = (s3Extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readS3ResticPassword())
+                ?: return@withContext false
 
             val sortedBackups = group.backups.sortedBy { backup ->
                 when (backup.dataType) {

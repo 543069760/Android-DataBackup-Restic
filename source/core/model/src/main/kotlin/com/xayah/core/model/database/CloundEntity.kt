@@ -32,14 +32,15 @@ data class WebDAVExtra(
 
 @Serializable
 data class S3Extra(
-    val type: String = "S3",             //如 AWS S3、阿里云 OSS、腾讯云 COS、MinIO 等，后续完善，先统一使用S3
-    val region: String,           // 如 "ap-shanghai"
-    val accessKeyId: String,      // 您示例中的 accessKey
-    val secretAccessKey: String,  // 您示例中的 secretKey
-    val bucket: String,           // 如 "zctestlan-1251956900"
-    val endpoint: String = "",    // 如 "cos.ap-shanghai.myqcloud.com"
+    val type: String = "S3",
+    val region: String,
+    val accessKeyId: String,
+    val secretAccessKey: String,
+    val bucket: String,
+    val endpoint: String = "",
     val protocol: S3Protocol = S3Protocol.HTTPS,
-    val networkType: S3NetworkType = S3NetworkType.PUBLIC  // 新增字段
+    val networkType: S3NetworkType = S3NetworkType.PUBLIC,
+    val resticPassword: String = "",   // 新增：按账户存储的 restic 仓库密码
 )
 
 enum class S3Protocol {

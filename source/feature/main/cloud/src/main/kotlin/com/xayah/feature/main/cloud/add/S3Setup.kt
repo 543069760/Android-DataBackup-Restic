@@ -203,7 +203,8 @@ fun PageS3Setup() {
                             bucket = bucket,
                             endpoint = endpoint,
                             protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP,
-                            networkType = if (networkTypeIndex == 0) S3NetworkType.PUBLIC else S3NetworkType.PRIVATE  // 新增 / New
+                            networkType = if (networkTypeIndex == 0) S3NetworkType.PUBLIC else S3NetworkType.PRIVATE,
+                            resticPassword = s3Password,
                         )
                         viewModel.emitIntent(IndexUiIntent.TestConnection)
                     }
@@ -223,7 +224,8 @@ fun PageS3Setup() {
                         bucket = bucket,
                         endpoint = endpoint,
                         protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP,
-                        networkType = if (networkTypeIndex == 0) S3NetworkType.PUBLIC else S3NetworkType.PRIVATE  // 新增 / New
+                        networkType = if (networkTypeIndex == 0) S3NetworkType.PUBLIC else S3NetworkType.PRIVATE,
+                        resticPassword = s3Password,
                     )
                     viewModel.emitIntent(IndexUiIntent.CreateAccount(navController = navController))
                 }
@@ -387,7 +389,8 @@ fun PageS3Setup() {
                             bucket = bucket,
                             endpoint = endpoint,
                             protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP,
-                            networkType = if (networkTypeIndex == 0) S3NetworkType.PUBLIC else S3NetworkType.PRIVATE  // 新增 / New
+                            networkType = if (networkTypeIndex == 0) S3NetworkType.PUBLIC else S3NetworkType.PRIVATE,
+                            resticPassword = s3Password,
                         )
                         viewModel.emitIntent(IndexUiIntent.SetRemotePath(context = context))
                         remote = uiState.cloudEntity!!.remote

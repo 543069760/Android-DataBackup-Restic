@@ -122,27 +122,18 @@ class IndexViewModel @Inject constructor(
     }
 
     suspend fun updateS3Entity(
-        name: String,
-        remote: String,
-        type: String,  // 新增参数
-        region: String,
-        accessKeyId: String,
-        secretAccessKey: String,
-        bucket: String,
-        endpoint: String,
-        protocol: S3Protocol,
-        networkType: S3NetworkType
+        name: String, remote: String, type: String,
+        region: String, accessKeyId: String, secretAccessKey: String,
+        bucket: String, endpoint: String,
+        protocol: S3Protocol, networkType: S3NetworkType,
+        resticPassword: String,               // 新增
     ) {
         val extra = GsonUtil().toJson(
             S3Extra(
-                type = type,  // 新增字段
-                region = region,
-                accessKeyId = accessKeyId,
-                secretAccessKey = secretAccessKey,
-                bucket = bucket,
-                endpoint = endpoint,
-                protocol = protocol,
-                networkType = networkType
+                type = type, region = region, accessKeyId = accessKeyId,
+                secretAccessKey = secretAccessKey, bucket = bucket, endpoint = endpoint,
+                protocol = protocol, networkType = networkType,
+                resticPassword = resticPassword, // 新增
             )
         )
         emitIntent(

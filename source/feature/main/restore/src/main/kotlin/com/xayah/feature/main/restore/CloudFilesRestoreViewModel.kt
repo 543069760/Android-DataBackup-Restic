@@ -58,6 +58,8 @@ class CloudFilesRestoreViewModel @Inject constructor(
     private val _resticProgress = MutableStateFlow(ResticProgressState())
     val resticProgress: StateFlow<ResticProgressState> = _resticProgress.asStateFlow()
 
+    private val json = Json { ignoreUnknownKeys = true }
+
     fun setCloudEntity(accountName: String) {
         Log.d(TAG, "=== setCloudEntity 开始 ===")
         Log.d(TAG, "原始账户名: $accountName")
@@ -96,7 +98,8 @@ class CloudFilesRestoreViewModel @Inject constructor(
 
             try {
                 Log.d(TAG, "读取S3 Restic密码配置")
-                val password = context.readS3ResticPassword()
+                val s3Extra = runCatching { json.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
+                val password = s3Extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readS3ResticPassword()
                 if (password.isNullOrEmpty()) {
                     Log.e(TAG, "S3 Restic密码未配置或为空")
                     _uiState.value = CloudFilesRestoreUiState.Error("Restic密码未配置")
@@ -161,7 +164,9 @@ class CloudFilesRestoreViewModel @Inject constructor(
     suspend fun deleteCloudFileSnapshots(group: ResticFileBackupGroup): Boolean = withContext(Dispatchers.IO) {
         try {
             val cloudEntity = cloudRepo.queryByName(accountName) ?: return@withContext false
-            val password = context.readS3ResticPassword() ?: return@withContext false
+            val s3Extra = runCatching { json.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
+            val password = (s3Extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readS3ResticPassword())
+                ?: return@withContext false
 
             val sortedBackups = group.backups.sortedBy { backup ->
                 when (backup.dataType) {
@@ -227,7 +232,8 @@ class CloudFilesRestoreViewModel @Inject constructor(
                 Log.d(TAG, "云端账户查询成功: ${cloudEntity.name}")
 
                 Log.d(TAG, "读取S3 Restic密码")
-                val password = context.readS3ResticPassword()
+                val s3Extra = runCatching { json.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
+                val password = s3Extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readS3ResticPassword()
                 if (password.isNullOrEmpty()) {
                     Log.e(TAG, "S3 Restic密码为空")
                     return@withContext false
