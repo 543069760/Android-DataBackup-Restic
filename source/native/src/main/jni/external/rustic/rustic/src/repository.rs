@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use rusqlite::{Connection, params};
-use rustic_backend::BackendOptions;
+use rustic_backend::{BackendOptions, OpenDALBackend};
 use rustic_core::{
     BackupOptions, CheckOptions, ConfigOptions, Credentials, Excludes, KeyOptions, LimitOption,
     LocalDestination, LsOptions, OpenStatus, PathList, PruneOptions, Repository,
@@ -10,7 +11,6 @@ use rustic_core::{
 };
 
 use crate::Result;
-use crate::counting_backend::CountingBackend;
 use crate::progress::{AndroidProgressBars, RusticProgressCallback, SharedProgress};
 
 pub fn init_repository(
@@ -73,21 +73,48 @@ pub fn create_snapshot_with_progress<C: RusticProgressCallback>(
     options: &HashMap<String, String>,
     callback: C,
 ) -> Result<String> {
-    // backup 专用：读取侧（AndroidProgressBars）与写出侧（CountingBackend）共享同一份 SharedProgress，
+    // 读取侧（AndroidProgressBars）与写出侧（ProgressLayer 轮询）共享同一份 SharedProgress，
     // 任一路推进都读全量快照后 emit，避免相互覆盖为 0。
     let shared = Arc::new(SharedProgress::new(Arc::new(callback)));
 
+    // ProgressLayer 的共享计数器：ProgressLayer 每次 flush(每 part) fetch_add，
+    // 我们持有同一个 Arc 克隆用于轮询。
+    let counter: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
+
+    let backends = backends_with_progress(repository_path, options, counter.clone())?;
+
+    // 后台轮询线程：ProgressLayer 只写 AtomicU64、不会主动回调，
+    // 必须轮询把绝对量灌进 SharedProgress。
+    let stop = Arc::new(AtomicBool::new(false));
+    let poll_handle = {
+        let shared = shared.clone();
+        let counter = counter.clone();
+        let stop = stop.clone();
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                shared.set_written_absolute(counter.load(Ordering::Relaxed));
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+        })
+    };
+
     let repo = Repository::new_with_progress(
         &RepositoryOptions::default(),
-        &backends_with_counter(repository_path, options, shared.clone())?,
+        &backends,
         AndroidProgressBars::new(shared.clone()),
-    )?
-    .open(&Credentials::password(password))?;
+    )
+    .and_then(|r| r.open(&Credentials::password(password)));
 
-    let result = create_snapshot_from_repository(repo, source_paths, tags);
+    let result = match repo {
+        Ok(repo) => create_snapshot_from_repository(repo, source_paths, tags),
+        Err(e) => Err(e.into()),
+    };
 
-    // 备份结束显式收尾，保证写出侧最后一批字节/速度被 emit（finish 必须幂等，
-    // 读取侧 rustic_core 结束时也会调一次 finish）。
+    // 收尾顺序：先停轮询线程并 join，再做一次最终绝对量写入，最后 finish。
+    // 保证异常路径也能停线程、不泄漏、不 panic，并让写出侧最后一批字节被 emit。
+    stop.store(true, Ordering::Relaxed);
+    let _ = poll_handle.join();
+    shared.set_written_absolute(counter.load(Ordering::Relaxed));
     shared.finish();
 
     result
@@ -156,7 +183,7 @@ pub fn restore_snapshot_with_progress<C: RusticProgressCallback>(
     callback: C,
 ) -> Result<RestorePlanStats> {
     // 复用 backup 那套 ProgressBars：字节进度自动经 callback.on_progress 回传。
-    // restore 不注入 CountingBackend（无写出统计需求），只走读取进度。
+    // restore 不挂 ProgressLayer（无写出统计需求），只走读取进度。
     let repo =
         open_repository_with_progress(repository_path, password, options, callback)?
             .to_indexed()?;
@@ -369,7 +396,7 @@ fn open_repository_with_progress<C: RusticProgressCallback>(
     callback: C,
 ) -> Result<Repository<OpenStatus>> {
     // 只读/restore 路径：把 callback 包进 SharedProgress 再交给 AndroidProgressBars，
-    // 不注入 CountingBackend（无写出统计需求，写出侧读数恒为 0）。
+    // 不挂 ProgressLayer（无写出统计需求，写出侧读数恒为 0）。
     let shared = Arc::new(SharedProgress::new(Arc::new(callback)));
     Ok(Repository::new_with_progress(
         &RepositoryOptions::default(),
@@ -393,19 +420,26 @@ fn backends(
         .to_backends()?)
 }
 
-/// backup 专用：用 CountingBackend 包装 write backend（网络/磁盘出口），统计真实写出字节。
-/// `raw.repository()` / `raw.repo_hot()` 均按值返回（内部已 clone Arc），故不加 `.clone()`；
-/// `RepositoryBackends::new(repository, repo_hot)` 参数顺序/类型与上游一致。
-fn backends_with_counter(
+/// backup 专用：opendal location（如 `opendal:cos`）用 OpenDALBackend::new_with_progress
+/// 挂 ProgressLayer，使写出进度按 multipart part 递增而非按整 pack 跳变；
+/// 非 opendal（本地裸文件系统路径）回退到原 `backends()`，行为与迁移前一致、不注入 counter。
+fn backends_with_progress(
     repository_path: &str,
     options: &HashMap<String, String>,
-    shared: Arc<SharedProgress>,
+    counter: Arc<AtomicU64>,
 ) -> Result<RepositoryBackends> {
-    let raw = backends(repository_path, options)?;
-
-    let counted: Arc<dyn WriteBackend> =
-        Arc::new(CountingBackend::new(raw.repository(), shared));
-
-    // hot/cache backend（通常为 None）不是数据出口，保持不包装。
-    Ok(RepositoryBackends::new(counted, raw.repo_hot()))
+    if let Some(path) = repository_path.strip_prefix("opendal:") {
+        let options: BTreeMap<String, String> = options
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let backend = OpenDALBackend::new_with_progress(path, options, Some(counter))?;
+        let write: Arc<dyn WriteBackend> = Arc::new(backend);
+        // hot/cache backend（通常为 None）不是数据出口，保持不包装。
+        Ok(RepositoryBackends::new(write, None))
+    } else {
+        // 非 opendal（本地裸路径）：回退到原 to_backends()，不挂 ProgressLayer。
+        // 此分支下 counter 不会被写入、恒为 0，轮询线程无害但无进度。
+        backends(repository_path, options)
+    }
 }

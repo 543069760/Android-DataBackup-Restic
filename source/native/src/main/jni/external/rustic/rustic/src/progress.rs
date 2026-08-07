@@ -81,10 +81,12 @@ impl SharedProgress {
         }
     }
 
-    pub(crate) fn add_written(&self, inc: u64) {
+    /// ProgressLayer 的 WrittenCounter 是单调累计的绝对量（非 delta）。
+    /// 轮询线程读到的 total 直接覆盖写出量（取 max 防回退），再走统一节流 emit。
+    pub(crate) fn set_written_absolute(&self, total: u64) {
         let snapshot = {
             let mut s = self.state.lock().unwrap();
-            s.written_bytes = s.written_bytes.saturating_add(inc);
+            s.written_bytes = total.max(s.written_bytes);
             s.maybe_snapshot(Instant::now(), false)
         };
         if let Some(snapshot) = snapshot {
