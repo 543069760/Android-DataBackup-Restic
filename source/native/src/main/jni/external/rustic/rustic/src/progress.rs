@@ -9,7 +9,7 @@ pub(crate) const PROGRESS_CALLBACK_INTERVAL: Duration = Duration::from_secs(1);
 const MIN_SPEED_ELAPSED_SECS: f64 = 0.5;
 
 // Repository code depends on this trait, not on any JNI-specific callback type.
-// read_* 来自 rustic_core 读取侧；written_* 来自 CountingBackend 写出侧。
+// read_* 来自 rustic_core 读取侧；written_* 来自 OpenDAL ProgressLayer 写出侧(轮询 counter).
 pub trait RusticProgressCallback: Send + Sync + 'static + std::fmt::Debug {
     fn on_progress(
         &self,
@@ -21,7 +21,7 @@ pub trait RusticProgressCallback: Send + Sync + 'static + std::fmt::Debug {
     );
 }
 
-/// 读取侧与写出侧共享的进度状态。AndroidProgress 与 CountingBackend
+/// 读取侧与写出侧共享的进度状态。AndroidProgress 与 ProgressLayer 轮询线程
 /// 各持有同一个 Arc<SharedProgress>，任一侧触发都读取“当前全量快照”再 emit，
 /// 避免相互覆盖为 0。节流在这一层统一做。
 #[derive(Debug)]
@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn written_bytes_accumulate() {
         let shared = SharedProgress::new(Arc::new(Recorder { events: Mutex::new(vec![]) }));
-        shared.add_written(2048);
+        shared.set_written_absolute(2048);
         shared.finish();
     }  
 }
