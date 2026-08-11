@@ -482,7 +482,8 @@ class ResticRepository @Inject constructor(
      * - 失败：Pair(1, 错误信息)
      *
      * 注意：JNI 路径不再走 RUSTIC_STOP_FILE / additionalEnv / usePty；
-     * 备份中途取消暂不支持（待 ICancellationSignal 阶段）。additionalEnv 仅保留以兼容签名。
+     * 备份中途取消由调用方传入 cancelId，取消时从另一协程调 rootService.cancelRusticBackup(cancelId)。
+     * additionalEnv 仅保留以兼容签名。
      */
     suspend fun backupWithResticToLocal(
         repoPath: String,
@@ -490,7 +491,8 @@ class ResticRepository @Inject constructor(
         filePath: String,
         tags: List<String>,
         additionalEnv: Map<String, String> = emptyMap(),
-        progressCallback: ResticProgressCallback? = null
+        progressCallback: ResticProgressCallback? = null,
+        cancelId: Long = 0L,
     ): Pair<Int, String> {
         return withContext(Dispatchers.IO) {
             try {
@@ -525,12 +527,16 @@ class ResticRepository @Inject constructor(
                     }
                 } else null
 
+                // createRusticSnapshot 调用前：记录进入与本次备份的 cancelId
+                Log.i("RusticCancel", "backupWithResticToLocal enter, cancelId=$cancelId")
+
                 val snapshotId = rootService.createRusticSnapshot(
                     repositoryPath = repoPath,
                     password = password,
                     sourcePaths = listOf(filePath),
                     tags = tags,
-                    callback = callback
+                    callback = callback,
+                    cancelId = cancelId,
                 )
 
                 if (snapshotId.isNotBlank()) {
@@ -541,8 +547,16 @@ class ResticRepository @Inject constructor(
                     Pair(1, "Rustic returned an empty snapshot ID")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error during local Rustic backup", e)
-                Pair(1, e.message ?: "Unknown error")
+                // catch 分支：统一到 RusticCancel 口径，便于 logcat 过滤取消/失败
+                Log.e("RusticCancel", "backup failed/cancelled, msg=${e.message}")
+                val msg = e.message ?: "Unknown error"
+                if (msg.contains("cancel", ignoreCase = true)) {
+                    Log.i(TAG, "Local Rustic backup cancelled by user")
+                    Pair(1, "用户取消")
+                } else {
+                    Log.e(TAG, "Error during local Rustic backup", e)
+                    Pair(1, msg)
+                }
             }
         }
     }

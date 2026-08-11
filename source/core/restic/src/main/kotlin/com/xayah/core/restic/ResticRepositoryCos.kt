@@ -40,35 +40,66 @@ class ResticRepositoryCos @Inject constructor(
     suspend fun backupFileToCos(
         extra: S3Extra, remotePath: String, filePath: String,
         tags: List<String>, password: String,
-        progressCallback: ResticRepository.ResticProgressCallback? = null
+        progressCallback: ResticRepository.ResticProgressCallback? = null,
+        cancelId: Long = 0L
     ): Pair<Int, String> = withContext(Dispatchers.IO) {
         try {
             val options = buildS3BackendOptions(extra, remotePath)
-            val callback: ICallback? = if (progressCallback != null) object : ICallback.Stub() {
-                override fun onProgress(
-                    readBytes: Long, readTotal: Long, readProgress: Float,
-                    writtenBytes: Long, writtenSpeed: Long
-                ) {
-                    progressCallback.onBackupProgress(
-                        percentDone = readProgress,
-                        bytesDone   = writtenBytes,
-                        bytesTotal  = readTotal,
-                        filesDone   = readBytes,
-                        filesTotal  = 0L,
-                        speed       = writtenSpeed
-                    )
+
+            // RusticCancel: 进入日志，确认这一层收到的 cancelId（若显示 0 说明上层没透传）
+            Log.i("RusticCancel", "backupFileToCos enter, cancelId=$cancelId")
+
+            val callback: ICallback? = progressCallback?.let { cb ->
+                object : ICallback.Stub() {
+                    // 5 参签名，与 ICallback.aidl（commit cbd81d0e）一致
+                    override fun onProgress(
+                        readBytes: Long, readTotal: Long, readProgress: Float,
+                        writtenBytes: Long, writtenSpeed: Long
+                    ) {
+                        cb.onBackupProgress(
+                            percentDone = readProgress,   // 读取百分比 → 第一行进度
+                            bytesDone   = writtenBytes,   // 真实写出字节 → 第二行写出量
+                            bytesTotal  = readTotal,      // 源总大小 → 第一行分母
+                            filesDone   = readBytes,      // 已读原始字节 → 第一行分子
+                            filesTotal  = 0L,             // COS 路径无文件数
+                            speed       = writtenSpeed    // 写出速度 → 第二行速度
+                        )
+                    }
+
+                    override fun onRestorePlan(
+                        filesTotal: Long, bytesTotal: Long,
+                        filesSkipped: Long, bytesSkipped: Long
+                    ) {}
                 }
-                override fun onRestorePlan(filesTotal: Long, bytesTotal: Long, filesSkipped: Long, bytesSkipped: Long) {}
-            } else null
+            }
+
             val snapshotId = shared.rootService.createRusticSnapshot(
-                repositoryPath = "opendal:cos", password = password,
-                sourcePaths = listOf(filePath), tags = tags,
-                options = options, callback = callback
+                repositoryPath = "opendal:cos",
+                password = password,
+                sourcePaths = listOf(filePath),
+                tags = tags,
+                options = options,
+                callback = callback,
+                cancelId = cancelId
             )
-            if (snapshotId.isNotBlank())
-                Pair(0, """{"message_type":"summary","snapshot_id":"$snapshotId"}""")
-            else Pair(1, "Rustic returned an empty snapshot ID")
-        } catch (e: Exception) { Pair(1, e.message ?: "Unknown error") }
+
+            if (snapshotId.isNotBlank()) {
+                Log.d(ResticShared.TAG, "backupFileToCos 成功，snapshotId=$snapshotId")
+                Pair(0, snapshotId)
+            } else {
+                Log.e(ResticShared.TAG, "backupFileToCos 返回空快照 ID")
+                Pair(1, "Rustic returned an empty snapshot ID")
+            }
+        } catch (e: Exception) {
+            val msg = e.message ?: "Unknown error"
+            if (msg.contains("cancel", ignoreCase = true)) {
+                Log.i("RusticCancel", "backupFileToCos cancelled by user, cancelId=$cancelId, msg=$msg")
+                Pair(1, "用户取消")
+            } else {
+                Log.e("RusticCancel", "backupFileToCos failed, cancelId=$cancelId, msg=$msg")
+                Pair(1, msg)
+            }
+        }
     }
 
     // restoreSnapshotFromCos —— 对应 restoreSnapshotFromS3

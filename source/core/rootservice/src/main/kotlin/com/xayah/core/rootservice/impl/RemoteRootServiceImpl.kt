@@ -1,5 +1,6 @@
 package com.xayah.core.rootservice.impl
 
+import android.util.Log
 import android.annotation.TargetApi
 import android.app.ActivityManagerHidden
 import android.app.ActivityThread
@@ -537,8 +538,21 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         Rustic.validateRepository(repositoryPath, password, options.toStringMap())
     }
 
-    override fun createRusticSnapshot(repositoryPath: String, password: String, sourcePaths: MutableList<String>, tags: MutableList<String>, options: MutableMap<Any?, Any?>?, callback: ICallback?): String = synchronized(lock) {
-        Rustic.createSnapshot(repositoryPath, password, sourcePaths, tags, options.toStringMap(), callback)
+    override fun createRusticSnapshot(repositoryPath: String, password: String, sourcePaths: MutableList<String>, tags: MutableList<String>, options: MutableMap<Any?, Any?>?, callback: ICallback?, cancelId: Long): String = synchronized(lock) {
+        try {
+            Rustic.createSnapshot(repositoryPath, password, sourcePaths, tags, options.toStringMap(), callback, cancelId)
+        } catch (e: Exception) {
+            Log.i("RusticCancel", "impl.createRusticSnapshot threw, msg=${e.message}")
+            throw IllegalStateException(e.message ?: "createRusticSnapshot failed")
+        }
+    }
+
+    // 注意：绝不能用 synchronized(lock)。createRusticSnapshot 持锁整个备份时长，
+    // 取消若也抢同一把锁会一直死等，取消永远无法生效。
+    override fun cancelRusticBackup(cancelId: Long) {
+        android.util.Log.i("RusticCancel", "impl.cancelRusticBackup id=$cancelId (about to call Rustic, NOT in lock)")
+        Rustic.cancelBackup(cancelId)
+        android.util.Log.i("RusticCancel", "impl.cancelRusticBackup id=$cancelId returned")
     }
 
     override fun restoreRusticSnapshot(

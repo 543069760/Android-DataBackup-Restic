@@ -283,6 +283,11 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
             Log.d("ResticTag", "Setting current tag: $tag")
             mCurrentProcessingTag = tag
 
+            // 【取消】生成并记录本次备份的取消令牌 id
+            val cancelId = System.nanoTime()
+            mCurrentBackupCancelId = cancelId
+            Log.i("RusticCancel", "backupFileWithResticToS3 enter, media=$mediaName, tag=$tag, cancelId=$cancelId")
+
             val unifiedRepoPath = mCloudEntity.remote
 
             val result = resticRepoCos.backupFileToCos(
@@ -314,11 +319,13 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                     ) {
                         // 备份时不使用
                     }
-                }
+                },
+                cancelId = cancelId
             )
 
             // 【新增】清除当前处理标签(正常完成)
             mCurrentProcessingTag = null
+            mCurrentBackupCancelId = 0L
 
             if (result.first == 0) {
                 val snapshotId = extractSnapshotIdFromJson(result.second)
@@ -328,12 +335,15 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                 }
                 true
             } else {
+                Log.i("RusticCancel", "backupFileWithResticToS3 non-zero result, media=$mediaName, code=${result.first}, msg=${result.second}")
                 false
             }
         } catch (e: Exception) {
             // 【新增】异常时也要清除标签
             mCurrentProcessingTag = null
+            mCurrentBackupCancelId = 0L
 
+            Log.e("RusticCancel", "backupFileWithResticToS3 failed/cancelled, media=$mediaName, msg=${e.message}")
             Log.e(mTAG, "Error during S3 file Restic backup", e)
             false
         }

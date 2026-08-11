@@ -45,6 +45,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlin.coroutines.coroutineContext
 
 @AndroidEntryPoint
@@ -344,9 +345,30 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
     // 添加成员变量来跟踪当前正在备份的标签
     protected var mCurrentProcessingTag: String? = null
 
+    // 跟踪当前 rustic 备份的取消令牌 id（0L 表示无进行中的可取消备份）
+    @Volatile
+    protected var mCurrentBackupCancelId: Long = 0L
+
     // 重写 cancel 方法
     override fun cancel() {
         super.cancel()
+
+        // 向正在运行的 rustic JNI 备份发送协作式取消信号
+        val cancelId = mCurrentBackupCancelId
+        Log.i("RusticCancel", "cancel() called, cancelId=$cancelId")
+        if (cancelId != 0L) {
+            // cancelRusticBackup 是 suspend（RemoteRootService.getService() 为 suspend），
+            // 而 cancel() 非 suspend，必须在独立协程里发；用新 scope，避免被正在取消的任务一起取消。
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    Log.i("RusticCancel", "Before cancelRusticBackup, cancelId=$cancelId")
+                    mRootService.cancelRusticBackup(cancelId)
+                    Log.i("RusticCancel", "After cancelRusticBackup, cancelId=$cancelId")
+                } catch (e: Exception) {
+                    Log.i("RusticCancel", "Failed to cancel rustic backup: ${e.message}")
+                }
+            }
+        }
 
         try {
             val currentIndex = mTaskEntity.processingIndex
@@ -364,7 +386,7 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                     stopFile.writeText(tag)
                 }
 
-                log { "Created stop files for all data types of ${p.packageName}" }
+                Log.i("RusticCancel", "Created stop files for all data types of ${p.packageName}")
             } else if (currentIndex > 0 && currentIndex <= mPkgEntities.size) {
                 // 当前包刚完成,但可能还有清理工作
                 val pkg = mPkgEntities[currentIndex - 1]
@@ -380,12 +402,12 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                     stopFile.writeText(tag)
                 }
 
-                log { "Created stop files for recently completed package ${p.packageName}" }
+                Log.i("RusticCancel", "Created stop files for recently completed package ${p.packageName}")
             } else {
-                log { "No packages to cancel" }
+                Log.i("RusticCancel", "No packages to cancel")
             }
         } catch (e: Exception) {
-            log { "Failed to create stop files: ${e.message}" }
+            Log.i("RusticCancel", "Failed to create stop files: ${e.message}")
         }
     }
 
@@ -480,6 +502,10 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
             Log.d("ResticTag", "Setting current tag: $tag")
             mCurrentProcessingTag = tag
 
+            // 新增：为本次 rustic 备份生成进程内唯一取消令牌 ID，并登记到字段供 cancel() 使用
+            val cancelId = System.nanoTime()
+            mCurrentBackupCancelId = cancelId
+
             val additionalEnv = mapOf(
                 "RUSTIC_INSTANCE_LABEL" to tag
             )
@@ -491,11 +517,13 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                 filePath = filePath,
                 tags = tags,
                 additionalEnv = additionalEnv,
-                progressCallback = progressCallback
+                progressCallback = progressCallback,
+                cancelId = cancelId
             )
 
             // 【新增】清除当前标签
             mCurrentProcessingTag = null
+            mCurrentBackupCancelId = 0L
 
             if (result.first == 0) {
                 log { "Restic backup completed successfully for $packageName" }
@@ -519,6 +547,7 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
         } catch (e: Exception) {
             // 【新增】异常时也要清除标签
             mCurrentProcessingTag = null
+            mCurrentBackupCancelId = 0L
 
             val baseMessage = "Error during Restic backup"
             log { "$baseMessage for $packageName" }

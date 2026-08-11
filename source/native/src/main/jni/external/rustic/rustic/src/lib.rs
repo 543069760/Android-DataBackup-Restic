@@ -7,6 +7,8 @@ mod jni_bridge;
 mod jni_progress;
 mod progress;
 mod repository;
+mod cancel;
+mod cancel_backend;
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 

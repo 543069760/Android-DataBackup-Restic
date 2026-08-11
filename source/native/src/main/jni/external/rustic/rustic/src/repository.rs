@@ -20,7 +20,11 @@ pub fn init_repository(
 ) -> Result<()> {
     let credentials = Credentials::password(password);
 
-    Repository::new(&RepositoryOptions::default(), &backends(repository_path, options)?)?.init(
+    Repository::new(
+        &RepositoryOptions::default(),
+        &backends(repository_path, options, no_cancel(), 0)?,
+    )?
+    .init(
         &credentials,
         &KeyOptions::default(),
         &ConfigOptions::default(),
@@ -35,7 +39,7 @@ pub fn repository_exists(
 ) -> Result<bool> {
     let repo = Repository::new(
         &RepositoryOptions::default(),
-        &backends(repository_path, options)?,
+        &backends(repository_path, options, no_cancel(), 0)?,
     )?;
 
     Ok(repo.config_id()?.is_some())
@@ -57,12 +61,23 @@ pub fn create_snapshot(
     source_paths: &[String],
     tags: &[String],
     options: &HashMap<String, String>,
+    cancel_id: i64,
 ) -> Result<String> {
-    create_snapshot_from_repository(
-        open_repository(repository_path, password, options)?,
-        source_paths,
-        tags,
-    )
+    let cancel = crate::cancel::register(cancel_id);
+    log::info!("[RusticCancel] register id={}", cancel_id);
+
+    let result = (|| -> Result<String> {
+        let repo = Repository::new(
+            &RepositoryOptions::default(),
+            &backends(repository_path, options, cancel.clone(), cancel_id)?,
+        )?
+        .open(&Credentials::password(password))?;
+        create_snapshot_from_repository(repo, source_paths, tags, cancel.clone())
+    })();
+
+    crate::cancel::unregister(cancel_id);
+    log::info!("[RusticCancel] unregister id={}", cancel_id);
+    result
 }
 
 pub fn create_snapshot_with_progress<C: RusticProgressCallback>(
@@ -72,19 +87,19 @@ pub fn create_snapshot_with_progress<C: RusticProgressCallback>(
     tags: &[String],
     options: &HashMap<String, String>,
     callback: C,
+    cancel_id: i64,
 ) -> Result<String> {
-    // 读取侧（AndroidProgressBars）与写出侧（ProgressLayer 轮询）共享同一份 SharedProgress，
-    // 任一路推进都读全量快照后 emit，避免相互覆盖为 0。
-    let shared = Arc::new(SharedProgress::new(Arc::new(callback)));
+    // 只 register 一次；这个 flag 既给后端 wrapper 用，也给 repo.backup 用。
+    let cancel = crate::cancel::register(cancel_id);
+    log::info!("[RusticCancel] register id={}", cancel_id);
 
-    // ProgressLayer 的共享计数器：ProgressLayer 每次 flush(每 part) fetch_add，
-    // 我们持有同一个 Arc 克隆用于轮询。
+    let shared = Arc::new(SharedProgress::new(Arc::new(callback)));
     let counter: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
 
-    let backends = backends_with_progress(repository_path, options, counter.clone())?;
+    // 关键修复：把 cancel flag 传进去，opendal 后端才会被 wrap_write_backends 包住。
+    let backends =
+        backends_with_progress(repository_path, options, counter.clone(), cancel.clone(), cancel_id)?;
 
-    // 后台轮询线程：ProgressLayer 只写 AtomicU64、不会主动回调，
-    // 必须轮询把绝对量灌进 SharedProgress。
     let stop = Arc::new(AtomicBool::new(false));
     let poll_handle = {
         let shared = shared.clone();
@@ -106,17 +121,17 @@ pub fn create_snapshot_with_progress<C: RusticProgressCallback>(
     .and_then(|r| r.open(&Credentials::password(password)));
 
     let result = match repo {
-        Ok(repo) => create_snapshot_from_repository(repo, source_paths, tags),
+        Ok(repo) => create_snapshot_from_repository(repo, source_paths, tags, cancel.clone()),
         Err(e) => Err(e.into()),
     };
 
-    // 收尾顺序：先停轮询线程并 join，再做一次最终绝对量写入，最后 finish。
-    // 保证异常路径也能停线程、不泄漏、不 panic，并让写出侧最后一批字节被 emit。
     stop.store(true, Ordering::Relaxed);
     let _ = poll_handle.join();
     shared.set_written_absolute(counter.load(Ordering::Relaxed));
     shared.finish();
 
+    crate::cancel::unregister(cancel_id);
+    log::info!("[RusticCancel] unregister id={}", cancel_id);
     result
 }
 
@@ -124,6 +139,7 @@ fn create_snapshot_from_repository(
     repo: Repository<OpenStatus>,
     source_paths: &[String],
     tags: &[String],
+    cancel: Arc<AtomicBool>,
 ) -> Result<String> {
     let repo = repo.to_indexed_ids()?;
     let source = source_paths
@@ -136,13 +152,28 @@ fn create_snapshot_from_repository(
         .try_fold(SnapshotOptions::default(), |options, tag| {
             options.add_tags(tag)
         })?;
-    let snapshot = repo.backup(
+
+    log::info!("[RusticCancel] repo.backup start");
+
+    match repo.backup(
         &BackupOptions::default(),
         &source,
         snapshot_options.to_snapshot()?,
-    )?;
-
-    Ok(snapshot.id.to_string())
+        &cancel,
+    ) {
+        Ok(snapshot) => {
+            log::info!("[RusticCancel] repo.backup ok");
+            Ok(snapshot.id.to_string())
+        }
+        Err(e) => {
+            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                log::info!("[RusticCancel] repo.backup cancelled, override msg to cancel");
+                return Err("The backup was cancelled by the user.".into());
+            }
+            log::info!("[RusticCancel] repo.backup err={e}");
+            Err(e.into())
+        }
+    }
 }
 
 pub fn restore_snapshot(
@@ -384,8 +415,11 @@ fn open_repository(
     options: &HashMap<String, String>,
 ) -> Result<Repository<OpenStatus>> {
     Ok(
-        Repository::new(&RepositoryOptions::default(), &backends(repository_path, options)?)?
-            .open(&Credentials::password(password))?,
+        Repository::new(
+            &RepositoryOptions::default(),
+            &backends(repository_path, options, no_cancel(), 0)?,
+        )?
+        .open(&Credentials::password(password))?,
     )
 }
 
@@ -395,29 +429,35 @@ fn open_repository_with_progress<C: RusticProgressCallback>(
     options: &HashMap<String, String>,
     callback: C,
 ) -> Result<Repository<OpenStatus>> {
-    // 只读/restore 路径：把 callback 包进 SharedProgress 再交给 AndroidProgressBars，
-    // 不挂 ProgressLayer（无写出统计需求，写出侧读数恒为 0）。
     let shared = Arc::new(SharedProgress::new(Arc::new(callback)));
     Ok(Repository::new_with_progress(
         &RepositoryOptions::default(),
-        &backends(repository_path, options)?,
+        &backends(repository_path, options, no_cancel(), 0)?,
         AndroidProgressBars::new(shared),
     )?
     .open(&Credentials::password(password))?)
 }
 
+/// 只读路径用的永不翻转 flag（cancel_id=0 时 wrap_write_backends 直接返回原后端，零开销）。
+fn no_cancel() -> Arc<AtomicBool> {
+    Arc::new(AtomicBool::new(false))
+}
+
 fn backends(
     repository_path: &str,
     options: &HashMap<String, String>,
+    flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    cancel_id: i64,
 ) -> Result<RepositoryBackends> {
     let options: BTreeMap<String, String> = options
         .iter()
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
-    Ok(BackendOptions::default()
+    let backends = BackendOptions::default()
         .repository(repository_path)
         .options(options)
-        .to_backends()?)
+        .to_backends()?;
+    Ok(crate::cancel_backend::wrap_write_backends(backends, flag))
 }
 
 /// backup 专用：opendal location（如 `opendal:cos`）用 OpenDALBackend::new_with_progress
@@ -427,6 +467,8 @@ fn backends_with_progress(
     repository_path: &str,
     options: &HashMap<String, String>,
     counter: Arc<AtomicU64>,
+    flag: Arc<AtomicBool>,
+    cancel_id: i64,
 ) -> Result<RepositoryBackends> {
     if let Some(path) = repository_path.strip_prefix("opendal:") {
         let options: BTreeMap<String, String> = options
@@ -435,11 +477,11 @@ fn backends_with_progress(
             .collect();
         let backend = OpenDALBackend::new_with_progress(path, options, Some(counter))?;
         let write: Arc<dyn WriteBackend> = Arc::new(backend);
-        // hot/cache backend（通常为 None）不是数据出口，保持不包装。
-        Ok(RepositoryBackends::new(write, None))
+        let backends = RepositoryBackends::new(write, None);
+        // 关键修复：COS 写后端也要过 wrapper，否则取消 flag 永远不被读。
+        Ok(crate::cancel_backend::wrap_write_backends(backends, flag))
     } else {
-        // 非 opendal（本地裸路径）：回退到原 to_backends()，不挂 ProgressLayer。
-        // 此分支下 counter 不会被写入、恒为 0，轮询线程无害但无进度。
-        backends(repository_path, options)
+        // 本地裸路径回退：同样带上 flag/cancel_id，保持签名一致、并支持取消。
+        backends(repository_path, options, flag, cancel_id)
     }
 }

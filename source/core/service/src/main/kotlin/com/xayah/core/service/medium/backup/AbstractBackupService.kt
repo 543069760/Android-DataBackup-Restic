@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import java.io.File
 
 @AndroidEntryPoint
@@ -54,35 +55,38 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
 
     override suspend fun onInitializingPreprocessingEntities(entities: MutableList<ProcessingInfoEntity>) {
         entities.apply {
-            add(ProcessingInfoEntity(
-                taskId = mTaskEntity.id,
-                title = mContext.getString(R.string.necessary_preparations),
-                type = ProcessingType.PREPROCESSING,
-                infoType = ProcessingInfoType.NECESSARY_PREPARATIONS
-            ).apply {
-                id = mTaskDao.upsert(this)
-            })
+            add(
+                ProcessingInfoEntity(
+                    taskId = mTaskEntity.id,
+                    title = mContext.getString(R.string.necessary_preparations),
+                    type = ProcessingType.PREPROCESSING,
+                    infoType = ProcessingInfoType.NECESSARY_PREPARATIONS
+                ).apply {
+                    id = mTaskDao.upsert(this)
+                })
         }
     }
 
     override suspend fun onInitializingPostProcessingEntities(entities: MutableList<ProcessingInfoEntity>) {
         entities.apply {
-            add(ProcessingInfoEntity(
-                taskId = mTaskEntity.id,
-                title = mContext.getString(R.string.backup_itself),
-                type = ProcessingType.POST_PROCESSING,
-                infoType = ProcessingInfoType.BACKUP_ITSELF
-            ).apply {
-                id = mTaskDao.upsert(this)
-            })
-            add(ProcessingInfoEntity(
-                taskId = mTaskEntity.id,
-                title = mContext.getString(R.string.necessary_remaining_data_processing),
-                type = ProcessingType.POST_PROCESSING,
-                infoType = ProcessingInfoType.NECESSARY_REMAINING_DATA_PROCESSING
-            ).apply {
-                id = mTaskDao.upsert(this)
-            })
+            add(
+                ProcessingInfoEntity(
+                    taskId = mTaskEntity.id,
+                    title = mContext.getString(R.string.backup_itself),
+                    type = ProcessingType.POST_PROCESSING,
+                    infoType = ProcessingInfoType.BACKUP_ITSELF
+                ).apply {
+                    id = mTaskDao.upsert(this)
+                })
+            add(
+                ProcessingInfoEntity(
+                    taskId = mTaskEntity.id,
+                    title = mContext.getString(R.string.necessary_remaining_data_processing),
+                    type = ProcessingType.POST_PROCESSING,
+                    infoType = ProcessingInfoType.NECESSARY_REMAINING_DATA_PROCESSING
+                ).apply {
+                    id = mTaskDao.upsert(this)
+                })
         }
     }
 
@@ -97,7 +101,12 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                 TaskDetailMediaEntity(
                     taskId = mTaskEntity.id,
                     mediaEntity = media,
-                    mediaInfo = Info(title = mContext.getString(com.xayah.core.data.R.string.args_backup, DataType.PACKAGE_MEDIA.type.uppercase())),
+                    mediaInfo = Info(
+                        title = mContext.getString(
+                            com.xayah.core.data.R.string.args_backup,
+                            DataType.PACKAGE_MEDIA.type.uppercase()
+                        )
+                    ),
                 ).apply {
                     id = mTaskDao.upsert(this)
                 })
@@ -105,7 +114,12 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
     }
 
     override suspend fun beforePreprocessing() {
-        NotificationUtil.notify(mContext, mNotificationBuilder, mContext.getString(R.string.backing_up), mContext.getString(R.string.preprocessing))
+        NotificationUtil.notify(
+            mContext,
+            mNotificationBuilder,
+            mContext.getString(R.string.backing_up),
+            mContext.getString(R.string.preprocessing)
+        )
     }
 
     // Restic 辅助方法：获取仓库路径
@@ -121,9 +135,23 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
     // 添加成员变量
     protected var mCurrentProcessingTag: String? = null
 
+    // 跟踪当前 rustic 备份的取消令牌 id（0L 表示无进行中的可取消备份）
+    @Volatile
+    protected var mCurrentBackupCancelId: Long = 0L
+
     // 实现 cancel 方法
     override fun cancel() {
         super.cancel()
+
+        Log.i("RusticCancel", "cancel() called, cancelId=$mCurrentBackupCancelId")
+        val cancelId = mCurrentBackupCancelId
+        if (cancelId != 0L) {
+            CoroutineScope(Dispatchers.IO).launch {
+                Log.i("RusticCancel", "launch: before cancelRusticBackup id=$cancelId")
+                mRootService.cancelRusticBackup(cancelId)
+                Log.i("RusticCancel", "launch: after cancelRusticBackup id=$cancelId")
+            }
+        }
 
         try {
             val currentIndex = mTaskEntity.processingIndex
@@ -243,6 +271,10 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
             Log.d("ResticTag", "Setting current media tag: $tag")
             mCurrentProcessingTag = tag
 
+            // 新增：为本次 rustic 备份生成进程内唯一取消令牌 ID
+            val cancelId = System.nanoTime()
+            mCurrentBackupCancelId = cancelId
+
             log { "Starting Restic backup for $mediaName with tag: $tag" }
             // 传入 progressCallback，令 JNI 走带进度的 create_snapshot_with_progress 分支
             val result = resticRepo.backupWithResticToLocal(
@@ -250,11 +282,13 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                 password = password,
                 filePath = filePath,
                 tags = tags,
-                progressCallback = progressCallback
+                progressCallback = progressCallback,
+                cancelId = cancelId
             )
 
             // 【新增】清除标签
             mCurrentProcessingTag = null
+            mCurrentBackupCancelId = 0L
 
             if (result.first == 0) {
                 log { "Restic backup completed successfully for $mediaName" }
@@ -273,6 +307,7 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
         } catch (e: Exception) {
             // 【新增】异常时也要清除标签
             mCurrentProcessingTag = null
+            mCurrentBackupCancelId = 0L
 
             val baseMessage = "Error during Restic backup"
             log { "$baseMessage for $mediaName" }

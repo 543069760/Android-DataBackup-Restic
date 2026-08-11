@@ -4,7 +4,7 @@ use jni::EnvUnowned;
 use jni::errors::ThrowRuntimeExAndDefault;
 use jni::objects::{JObject, JObjectArray, JString};
 use jni::signature::{Primitive, ReturnType};
-use jni::sys::jboolean;
+use jni::sys::{jboolean, jlong};
 use jni::{JValue, jni_sig, jni_str};
 
 use crate::error::NativeError;
@@ -115,6 +115,7 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeCreateSnapshot<'loc
     source_paths: JObjectArray<'local, JString<'local>>,
     tags: JObjectArray<'local, JString<'local>>,
     callback: JObject<'local>,
+    cancel_id: jlong,
 ) -> JString<'local> {
     unowned_env
         .with_env(|env| -> Result<JString<'local>, NativeError> {
@@ -124,8 +125,15 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeCreateSnapshot<'loc
             let repository_path = repository_path.to_string();
             let password = password.to_string();
             let snapshot_id = if callback.as_raw().is_null() {
-                create_snapshot(&repository_path, &password, &source_paths, &tags, &options)
-                    .map_err(NativeError::from)?
+                create_snapshot(
+                    &repository_path,
+                    &password,
+                    &source_paths,
+                    &tags,
+                    &options,
+                    cancel_id,
+                )
+                .map_err(NativeError::from)?
             } else {
                 let vm = env.get_java_vm()?;
                 let callback = env.new_global_ref(&callback)?;
@@ -137,6 +145,7 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeCreateSnapshot<'loc
                     &tags,
                     &options,
                     callback,
+                    cancel_id,
                 )
                 .map_err(NativeError::from)?
             };
@@ -144,6 +153,16 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeCreateSnapshot<'loc
             env.new_string(snapshot_id).map_err(NativeError::from)
         })
         .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeCancelBackup<'local>(
+    _unowned_env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    cancel_id: jlong,
+) {
+    log::info!("[RusticCancel] jni nativeCancelBackup id={cancel_id}");
+    crate::cancel::signal(cancel_id);
 }
 
 #[unsafe(no_mangle)]

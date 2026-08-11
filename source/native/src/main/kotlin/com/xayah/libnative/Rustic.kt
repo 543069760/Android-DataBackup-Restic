@@ -40,6 +40,7 @@ object Rustic {
         tags: List<String> = emptyList(),
         options: Map<String, String> = emptyMap(),
         callback: Any? = null,
+        cancelId: Long = 0L,
     ): String {
         val (optionKeys, optionValues) = options.toKeyValueArrays()
         return nativeCreateSnapshot(
@@ -50,7 +51,13 @@ object Rustic {
             sourcePaths.toTypedArray(),
             tags.toTypedArray(),
             callback,
+            cancelId,
         )
+    }
+
+    fun cancelBackup(cancelId: Long) {
+        android.util.Log.i("RusticCancel", "kt Rustic.cancelBackup id=$cancelId (about to call native)")
+        nativeCancelBackup(cancelId)
     }
 
     fun restoreSnapshot(
@@ -157,7 +164,10 @@ object Rustic {
         sourcePaths: Array<String>,
         tags: Array<String>,
         callback: Any?,
+        cancelId: Long,
     ): String
+
+    private external fun nativeCancelBackup(cancelId: Long)
 
     private external fun nativeRestoreSnapshot(
         repositoryPath: String,

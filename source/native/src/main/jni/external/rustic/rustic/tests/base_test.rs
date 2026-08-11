@@ -49,6 +49,7 @@ fn create_restore_and_check_snapshot_lifecycle() -> Result<(), Box<dyn Error>> {
                 source_paths,
                 tags,
                 &HashMap::new(),
+                0,
             )
         },
     )
@@ -102,6 +103,7 @@ fn create_restore_and_check_snapshot_lifecycle_with_progress() -> Result<(), Box
                 RecordingProgress {
                     events: events.clone(),
                 },
+                0,
             )
         },
     )?;
@@ -149,6 +151,7 @@ fn create_and_restore_snapshot_with_multiple_direct_sources() -> Result<(), Box<
         &source_paths,
         &["databackup".to_string()],
         &HashMap::new(),
+        0,
     )?;
 
     assert!(!snapshot_id.is_empty());
@@ -191,6 +194,7 @@ fn forget_removes_snapshot() -> Result<(), Box<dyn Error>> {
         &source_paths,
         &tags,
         &HashMap::new(),
+        0,
     )?;
     assert!(!snapshot_id.is_empty());
 
@@ -221,6 +225,7 @@ fn prune_reduces_or_keeps_repository_usable() -> Result<(), Box<dyn Error>> {
         &source_paths,
         &tags,
         &HashMap::new(),
+        0,
     )?;
     assert!(!snapshot_id.is_empty());
 
@@ -253,6 +258,7 @@ fn writes_snapshots_db() -> Result<(), Box<dyn Error>> {
         &source_paths,
         &tags,
         &HashMap::new(),
+        0,
     )?;
     assert!(!snapshot_id.is_empty());
 
