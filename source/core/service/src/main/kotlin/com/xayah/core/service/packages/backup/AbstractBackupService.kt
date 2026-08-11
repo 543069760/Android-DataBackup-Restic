@@ -482,9 +482,11 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
         val pollingJob = with(CoroutineScope(coroutineContext)) {
             launch {
                 while (polling.get()) {
-                    val speedText = speedRef.get().formatToStorageSizePerSecond()
+                    val speed = speedRef.get()
+                    val speedText = if (speed > 0) speed.formatToStorageSizePerSecond() else ""
                     val bytesText = bytesDoneRef.get().toDouble().formatSize()
-                    t.update(dataType = dataType, content = "$speedText | $bytesText")
+                    val content = if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
+                    t.update(dataType = dataType, content = content)
                     delay(500)
                 }
             }
@@ -528,9 +530,10 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
             if (result.first == 0) {
                 log { "Restic backup completed successfully for $packageName" }
                 // 结束时把最终累积字节定格到 UI
-                val finalSpeed = speedRef.get().formatToStorageSizePerSecond()
+                val finalSpeed = speedRef.get()
+                val finalSpeedText = if (finalSpeed > 0) finalSpeed.formatToStorageSizePerSecond() else ""
                 val finalBytes = bytesDoneRef.get().toDouble().formatSize()
-                t.update(dataType = dataType, content = "$finalSpeed | $finalBytes")
+                t.update(dataType = dataType, content = if (finalSpeedText.isNotEmpty()) "$finalSpeedText | $finalBytes" else finalBytes)
 
                 val snapshotId = extractSnapshotIdFromJson(result.second)
                 if (snapshotId != null) {

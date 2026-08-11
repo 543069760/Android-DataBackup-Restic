@@ -508,11 +508,11 @@ class ResticRepository @Inject constructor(
                         ) {
                             progressCallback.onBackupProgress(
                                 percentDone = readProgress,   // 读取百分比 → 第一行进度
-                                bytesDone = writtenBytes,     // 真实写出字节 → 第二行写出量
+                                bytesDone = readBytes,        // ← 路线B：本地无写出计数，改用已处理源字节作为累积量
                                 bytesTotal = readTotal,       // 源总大小 → 第一行分母
                                 filesDone = readBytes,        // 已读原始字节 → 第一行分子
                                 filesTotal = 0L,              // 本地路径无文件数
-                                speed = writtenSpeed          // 写出速度 → 第二行速度
+                                speed = 0L                    // ← 路线B：本地无网速，显式置 0，上层不拼接速度文本
                             )
                         }
 
@@ -547,14 +547,12 @@ class ResticRepository @Inject constructor(
                     Pair(1, "Rustic returned an empty snapshot ID")
                 }
             } catch (e: Exception) {
-                // catch 分支：统一到 RusticCancel 口径，便于 logcat 过滤取消/失败
-                Log.e("RusticCancel", "backup failed/cancelled, msg=${e.message}")
                 val msg = e.message ?: "Unknown error"
                 if (msg.contains("cancel", ignoreCase = true)) {
-                    Log.i(TAG, "Local Rustic backup cancelled by user")
+                    Log.i("RusticCancel", "backupWithResticToLocal cancelled by user, cancelId=$cancelId, msg=$msg")
                     Pair(1, "用户取消")
                 } else {
-                    Log.e(TAG, "Error during local Rustic backup", e)
+                    Log.e("RusticCancel", "backupWithResticToLocal failed, cancelId=$cancelId, msg=$msg")
                     Pair(1, msg)
                 }
             }
