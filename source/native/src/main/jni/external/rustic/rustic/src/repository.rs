@@ -12,6 +12,11 @@ use rustic_core::{
 
 use crate::Result;
 use crate::progress::{AndroidProgressBars, RusticProgressCallback, SharedProgress};
+/// 压缩配置保留 key，必须与 Kotlin 侧 ResticCompression.kt 中的常量逐字节一致：
+///   const val COMPRESSION_KEY = "__databackup_compression__"
+/// 该 key 仅用于在 init_repository 里读取压缩级别，绝不能进入 opendal 后端配置，
+/// 因此 backends()/backends_with_progress() 会在构造后端前把它过滤掉。
+const COMPRESSION_KEY: &str = "__databackup_compression__";
 
 pub fn init_repository(
     repository_path: &str,
@@ -20,15 +25,35 @@ pub fn init_repository(
 ) -> Result<()> {
     let credentials = Credentials::password(password);
 
+    // 压缩配置语义（"配置层"，对应 rustic_core ConfigOptions.set_compression）：
+    //   - key 缺失          -> compression = None -> 不设 set_compression -> rustic v2 默认压缩
+    //   - COMPRESSION_KEY=0 -> Some(0)            -> 关闭压缩
+    //   - COMPRESSION_KEY=N -> Some(N) (1..=22)   -> 指定 zstd 级别
+    // 切勿混淆：config 层 Some(0)=关闭压缩；而"不设字段"才是走 rustic 默认（仍压缩）。二者结果相反。
+    let compression = options.get(COMPRESSION_KEY).and_then(|v| v.parse::<i32>().ok());
+    log::info!(
+        "[ResticCompression] init_repository path={} compression={:?}",
+        repository_path,
+        compression
+    );
+
+    // 基于默认 ConfigOptions，仅当显式给出 compression 时才写 set_compression。
+    let mut config = ConfigOptions::default();
+    match compression {
+        Some(level) => {
+            config.set_compression = Some(level);
+            log::info!("[ResticCompression] applied set_compression={}", level);
+        }
+        None => {
+            log::info!("[ResticCompression] no explicit compression -> rustic default");
+        }
+    }
+
     Repository::new(
         &RepositoryOptions::default(),
         &backends(repository_path, options, no_cancel(), 0)?,
     )?
-    .init(
-        &credentials,
-        &KeyOptions::default(),
-        &ConfigOptions::default(),
-    )?;
+    .init(&credentials, &KeyOptions::default(), &config)?;
 
     Ok(())
 }
@@ -449,8 +474,11 @@ fn backends(
     flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     cancel_id: i64,
 ) -> Result<RepositoryBackends> {
+    // 剔除压缩保留 key：它只服务于 init_repository，绝不能进入 opendal 后端配置，
+    // 否则 BackendOptions::to_backends() 可能因未知 key 报错。
     let options: BTreeMap<String, String> = options
         .iter()
+        .filter(|(k, _)| k.as_str() != COMPRESSION_KEY)
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     let backends = BackendOptions::default()
@@ -471,8 +499,10 @@ fn backends_with_progress(
     cancel_id: i64,
 ) -> Result<RepositoryBackends> {
     if let Some(path) = repository_path.strip_prefix("opendal:") {
+        // 同样剔除压缩保留 key，避免污染 opendal 配置。
         let options: BTreeMap<String, String> = options
             .iter()
+            .filter(|(k, _)| k.as_str() != COMPRESSION_KEY)
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         let backend = OpenDALBackend::new_with_progress(path, options, Some(counter))?;
@@ -481,7 +511,7 @@ fn backends_with_progress(
         // 关键修复：COS 写后端也要过 wrapper，否则取消 flag 永远不被读。
         Ok(crate::cancel_backend::wrap_write_backends(backends, flag))
     } else {
-        // 本地裸路径回退：同样带上 flag/cancel_id，保持签名一致、并支持取消。
+        // 本地裸路径回退：backends() 内部已过滤 COMPRESSION_KEY。
         backends(repository_path, options, flag, cancel_id)
     }
 }

@@ -1,5 +1,6 @@
 package com.xayah.feature.main.settings.backup
 
+import android.util.Log
 import android.annotation.SuppressLint
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.layout.Arrangement
@@ -67,25 +68,28 @@ fun PageBackupSettings() {
             Column {
                 val scope = rememberCoroutineScope()
 
-                // Restic压缩级别滑块（0-4对应5个级别）
-                val compressionLevel by context.readResticCompressionLevel().collectAsStateWithLifecycle(initialValue = "auto")
-                val compressionLevels = listOf("off", "fastest", "auto", "better", "max")
-                val currentLevelIndex by remember(compressionLevel) {
-                    mutableIntStateOf(compressionLevels.indexOf(compressionLevel))
+                // Restic 压缩级别滑块（数值语义：-1=AUTO 不设→rustic 默认压缩；0=OFF 关闭压缩；1..22=指定 zstd 级别）
+                val compressionLevel by context.readResticCompressionLevel().collectAsStateWithLifecycle(initialValue = -1)
+                val currentLevelLabel = when (compressionLevel) {
+                    -1 -> "AUTO"
+                    0 -> "OFF"
+                    else -> "L$compressionLevel"
                 }
-                val currentLevelText = stringResource(R.string.args_current_level, compressionLevels[currentLevelIndex].uppercase())
+                val currentLevelText = stringResource(R.string.args_current_level, currentLevelLabel)
                 val compressionDescText = stringResource(R.string.restic_compression_level_desc)
                 val killAppOptionsText = stringResource(R.string.kill_app_options)
 
                 Slideable(
                     title = stringResource(id = R.string.restic_compression_level),
-                    value = currentLevelIndex.toFloat(),
-                    valueRange = 0F..4F,
-                    steps = 3,
+                    value = compressionLevel.toFloat(),
+                    valueRange = -1F..22F,
+                    steps = 22,
                     desc = "$currentLevelText\n$compressionDescText"
                 ) {
+                    val level = it.roundToInt()
+                    Log.i("ResticCompression", "slider changed to $level")
                     scope.launch {
-                        context.saveResticCompressionLevel(compressionLevels[it.roundToInt()])
+                        context.saveResticCompressionLevel(level)
                     }
                 }
 

@@ -25,11 +25,18 @@ class ResticRepositoryCos @Inject constructor(
     private val shared: ResticShared,
 ) {
     // initCosRepository —— 对应 initS3Repository
+    // 压缩配置：仅在建库时合并压缩 key；语义与本地一致
+    //   -1(AUTO) -> resticCompressionOptions() 返回 emptyMap()（不设 set_compression → rustic v2 默认压缩）
+    //    0(OFF)  -> {COMPRESSION_KEY:"0"}（关闭压缩）
+    //  1..22     -> {COMPRESSION_KEY:"<level>"}（指定 zstd 级别）
+    // 该 key 会被 Rust 侧 backends() 过滤，不会进入 opendal 后端配置。
     suspend fun initCosRepository(
         extra: S3Extra, remotePath: String, password: String
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val options = buildS3BackendOptions(extra, remotePath)
+            // 仅在 init 这一处合并压缩 key；buildS3BackendOptions 本身不改（被 backup/restore/prune/list 共用）
+            val options = buildS3BackendOptions(extra, remotePath) + shared.context.resticCompressionOptions()
+            Log.i("ResticCompression", "cos initCosRepository options=$options")
             val result = shared.rootService.initRusticRepository("opendal:cos", password, options)
             if (result.isSuccess) Result.success("COS repository initialized")
             else Result.failure(Exception(result.exceptionOrNull()?.message ?: "Unknown error during rustic init"))

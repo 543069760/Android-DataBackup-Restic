@@ -1,5 +1,7 @@
 package com.xayah.core.datastore
 
+import android.util.Log
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -18,7 +20,7 @@ import javax.inject.Inject
 
 val KeyCompressionType = stringPreferencesKey("compression_type")
 val KeyAppsUpdateTime = longPreferencesKey("apps_update_time")
-val KeyResticCompressionLevel = stringPreferencesKey("restic_compression_level")
+val KeyResticCompressionLevel = intPreferencesKey("restic_compression_level_int")
 
 // S3 Restic 配置键
 val KeyS3ResticRepoPath = stringPreferencesKey("s3_restic_repo_path")
@@ -42,13 +44,17 @@ class DbPreferencesDataSource @Inject constructor(
 }
 
 // Restic 压缩级别扩展函数
-fun Context.readResticCompressionLevel(): Flow<String> {
+// 数值语义：-1 = auto（不设 set_compression → rustic v2 默认压缩）；0 = 关闭压缩；1..22 = 指定 zstd 级别
+fun Context.readResticCompressionLevel(): Flow<Int> {
     return dataStore.data.map { preferences ->
-        preferences[KeyResticCompressionLevel] ?: "auto"
+        val level = preferences[KeyResticCompressionLevel] ?: -1
+        Log.i("ResticCompression", "read compression level=$level")
+        level
     }
 }
 
-suspend fun Context.saveResticCompressionLevel(level: String) {
+suspend fun Context.saveResticCompressionLevel(level: Int) {
+    Log.i("ResticCompression", "save compression level=$level")
     dataStore.edit { settings ->
         settings[KeyResticCompressionLevel] = level
     }

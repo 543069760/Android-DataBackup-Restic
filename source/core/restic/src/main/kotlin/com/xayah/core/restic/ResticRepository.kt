@@ -181,13 +181,25 @@ class ResticRepository @Inject constructor(
     /**
      * 重构后的初始化仓库方法
      * 走 AIDL：rootService.initRusticRepository -> RemoteRootServiceImpl -> Rustic.initRepository
+     *
+     * 压缩配置：从设置页读取压缩级别（datastore key restic_compression_level_int），
+     * 经 context.resticCompressionOptions() 转成 options 片段：
+     *   -1(AUTO) -> emptyMap()（不设 set_compression → rustic v2 默认压缩）
+     *    0(OFF)  -> {COMPRESSION_KEY:"0"}（关闭压缩）
+     *  1..22     -> {COMPRESSION_KEY:"<level>"}（指定 zstd 级别）
+     * 该 options 全链路透传到 Rust init_repository，仅在建库时写入仓库 config，
+     * 已存在仓库不会因改设置而重新压缩。
+     *
      * @return Result<String> 成功时包含输出信息，失败时包含异常
      */
     suspend fun initRepository(repoPath: String, password: String): Result<String> {
         return withContext(Dispatchers.IO) {
             try {
-                // 本地仓库无需 options，走默认 emptyMap()
-                val result = rootService.initRusticRepository(repoPath, password)
+                // 从设置页读取压缩级别并转成 options（本地仓库仅承载压缩配置）
+                val options = context.resticCompressionOptions()
+                Log.i("ResticCompression", "local initRepository options=$options")
+
+                val result = rootService.initRusticRepository(repoPath, password, options)
 
                 if (result.isSuccess) {
                     Result.success("Repository initialized successfully at $repoPath")
