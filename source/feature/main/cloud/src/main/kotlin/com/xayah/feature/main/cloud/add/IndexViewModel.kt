@@ -70,8 +70,17 @@ class IndexViewModel @Inject constructor(
     )
 ) {
 
-    suspend fun updateFTPEntity(name: String, remote: String, url: String, username: String, password: String, port: String) {
-        val extra = GsonUtil().toJson(FTPExtra(port = port.toIntOrNull() ?: 21))
+    suspend fun updateFTPEntity(
+        name: String, remote: String, url: String,
+        username: String, password: String, port: String,
+        resticPassword: String = "",          // 新增：账户级 restic 仓库密码
+    ) {
+        val extra = GsonUtil().toJson(
+            FTPExtra(
+                port = port.toIntOrNull() ?: 21,
+                resticPassword = resticPassword, // 新增
+            )
+        )
         emitIntent(
             IndexUiIntent.UpdateEntity(
                 name = name,

@@ -100,6 +100,15 @@ class ResticShared @Inject constructor(
         return if (withLeading.endsWith("/")) withLeading else "$withLeading/"
     }
 
+    /** 构建 OpenDAL FTP Endpoint，格式: ftp://host:port（opendal FtpConfig.endpoint 需带 scheme 前缀） */
+    fun buildOpenDALFtpEndpoint(host: String, port: Int): String {
+        val cleanHost = host.trim()
+            .removePrefix("ftp://")
+            .removePrefix("ftps://")
+            .removeSuffix("/")
+        return "ftp://$cleanHost:$port"
+    }
+
     /** 构建 OpenDAL Endpoint,格式: protocol://endpoint (不含 bucket) */
     fun buildOpenDALEndpoint(extra: S3Extra): String {
         val protocol = when (extra.protocol) {

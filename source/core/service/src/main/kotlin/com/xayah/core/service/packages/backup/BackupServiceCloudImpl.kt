@@ -34,6 +34,9 @@ import com.xayah.core.service.util.CommonBackupUtil
 import com.xayah.core.service.util.PackagesBackupUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.localBackupSaveDir
+import com.xayah.core.restic.ResticRepositoryFtp
+import com.xayah.core.model.database.FTPExtra
+import com.xayah.core.datastore.readFtpResticPassword
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CoroutineScope
@@ -66,6 +69,9 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
 
     @Inject
     lateinit var resticRepoCos: ResticRepositoryCos
+
+    @Inject
+    lateinit var resticRepoFtp: ResticRepositoryFtp
 
     override val mTaskEntity by lazy {
         TaskEntity(
@@ -179,16 +185,21 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                                 }
                             }
                             CloudType.FTP -> {
-                                Log.d(mTAG, "Using FTP upload for ${p.packageName}")
-                                mPackagesBackupUtil.upload(
-                                    client = mClient,
-                                    p = p,
-                                    t = t,
+                                Log.d(mTAG, "Using Restic FTP backup for ${p.packageName}")
+                                val ftpExtra = json.decodeFromString<FTPExtra>(mCloudEntity.extra)
+                                val resticSuccess = backupWithResticToFtp(
+                                    packageName = p.packageName,
+                                    compressedFile = compressedFile,
                                     dataType = type,
-                                    srcDir = dstDir,
-                                    dstDir = remoteAppDir,
-                                    isCanceled = { isCanceled() }
+                                    ftpExtra = ftpExtra,
+                                    remotePath = "${p.archivesRelativeDir}",
+                                    t = t
                                 )
+                                if (resticSuccess) {
+                                    Log.d(mTAG, "Restic FTP backup successful for ${p.packageName} $type")
+                                } else {
+                                    Log.e(mTAG, "Restic FTP backup failed for ${p.packageName} $type")
+                                }
                             }
                             CloudType.SFTP -> {
                                 Log.d(mTAG, "Using SFTP upload for ${p.packageName}")
@@ -337,6 +348,95 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
 
             Log.e("RusticCancel", "backupWithResticToS3 failed/cancelled, package=$packageName, msg=${e.message}")
             Log.e(mTAG, "Error during S3 Restic backup", e)
+            false
+        }
+    }
+
+    /**
+     * 使用 Restic 备份到 FTP（opendal:ftp，纯 JNI）
+     */
+    private suspend fun backupWithResticToFtp(
+        packageName: String,
+        compressedFile: File,
+        dataType: DataType,
+        ftpExtra: FTPExtra,
+        remotePath: String,
+        t: TaskDetailPackageEntity
+    ): Boolean {
+        return try {
+            // 从路径中提取用户信息
+            val userId = extractUserIdFromPath(compressedFile.absolutePath)
+            val backupType = dataType.type
+
+            // 构建标签: userId-packageName-timestamp-dataType
+            val tag = "$userId-$packageName-$mBackupTimestamp-$backupType"
+            val tags = listOf(tag)
+
+            // 【关键】设置当前处理标签,用于取消机制
+            Log.d("ResticTag", "Setting current tag: $tag")
+            mCurrentProcessingTag = tag
+
+            // 【取消】生成并记录本次备份的取消令牌 id
+            val cancelId = System.nanoTime()
+            mCurrentBackupCancelId = cancelId
+            Log.i("RusticCancel", "backupWithResticToFtp enter, package=$packageName, tag=$tag, cancelId=$cancelId")
+
+            val unifiedRepoPath = mCloudEntity.remote
+
+            val result = resticRepoFtp.backupFileToFtp(
+                cloudEntity = mCloudEntity,
+                remotePath = unifiedRepoPath,
+                filePath = compressedFile.absolutePath,
+                tags = tags,
+                password = ftpExtra.resticPassword.ifEmpty { mContext.readFtpResticPassword() ?: getResticPassword() },
+                progressCallback = object : ResticProgressCallback {
+                    override fun onRestoreProgress(
+                        filesFinished: Long, filesTotal: Long,
+                        bytesWritten: Long, bytesTotal: Long,
+                        filesSkipped: Long, bytesSkipped: Long
+                    ) {
+                        // 恢复进度,备份时不使用
+                    }
+
+                    override fun onBackupProgress(
+                        percentDone: Float, bytesDone: Long,
+                        bytesTotal: Long, filesDone: Long, filesTotal: Long,
+                        speed: Long
+                    ) {
+                        val speedText = if (speed > 0) speed.formatToStorageSizePerSecond() else ""
+                        val bytesText = bytesDone.toDouble().formatSize()
+                        val content = if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
+                        Log.d(mTAG, "Restic FTP backup progress: $content")
+                        runBlocking {
+                            t.update(dataType = dataType, content = content)
+                        }
+                    }
+                },
+                cancelId = cancelId
+            )
+
+            // 【关键】备份完成后清除标签
+            mCurrentProcessingTag = null
+            mCurrentBackupCancelId = 0L
+
+            if (result.first == 0) {
+                val snapshotId = extractSnapshotIdFromJson(result.second)
+                if (snapshotId != null) {
+                    Log.d(mTAG, "Restic FTP backup successful for $packageName, snapshotId: $snapshotId")
+                    updateCloudResticInfo(packageName, snapshotId, remotePath)
+                }
+                true
+            } else {
+                Log.i("RusticCancel", "backupWithResticToFtp non-zero result, package=$packageName, code=${result.first}, msg=${result.second}")
+                false
+            }
+        } catch (e: Exception) {
+            // 【关键】异常时也要清除标签
+            mCurrentProcessingTag = null
+            mCurrentBackupCancelId = 0L
+
+            Log.e("RusticCancel", "backupWithResticToFtp failed/cancelled, package=$packageName, msg=${e.message}")
+            Log.e(mTAG, "Error during FTP Restic backup", e)
             false
         }
     }

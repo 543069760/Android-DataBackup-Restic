@@ -9,15 +9,19 @@ import com.xayah.core.data.repository.CloudRepository
 import com.xayah.core.data.repository.FilesRepo
 import com.xayah.core.datastore.readBackupDirectory
 import com.xayah.core.datastore.readS3ResticPassword
+import com.xayah.core.datastore.readFtpResticPassword
 import com.xayah.core.model.DataType
+import com.xayah.core.model.CloudType
 import com.xayah.core.model.OpType
 import com.xayah.core.model.ResticProgressState
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.MediaEntity
 import com.xayah.core.model.database.S3Extra
+import com.xayah.core.model.database.FTPExtra
 import com.xayah.core.model.restic.ResticBackupFiles
 import com.xayah.core.restic.ResticRepository
 import com.xayah.core.restic.ResticRepositoryCos
+import com.xayah.core.restic.ResticRepositoryFtp
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.localBackupSaveDir
 import com.xayah.core.util.decodeURL
@@ -38,6 +42,7 @@ import java.io.File
 class CloudFilesRestoreViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val resticRepoCos: ResticRepositoryCos,
+    private val resticRepoFtp: ResticRepositoryFtp,
     private val mediaDao: MediaDao,
     private val filesRepo: FilesRepo,
     private val rootService: RemoteRootService,
@@ -58,7 +63,21 @@ class CloudFilesRestoreViewModel @Inject constructor(
     private val _resticProgress = MutableStateFlow(ResticProgressState())
     val resticProgress: StateFlow<ResticProgressState> = _resticProgress.asStateFlow()
 
-    private val json = Json { ignoreUnknownKeys = true }
+        private val json = Json { ignoreUnknownKeys = true }
+
+        /** 按账户类型解析 restic 仓库密码：账户级(extra) 优先，回落 DataStore 全局值 */
+        private suspend fun resolveResticPassword(cloudEntity: CloudEntity): String? {   // 新增
+            return when (cloudEntity.type) {
+                CloudType.FTP -> {
+                    val ftpExtra = runCatching { json.decodeFromString<FTPExtra>(cloudEntity.extra) }.getOrNull()
+                    ftpExtra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readFtpResticPassword()
+                }
+                else -> {
+                    val s3Extra = runCatching { json.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
+                    s3Extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readS3ResticPassword()
+                }
+            }
+        }
 
     fun setCloudEntity(accountName: String) {
         Log.d(TAG, "=== setCloudEntity 开始 ===")
@@ -97,20 +116,24 @@ class CloudFilesRestoreViewModel @Inject constructor(
             Log.d(TAG, "UI状态设置为Loading")
 
             try {
-                Log.d(TAG, "读取S3 Restic密码配置")
-                val s3Extra = runCatching { json.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
-                val password = s3Extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readS3ResticPassword()
+                // ↓↓↓ 改动 1：密码解析按 CloudType 分派（FTP / S3 各取账户级 extra，回落各自 DataStore） ↓↓↓
+                Log.d(TAG, "读取 Restic 密码配置")
+                val password = resolveResticPassword(cloudEntity)
+                // ↑↑↑ 改动 1 结束 ↑↑↑
                 if (password.isNullOrEmpty()) {
-                    Log.e(TAG, "S3 Restic密码未配置或为空")
+                    Log.e(TAG, "Restic密码未配置或为空")
                     _uiState.value = CloudFilesRestoreUiState.Error("Restic密码未配置")
                     return@launch
                 }
-                Log.d(TAG, "S3 Restic密码配置已读取 (长度: ${password.length})")
+                Log.d(TAG, "Restic密码配置已读取 (长度: ${password.length})")
 
-                // JNI 模式获取文件备份列表
-                Log.d(TAG, "开始调用 listBackedUpFilesFromS3WithSqlJni (JNI 模式)")
-                val files: List<ResticBackupFiles> =
-                    resticRepoCos.listBackedUpFilesFromS3WithSqlJni(cloudEntity, password)
+                // ↓↓↓ 改动 2：list 调用按 CloudType 分派到 FTP / S3 ↓↓↓
+                Log.d(TAG, "开始调用 listBackedUpFiles (JNI 模式), type=${cloudEntity.type}")
+                val files: List<ResticBackupFiles> = when (cloudEntity.type) {
+                    CloudType.FTP -> resticRepoFtp.listBackedUpFilesFromFtpWithSqlJni(cloudEntity, password)
+                    else -> resticRepoCos.listBackedUpFilesFromS3WithSqlJni(cloudEntity, password)
+                }
+                // ↑↑↑ 改动 2 结束 ↑↑↑
 
                 Log.d(TAG, "获取到 ${files.size} 个文件备份项")
 
@@ -164,9 +187,7 @@ class CloudFilesRestoreViewModel @Inject constructor(
     suspend fun deleteCloudFileSnapshots(group: ResticFileBackupGroup): Boolean = withContext(Dispatchers.IO) {
         try {
             val cloudEntity = cloudRepo.queryByName(accountName) ?: return@withContext false
-            val s3Extra = runCatching { json.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
-            val password = (s3Extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readS3ResticPassword())
-                ?: return@withContext false
+            val password = resolveResticPassword(cloudEntity) ?: return@withContext false   // 改
 
             val sortedBackups = group.backups.sortedBy { backup ->
                 when (backup.dataType) {
@@ -177,7 +198,6 @@ class CloudFilesRestoreViewModel @Inject constructor(
             }
 
             val totalSteps = sortedBackups.size + 1
-
             _resticProgress.value = ResticProgressState(
                 totalDataTypes = totalSteps,
                 currentDataTypeIndex = 0,
@@ -185,15 +205,16 @@ class CloudFilesRestoreViewModel @Inject constructor(
             )
 
             sortedBackups.forEachIndexed { index, backup ->
-                _resticProgress.value = _resticProgress.value.copy(
-                    currentDataTypeIndex = index
-                )
+                _resticProgress.value = _resticProgress.value.copy(currentDataTypeIndex = index)
 
-                val success = resticRepoCos.forgetSnapshotFromCos(
-                    cloudEntity = cloudEntity,
-                    password = password,
-                    snapshotId = backup.snapshotId
-                )
+                val success = when (cloudEntity.type) {                 // 改：按类型分派
+                    CloudType.FTP -> resticRepoFtp.forgetSnapshotFromFtp(
+                        cloudEntity = cloudEntity, password = password, snapshotId = backup.snapshotId
+                    )
+                    else -> resticRepoCos.forgetSnapshotFromCos(
+                        cloudEntity = cloudEntity, password = password, snapshotId = backup.snapshotId
+                    )
+                }
 
                 if (!success) {
                     _resticProgress.value = ResticProgressState()
@@ -201,11 +222,12 @@ class CloudFilesRestoreViewModel @Inject constructor(
                 }
             }
 
-            _resticProgress.value = _resticProgress.value.copy(
-                currentDataTypeIndex = sortedBackups.size
-            )
+            _resticProgress.value = _resticProgress.value.copy(currentDataTypeIndex = sortedBackups.size)
 
-            val pruneSuccess = resticRepoCos.pruneCosRepository(cloudEntity, password)
+            val pruneSuccess = when (cloudEntity.type) {                // 改：按类型分派
+                CloudType.FTP -> resticRepoFtp.pruneFtpRepository(cloudEntity, password)
+                else -> resticRepoCos.pruneCosRepository(cloudEntity, password)
+            }
             _resticProgress.value = ResticProgressState()
 
             pruneSuccess
@@ -231,14 +253,14 @@ class CloudFilesRestoreViewModel @Inject constructor(
                 }
                 Log.d(TAG, "云端账户查询成功: ${cloudEntity.name}")
 
-                Log.d(TAG, "读取S3 Restic密码")
-                val s3Extra = runCatching { json.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
-                val password = s3Extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readS3ResticPassword()
+                // === 改动 1：密码解析按 CloudType 分派（FTP/S3 账户级 -> DataStore 回落）===
+                Log.d(TAG, "读取 Restic 密码")
+                val password = resolveResticPassword(cloudEntity)
                 if (password.isNullOrEmpty()) {
-                    Log.e(TAG, "S3 Restic密码为空")
+                    Log.e(TAG, "Restic密码为空")
                     return@withContext false
                 }
-                Log.d(TAG, "S3 Restic密码读取成功")
+                Log.d(TAG, "Restic密码读取成功")
 
                 Log.d(TAG, "排序备份项，共 ${group.backups.size} 个")
                 val sortedBackups = group.backups.sortedBy { backup ->
@@ -319,19 +341,31 @@ class CloudFilesRestoreViewModel @Inject constructor(
                     Log.d(TAG, "  包含文件: $includePath")
                     Log.d(TAG, "  快照ID: ${backup.snapshotId}")
 
-                    Log.d(TAG, "调用 restoreSnapshotFromCos")
+                    // === 改动 2：restore 调用按 CloudType 分派到 FTP/COS ===
+                    Log.d(TAG, "调用 restoreSnapshot (type=${cloudEntity.type})")
                     val restoreStartTime = System.currentTimeMillis()
-                    val success = resticRepoCos.restoreSnapshotFromCos(
-                        cloudEntity = cloudEntity,
-                        password = password,
-                        snapshotId = backup.snapshotId,
-                        targetPath = fullTargetPath,
-                        snapshotSubPath = snapshotSubPath,
-                        includePath = includePath,
-                        progressCallback = progressCallback
-                    )
+                    val success = when (cloudEntity.type) {
+                        CloudType.FTP -> resticRepoFtp.restoreSnapshotFromFtp(
+                            cloudEntity = cloudEntity,
+                            password = password,
+                            snapshotId = backup.snapshotId,
+                            targetPath = fullTargetPath,
+                            snapshotSubPath = snapshotSubPath,
+                            includePath = includePath,
+                            progressCallback = progressCallback
+                        )
+                        else -> resticRepoCos.restoreSnapshotFromCos(
+                            cloudEntity = cloudEntity,
+                            password = password,
+                            snapshotId = backup.snapshotId,
+                            targetPath = fullTargetPath,
+                            snapshotSubPath = snapshotSubPath,
+                            includePath = includePath,
+                            progressCallback = progressCallback
+                        )
+                    }
                     val restoreDuration = System.currentTimeMillis() - restoreStartTime
-                    Log.d(TAG, "restoreSnapshotFromCos 完成，结果: $success, 耗时: ${restoreDuration}ms")
+                    Log.d(TAG, "restoreSnapshot 完成，结果: $success, 耗时: ${restoreDuration}ms")
 
                     if (!success) {
                         Log.e(TAG, "恢复失败: ${backup.dataType.type}, 快照ID: ${backup.snapshotId}")

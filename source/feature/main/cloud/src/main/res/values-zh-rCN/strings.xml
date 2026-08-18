@@ -9,4 +9,6 @@
     <string name="s3_restic_init_failed">初始化失败: %s</string>
     <string name="s3_restic_init_status">初始化状态</string>
     <string name="s3_restic_initialize">初始化</string>
+    <!-- FTP 公网 IP 警示 -->
+    <string name="ftp_public_ip_warning">检测到公网 IP 地址。请确保公网带宽足够、FTP 服务器并发连接数足够，并已将被动模式（PASV）配置为公网 IP 且被动端口段已通过防火墙。FTP 服务端配置不当可能会导致连接失败、备份速度异常缓慢等问题，否则不建议在公网环境中使用 FTP 协议。</string>
 </resources>

@@ -9,15 +9,19 @@ import com.xayah.core.data.repository.CloudRepository
 import com.xayah.core.datastore.readBackupDirectory
 import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.datastore.readS3ResticPassword
+import com.xayah.core.datastore.readFtpResticPassword
 import com.xayah.core.model.DataType
 import com.xayah.core.model.OpType
 import com.xayah.core.model.ResticProgressState
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.PackageEntity
 import com.xayah.core.model.database.S3Extra
+import com.xayah.core.model.database.FTPExtra
+import com.xayah.core.model.CloudType
 import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.restic.ResticRepository
 import com.xayah.core.restic.ResticRepositoryCos
+import com.xayah.core.restic.ResticRepositoryFtp
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.GsonUtil
 import com.xayah.core.util.decodeURL
@@ -39,6 +43,7 @@ import java.io.File
 class CloudRestoreViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val resticRepoCos: ResticRepositoryCos,
+    private val resticRepoFtp: ResticRepositoryFtp,
     private val appsDao: PackageDao,
     private val appsRepo: com.xayah.core.data.repository.AppsRepo,
     private val rootService: RemoteRootService,
@@ -56,6 +61,20 @@ class CloudRestoreViewModel @Inject constructor(
     val resticProgress: StateFlow<ResticProgressState> = _resticProgress.asStateFlow()
 
     private val json = Json { ignoreUnknownKeys = true }
+
+    /** 按账户类型解析 restic 仓库密码：账户级(extra) 优先，回落 DataStore 全局值 */
+    private suspend fun resolveResticPassword(cloudEntity: CloudEntity): String? {
+        return when (cloudEntity.type) {
+            CloudType.FTP -> {
+                val ftpExtra = runCatching { json.decodeFromString<FTPExtra>(cloudEntity.extra) }.getOrNull()
+                ftpExtra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readFtpResticPassword()
+            }
+            else -> {
+                val s3Extra = runCatching { json.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
+                s3Extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readS3ResticPassword()
+            }
+        }
+    }
 
     fun setCloudEntity(accountName: String) {
         val cleanAccountName = accountName.replace("accountName=", "").decodeURL()
@@ -79,18 +98,16 @@ class CloudRestoreViewModel @Inject constructor(
         Log.d("CloudRestore", "=== loadCloudBackedUpApps 开始 ===")
         viewModelScope.launch {
             _uiState.value = CloudRestoreUiState.Loading
-            val s3Extra = runCatching { json.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
-            val password = s3Extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readS3ResticPassword()
+            val password = resolveResticPassword(cloudEntity)            // 改：按类型解析
             if (password.isNullOrEmpty()) {
                 _uiState.value = CloudRestoreUiState.Error("Restic密码未配置")
                 return@launch
             }
             try {
-                // 明确指定类型，消除歧义
-                // JNI 模式（opendal:cos，走 rootService.listRusticSnapshotsDb + parseAppsDb）
-                // 该方法内部已 try/catch，失败时返回 emptyList()，不再需要二进制 fallback
-                val apps: List<ResticBackupApp> =
-                    resticRepoCos.listBackedUpAppsFromS3WithSqlJni(cloudEntity, password)
+                val apps: List<ResticBackupApp> = when (cloudEntity.type) {   // 改：按类型分派
+                    CloudType.FTP -> resticRepoFtp.listBackedUpAppsFromFtpWithSqlJni(cloudEntity, password)
+                    else -> resticRepoCos.listBackedUpAppsFromS3WithSqlJni(cloudEntity, password)
+                }
 
                 val groupedBackups = apps
                     .groupBy { "${it.userId}-${it.packageName}-${it.timestamp}" }
@@ -135,11 +152,8 @@ class CloudRestoreViewModel @Inject constructor(
         return withContext(Dispatchers.IO) {
             try {
                 val cloudEntity = cloudRepo.queryByName(accountName) ?: return@withContext false
-                val s3Extra = runCatching { json.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
-                val password = (s3Extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readS3ResticPassword())
-                    ?: return@withContext false
+                val password = resolveResticPassword(cloudEntity) ?: return@withContext false   // 改
 
-                // 按优先级排序数据类型
                 val sortedBackups = group.backups.sortedBy { backup ->
                     when (backup.dataType) {
                         DataType.PACKAGE_APK -> 0
@@ -153,13 +167,11 @@ class CloudRestoreViewModel @Inject constructor(
                     }
                 }
 
-                // 初始化进度状态
                 _resticProgress.value = _resticProgress.value.copy(
                     currentDataTypeIndex = 0,
                     totalDataTypes = sortedBackups.size
                 )
 
-                // 创建进度回调
                 val progressCallback = object : ResticRepository.ResticProgressCallback {
                     override fun onRestoreProgress(
                         filesFinished: Long, filesTotal: Long,
@@ -172,7 +184,6 @@ class CloudRestoreViewModel @Inject constructor(
                         val speedStr = if (timeDiff > 0 && bytesWritten > lastBytes) {
                             ((bytesWritten - lastBytes) * 1000 / timeDiff).formatSpeed()
                         } else "0 B/s"
-
                         lastTime = currentTime
                         lastBytes = bytesWritten
                         _resticProgress.value = _resticProgress.value.copy(
@@ -191,19 +202,15 @@ class CloudRestoreViewModel @Inject constructor(
                         percentDone: Float, bytesDone: Long,
                         bytesTotal: Long, filesDone: Long, filesTotal: Long,
                         speed: Long
-                    ) {
-                        // 原有方法体保持不变；restore 相关 VM 里 onBackupProgress 备份时不触发，可保留空/日志实现
-                    }
+                    ) {}
                 }
 
                 sortedBackups.forEachIndexed { index, backup ->
-                    // 更新当前数据类型索引
                     _resticProgress.value = _resticProgress.value.copy(
                         currentDataTypeIndex = index,
                         totalDataTypes = sortedBackups.size
                     )
 
-                    // 使用与本地恢复相同的路径逻辑
                     val targetPath = "${context.localBackupSaveDir()}/restore/"
                     val backupBaseDir = context.readBackupDirectory() ?: context.localBackupSaveDir()
                     val snapshotSubPath = "$backupBaseDir/apps/${backup.packageName}/user_${backup.userId}"
@@ -213,15 +220,26 @@ class CloudRestoreViewModel @Inject constructor(
                     }
                     val fullTargetPath = "${targetPath}apps/${backup.packageName}/user_${backup.userId}/"
 
-                    val success = resticRepoCos.restoreSnapshotFromCos(
-                        cloudEntity = cloudEntity,
-                        password = password,
-                        snapshotId = backup.snapshotId,
-                        targetPath = fullTargetPath,
-                        snapshotSubPath = snapshotSubPath,
-                        includePath = includePath,
-                        progressCallback = progressCallback
-                    )
+                    val success = when (cloudEntity.type) {              // 改：按类型分派
+                        CloudType.FTP -> resticRepoFtp.restoreSnapshotFromFtp(
+                            cloudEntity = cloudEntity,
+                            password = password,
+                            snapshotId = backup.snapshotId,
+                            targetPath = fullTargetPath,
+                            snapshotSubPath = snapshotSubPath,
+                            includePath = includePath,
+                            progressCallback = progressCallback
+                        )
+                        else -> resticRepoCos.restoreSnapshotFromCos(
+                            cloudEntity = cloudEntity,
+                            password = password,
+                            snapshotId = backup.snapshotId,
+                            targetPath = fullTargetPath,
+                            snapshotSubPath = snapshotSubPath,
+                            includePath = includePath,
+                            progressCallback = progressCallback
+                        )
+                    }
 
                     if (!success) {
                         Log.e("CloudRestore", "恢复失败: ${backup.dataType.type}, 快照ID: ${backup.snapshotId}")
@@ -241,9 +259,7 @@ class CloudRestoreViewModel @Inject constructor(
     suspend fun deleteCloudSnapshots(group: ResticBackupGroup): Boolean = withContext(Dispatchers.IO) {
         try {
             val cloudEntity = cloudRepo.queryByName(accountName) ?: return@withContext false
-            val s3Extra = runCatching { json.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
-            val password = (s3Extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readS3ResticPassword())
-                ?: return@withContext false
+            val password = resolveResticPassword(cloudEntity) ?: return@withContext false   // 改
 
             val sortedBackups = group.backups.sortedBy { backup ->
                 when (backup.dataType) {
@@ -258,29 +274,25 @@ class CloudRestoreViewModel @Inject constructor(
                 }
             }
 
-            // 总步骤 = 快照数量 + 1 (prune)
             val totalSteps = sortedBackups.size + 1
-
-            // 初始化删除进度状态
             _resticProgress.value = ResticProgressState(
                 totalDataTypes = totalSteps,
                 currentDataTypeIndex = 0,
                 isDeleting = true
             )
 
-            // 逐个删除快照
             sortedBackups.forEachIndexed { index, backup ->
                 Log.d("CloudRestore", "删除第 ${index + 1}/${sortedBackups.size} 个快照: ${backup.dataType.type}")
+                _resticProgress.value = _resticProgress.value.copy(currentDataTypeIndex = index)
 
-                _resticProgress.value = _resticProgress.value.copy(
-                    currentDataTypeIndex = index
-                )
-
-                val success = resticRepoCos.forgetSnapshotFromCos(
-                    cloudEntity = cloudEntity,
-                    password = password,
-                    snapshotId = backup.snapshotId
-                )
+                val success = when (cloudEntity.type) {                 // 改：按类型分派
+                    CloudType.FTP -> resticRepoFtp.forgetSnapshotFromFtp(
+                        cloudEntity = cloudEntity, password = password, snapshotId = backup.snapshotId
+                    )
+                    else -> resticRepoCos.forgetSnapshotFromCos(
+                        cloudEntity = cloudEntity, password = password, snapshotId = backup.snapshotId
+                    )
+                }
 
                 if (!success) {
                     _resticProgress.value = ResticProgressState()
@@ -288,17 +300,15 @@ class CloudRestoreViewModel @Inject constructor(
                 }
             }
 
-            // 最后一步: 执行 prune
             Log.d("CloudRestore", "执行 prune 清理 (步骤 ${totalSteps}/${totalSteps})")
-            _resticProgress.value = _resticProgress.value.copy(
-                currentDataTypeIndex = sortedBackups.size  // 最后一步
-            )
+            _resticProgress.value = _resticProgress.value.copy(currentDataTypeIndex = sortedBackups.size)
 
-            val pruneSuccess = resticRepoCos.pruneCosRepository(cloudEntity, password)
+            val pruneSuccess = when (cloudEntity.type) {                // 改：按类型分派
+                CloudType.FTP -> resticRepoFtp.pruneFtpRepository(cloudEntity, password)
+                else -> resticRepoCos.pruneCosRepository(cloudEntity, password)
+            }
 
-            // 重置进度状态
             _resticProgress.value = ResticProgressState()
-
             pruneSuccess
         } catch (e: Exception) {
             Log.e("CloudRestore", "删除快照异常: ${e.message}", e)

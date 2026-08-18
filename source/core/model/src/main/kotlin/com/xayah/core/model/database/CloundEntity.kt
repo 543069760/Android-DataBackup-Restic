@@ -8,8 +8,10 @@ import com.xayah.core.model.SmbAuthMode
 import com.xayah.core.model.SmbVersion
 import kotlinx.serialization.Serializable
 
+@Serializable
 data class FTPExtra(
     val port: Int,
+    val resticPassword: String = "",   // 新增：按账户存储的 restic 仓库密码
 )
 
 data class SMBExtra(

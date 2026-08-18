@@ -53,11 +53,10 @@ class FTPClientImpl(private val entity: CloudEntity, private val extra: FTPExtra
     }
 
     override fun disconnect() {
-        withClient { client ->
-            if (client.isConnected) {
-                if (client.logout().not()) throw LoginException("Failed to logout.")
-                client.disconnect()
-            }
+        val c = client ?: return
+        if (c.isConnected) {
+            if (c.logout().not()) throw LoginException("Failed to logout.")
+            c.disconnect()
         }
         client = null
     }

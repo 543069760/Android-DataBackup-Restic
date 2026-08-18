@@ -27,6 +27,11 @@ val KeyS3ResticRepoPath = stringPreferencesKey("s3_restic_repo_path")
 val KeyS3ResticPassword = stringPreferencesKey("s3_restic_password")
 val KeyS3ResticInitialized = booleanPreferencesKey("s3_restic_initialized")
 
+// FTP Restic 配置键
+val KeyFtpResticRepoPath = stringPreferencesKey("ftp_restic_repo_path")
+val KeyFtpResticPassword = stringPreferencesKey("ftp_restic_password")
+val KeyFtpResticInitialized = booleanPreferencesKey("ftp_restic_initialized")
+
 class DbPreferencesDataSource @Inject constructor(
     private val preferences: DataStore<Preferences>
 ) {
@@ -94,5 +99,42 @@ suspend fun Context.saveS3ResticRepoPath(path: String) {
 suspend fun Context.readS3ResticRepoPath(): String? {
     return dataStore.data.map { preferences ->
         preferences[KeyS3ResticRepoPath]
+    }.first()
+}
+
+// FTP Restic 配置扩展函数
+suspend fun Context.saveFtpResticPassword(password: String) {
+    dataStore.edit { settings ->
+        settings[KeyFtpResticPassword] = password
+    }
+}
+
+suspend fun Context.readFtpResticPassword(): String? {
+    return dataStore.data.map { preferences ->
+        preferences[KeyFtpResticPassword]
+    }.first()
+}
+
+suspend fun Context.saveFtpResticInitialized(initialized: Boolean) {
+    dataStore.edit { settings ->
+        settings[KeyFtpResticInitialized] = initialized
+    }
+}
+
+suspend fun Context.readFtpResticInitialized(): Boolean {
+    return dataStore.data.map { preferences ->
+        preferences[KeyFtpResticInitialized] ?: false
+    }.first()
+}
+
+suspend fun Context.saveFtpResticRepoPath(path: String) {
+    dataStore.edit { settings ->
+        settings[KeyFtpResticRepoPath] = path
+    }
+}
+
+suspend fun Context.readFtpResticRepoPath(): String? {
+    return dataStore.data.map { preferences ->
+        preferences[KeyFtpResticRepoPath]
     }.first()
 }

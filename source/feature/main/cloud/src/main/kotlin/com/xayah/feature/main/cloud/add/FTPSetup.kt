@@ -1,11 +1,15 @@
 package com.xayah.feature.main.cloud.add
 
 import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Visibility
@@ -47,6 +51,7 @@ import com.xayah.core.ui.component.confirm
 import com.xayah.core.ui.component.paddingHorizontal
 import com.xayah.core.ui.component.paddingStart
 import com.xayah.core.ui.component.paddingTop
+import com.xayah.core.ui.component.BodyMediumText
 import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
 import com.xayah.core.ui.theme.value
 import com.xayah.core.ui.theme.withState
@@ -55,6 +60,14 @@ import com.xayah.core.ui.util.LocalNavController
 import com.xayah.feature.main.cloud.AccountSetupScaffold
 import com.xayah.feature.main.cloud.R
 import com.xayah.feature.main.cloud.SetupTextField
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 @ExperimentalLayoutApi
 @ExperimentalAnimationApi
@@ -70,6 +83,18 @@ fun PageFTPSetup() {
     val viewModel = hiltViewModel<IndexViewModel>()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
+    val ftpViewModel = hiltViewModel<FtpResticViewModel>()
+    val scope = rememberCoroutineScope()
+
+    var ftpPassword by rememberSaveable { mutableStateOf("") }
+    var ftpPasswordVisible by rememberSaveable { mutableStateOf(false) }
+
+    val ftpInitState by ftpViewModel.ftpInitializationState.collectAsStateWithLifecycle()
+    val ftpPasswordState by ftpViewModel.ftpPasswordState.collectAsStateWithLifecycle()
+
+    LaunchedEffect(ftpPasswordState) {
+        ftpPassword = ftpPasswordState
+    }
     var name by rememberSaveable { mutableStateOf(uiState.currentName) }
     var remote by rememberSaveable(uiState.cloudEntity) { mutableStateOf(uiState.cloudEntity?.remote ?: "") }
     var url by rememberSaveable(uiState.cloudEntity) { mutableStateOf(uiState.cloudEntity?.host ?: "") }
@@ -100,7 +125,11 @@ fun PageFTPSetup() {
                 enabled = allFilled && uiState.isProcessing.not(),
                 onClick = {
                     viewModel.launchOnIO {
-                        viewModel.updateFTPEntity(name = name, remote = remote, url = url, username = username, password = password, port = port)
+                        viewModel.updateFTPEntity(
+                            name = name, remote = remote, url = url,
+                            username = username, password = password, port = port,
+                            resticPassword = ftpPassword,
+                        )
                         viewModel.emitIntent(IndexUiIntent.TestConnection)
                     }
                 }
@@ -110,7 +139,11 @@ fun PageFTPSetup() {
 
             Button(enabled = allFilled && remote.isNotEmpty() && uiState.isProcessing.not(), onClick = {
                 viewModel.launchOnIO {
-                    viewModel.updateFTPEntity(name = name, remote = remote, url = url, username = username, password = password, port = port)
+                    viewModel.updateFTPEntity(
+                        name = name, remote = remote, url = url,
+                        username = username, password = password, port = port,
+                        resticPassword = ftpPassword,
+                    )
                     viewModel.emitIntent(IndexUiIntent.CreateAccount(navController = navController))
                 }
             }) {
@@ -145,6 +178,25 @@ fun PageFTPSetup() {
                     onValueChange = { url = it },
                     label = stringResource(id = R.string.url)
                 )
+
+                // 检测到公网 IPv4 时显示黄色警示卡片
+                if (isPublicIpv4(url)) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .paddingHorizontal(SizeTokens.Level24)
+                            .background(
+                                color = ThemedColorSchemeKeyTokens.YellowPrimaryContainer.value,
+                                shape = RoundedCornerShape(SizeTokens.Level12)
+                            )
+                            .padding(SizeTokens.Level16)
+                    ) {
+                        BodyMediumText(
+                            text = stringResource(id = R.string.ftp_public_ip_warning),
+                            color = ThemedColorSchemeKeyTokens.YellowOnPrimaryContainer.value
+                        )
+                    }
+                }
 
                 SetupTextField(
                     modifier = Modifier
@@ -227,7 +279,11 @@ fun PageFTPSetup() {
                     desc = stringResource(id = R.string.remote_path_desc),
                 ) {
                     viewModel.launchOnIO {
-                        viewModel.updateFTPEntity(name = name, remote = remote, url = url, username = username, password = password, port = port)
+                        viewModel.updateFTPEntity(
+                            name = name, remote = remote, url = url,
+                            username = username, password = password, port = port,
+                            resticPassword = ftpPassword,
+                        )
                         viewModel.emitIntent(IndexUiIntent.SetRemotePath(context = context))
                         remote = uiState.cloudEntity!!.remote
                     }
@@ -253,6 +309,130 @@ fun PageFTPSetup() {
                         )
                     }
             }
+            Title(
+                enabled = uiState.isProcessing.not(),
+                title = stringResource(id = R.string.s3_restic_initialization)
+            ) {
+                // FTP Restic 密码设置
+                SetupTextField(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .paddingHorizontal(SizeTokens.Level24),
+                    enabled = uiState.isProcessing.not(),
+                    value = ftpPassword,
+                    visualTransformation = if (ftpPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    leadingIcon = ImageVector.vectorResource(id = R.drawable.ic_rounded_key),
+                    trailingIcon = if (ftpPasswordVisible) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                    onTrailingIconClick = {
+                        ftpPasswordVisible = ftpPasswordVisible.not()
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    onValueChange = {
+                        ftpPassword = it
+                        ftpViewModel.saveFtpPassword(it)
+                    },
+                    label = stringResource(id = R.string.s3_restic_password)
+                )
+
+                // 初始化状态显示
+                val initStatus = when (val state = ftpInitState) {
+                    is FtpResticViewModel.FtpInitializationState.Idle ->
+                        stringResource(id = R.string.s3_restic_not_initialized)
+                    is FtpResticViewModel.FtpInitializationState.Initializing ->
+                        stringResource(id = R.string.s3_restic_initializing)
+                    is FtpResticViewModel.FtpInitializationState.Success ->
+                        stringResource(id = R.string.s3_restic_initialized_at, state.repoPath)
+                    is FtpResticViewModel.FtpInitializationState.Error ->
+                        stringResource(id = R.string.s3_restic_init_failed, state.message)
+                }
+
+                val statusColor = when (ftpInitState) {
+                    is FtpResticViewModel.FtpInitializationState.Success -> MaterialTheme.colorScheme.primary
+                    is FtpResticViewModel.FtpInitializationState.Error -> MaterialTheme.colorScheme.error
+                    else -> MaterialTheme.colorScheme.onSurface
+                }
+
+                Clickable(
+                    enabled = uiState.isProcessing.not(),
+                    title = stringResource(id = R.string.s3_restic_init_status),
+                    value = initStatus,
+                    onClick = {
+                        if (ftpInitState is FtpResticViewModel.FtpInitializationState.Idle && ftpPassword.isNotEmpty()) {
+                            scope.launch {
+                                ftpViewModel.initializeFtpRepository(
+                                    name = name,
+                                    host = url,
+                                    port = port.toIntOrNull() ?: 21,
+                                    username = username,
+                                    pass = password,
+                                    remotePath = remote,
+                                    password = ftpPassword
+                                )
+                            }
+                        }
+                    }
+                )
+
+                // 初始化按钮
+                Button(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .paddingHorizontal(SizeTokens.Level24),
+                    enabled = uiState.isProcessing.not() &&
+                            ftpPassword.isNotEmpty() &&
+                            ftpInitState !is FtpResticViewModel.FtpInitializationState.Initializing,
+                    onClick = {
+                        scope.launch {
+                            ftpViewModel.initializeFtpRepository(
+                                name = name,
+                                host = url,
+                                port = port.toIntOrNull() ?: 21,
+                                username = username,
+                                pass = password,
+                                remotePath = remote,
+                                password = ftpPassword
+                            )
+                        }
+                    }
+                ) {
+                    if (ftpInitState is FtpResticViewModel.FtpInitializationState.Initializing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Text(text = stringResource(id = R.string.s3_restic_initialize))
+                }
+            }
         }
     }
+}
+
+/**
+ * 判断输入字符串是否为「公网 IPv4」。
+ * - 必须是标准 4 段点分十进制（每段 0-255），否则（含域名）返回 false。
+ * - 私有/保留段返回 false：10/8、172.16/12、192.168/16、127/8、169.254/16、100.64/10。
+ */
+private fun isPublicIpv4(input: String): Boolean {
+    val host = input.trim().removePrefix("ftp://").substringBefore('/').substringBefore(':')
+    val parts = host.split(".")
+    if (parts.size != 4) return false
+    val octets = parts.map { seg ->
+        val n = seg.toIntOrNull() ?: return false
+        if (n < 0 || n > 255) return false
+        n
+    }
+    val (a, b) = octets[0] to octets[1]
+    // 私有 / 保留段一律视为内网，不提示
+    val isPrivate = when {
+        a == 10 -> true                                  // 10.0.0.0/8
+        a == 172 && b in 16..31 -> true                  // 172.16.0.0/12
+        a == 192 && b == 168 -> true                     // 192.168.0.0/16
+        a == 127 -> true                                 // 127.0.0.0/8 回环
+        a == 169 && b == 254 -> true                     // 169.254.0.0/16 link-local
+        a == 100 && b in 64..127 -> true                 // 100.64.0.0/10 CGNAT
+        else -> false
+    }
+    return isPrivate.not()
 }
