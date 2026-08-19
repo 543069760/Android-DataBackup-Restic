@@ -305,6 +305,7 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                 false
             }
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             // 【新增】异常时也要清除标签
             mCurrentProcessingTag = null
             mCurrentBackupCancelId = 0L
@@ -436,6 +437,14 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                             // 备份tar文件 - 传入 media 以刷 UI 进度
                             val tarSuccess = backupWithRestic(m.name, tarFile, DataType.PACKAGE_MEDIA, media)
                             Log.d("ResticFlow", "tar文件Restic备份结果: $tarSuccess")
+
+                            // ★ 取消检查：tar 备份因强杀失败后，不再对 config 发起任何 mRootService 调用（避免重建 root）
+                            if (isCanceled()) {
+                                log { "Backup canceled, skipping remaining data types for ${m.name}" }
+                                media.update(state = OperationState.ERROR)
+                                mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
+                                return@executeAtLeast
+                            }
 
                             // 备份配置文件 - 传入 media 以刷 UI 进度
                             val configSuccess = backupWithRestic(m.name, configFile, DataType.PACKAGE_CONFIG, media)

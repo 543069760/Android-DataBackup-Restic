@@ -55,7 +55,9 @@ interface IRemoteRootService {
     boolean rusticRepositoryExists(String repositoryPath, in Map options);
     void validateRusticRepository(String repositoryPath, String password, in Map options);
     String createRusticSnapshot(String repositoryPath, String password, in List<String> sourcePaths, in List<String> tags, in Map options, ICallback callback, long cancelId);
-        void cancelRusticBackup(long cancelId);
+            void cancelRusticBackup(long cancelId);
+        // 兜底：协作式取消无效时，从 root 进程内部硬杀自己
+        void forceStopSelf();
     void restoreRusticSnapshot(String repositoryPath, String password, String snapshotId, String destinationPath, in Map options, String includeGlob, ICallback callback);
     void checkRusticRepository(String repositoryPath, String password, in Map options);
     void forgetRusticSnapshot(String repositoryPath, String password, in Map options, String snapshotId);

@@ -129,15 +129,27 @@ class RemoteRootService(private val context: Context) {
      */
     fun destroyService(killDaemon: Boolean = false) {
         log { "Trying to destroy the service..." }
-        if (killDaemon) {
-            if (mConnection != null) {
-                RootService.unbind(mConnection!!)
+        try {
+            if (killDaemon) {
+                if (mConnection != null) {
+                    runCatching {
+                        RootService.unbind(mConnection!!)
+                    }.onFailure { e ->
+                        log { "[CancelFallback] destroyService: unbind threw (ignored): ${e.message}" }
+                    }
+                }
+                runCatching {
+                    RootService.stopOrTask(intent)
+                }.onFailure { e ->
+                    log { "[CancelFallback] destroyService: stopOrTask threw (ignored): ${e.message}" }
+                }
             }
-            RootService.stopOrTask(intent)
+        } finally {
+            // 无论 unbind/stopOrTask 是否抛异常，本地引用一定清空，
+            // 不再依赖 onServiceDisconnected 回调的时序。
+            mConnection = null
+            mService = null
         }
-
-        mConnection = null
-        mService = null
     }
 
     private suspend fun getService(): IRemoteRootService = mutex.withLock {
@@ -357,6 +369,29 @@ class RemoteRootService(private val context: Context) {
 
     suspend fun cancelRusticBackup(cancelId: Long) =
         runCatching { getService().cancelRusticBackup(cancelId) }.onFailure(onFailure)
+
+    /**
+     * 兜底：协作式取消（cancelRusticBackup）在阈值内无效时，硬杀整个 root 守护进程。
+     * 先请求 root 进程内部自杀（forceStopSelf），进程死亡会让卡死的 binder 调用抛
+     * DeadObjectException 解栈；随后仍走 destroyService(true) 清理本地 mConnection/mService。
+     */
+    suspend fun forceStopDaemon() {
+        log { "[CancelFallback] forceStopDaemon called, trying forceStopSelf" }
+        // 1) 硬杀 root 进程：进程被杀瞬间该 binder 调用抛 DeadObjectException/RemoteException，属预期
+        runCatching { getService().forceStopSelf() }
+            .onSuccess { log { "[CancelFallback] forceStopSelf returned normally" } }
+            .onFailure { log { "[CancelFallback] forceStopSelf threw (expected on process death): ${it.message}" } }
+
+        // 2) 清理本地绑定状态：RootService.unbind/stopOrTask 必须在主线程执行，
+        //    因此用 withMainContext 切主线程；单独 runCatching，异常仅记日志不冒泡
+        runCatching {
+            withMainContext {
+                destroyService(true)
+            }
+        }.onFailure {
+            log { "[CancelFallback] destroyService after force stop threw: ${it.message}" }
+        }
+    }
 
     suspend fun restoreRusticSnapshot(
         repositoryPath: String,

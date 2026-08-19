@@ -130,6 +130,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                         isCanceled = { isCanceled() }
                     )
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e(mTAG, "APK backup failed for ${p.packageName}", e)
                     throw e
                 }
@@ -145,6 +146,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                         isCanceled = { isCanceled() }
                     )
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e(mTAG, "Data backup failed for ${p.packageName}, type: $type", e)
                     throw e
                 }
@@ -167,38 +169,19 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                     // 根据云存储类型选择备份方式
                     try {
                         when (mCloudEntity.type) {
-                            CloudType.S3 -> {
-                                Log.d(mTAG, "Using Restic S3 backup for ${p.packageName}")
-                                val s3Extra = json.decodeFromString<S3Extra>(mCloudEntity.extra)
-                                val resticSuccess = backupWithResticToS3(
+                            CloudType.S3, CloudType.FTP -> {
+                                Log.d(mTAG, "Using Restic backup for ${p.packageName}")
+                                val resticSuccess = backupWithResticByType(
                                     packageName = p.packageName,
                                     compressedFile = compressedFile,
                                     dataType = type,
-                                    s3Extra = s3Extra,
                                     remotePath = "${p.archivesRelativeDir}",
                                     t = t
                                 )
                                 if (resticSuccess) {
-                                    Log.d(mTAG, "Restic S3 backup successful for ${p.packageName} $type")
+                                    Log.d(mTAG, "Restic backup successful for ${p.packageName} $type")
                                 } else {
-                                    Log.e(mTAG, "Restic S3 backup failed for ${p.packageName} $type")
-                                }
-                            }
-                            CloudType.FTP -> {
-                                Log.d(mTAG, "Using Restic FTP backup for ${p.packageName}")
-                                val ftpExtra = json.decodeFromString<FTPExtra>(mCloudEntity.extra)
-                                val resticSuccess = backupWithResticToFtp(
-                                    packageName = p.packageName,
-                                    compressedFile = compressedFile,
-                                    dataType = type,
-                                    ftpExtra = ftpExtra,
-                                    remotePath = "${p.archivesRelativeDir}",
-                                    t = t
-                                )
-                                if (resticSuccess) {
-                                    Log.d(mTAG, "Restic FTP backup successful for ${p.packageName} $type")
-                                } else {
-                                    Log.e(mTAG, "Restic FTP backup failed for ${p.packageName} $type")
+                                    Log.e(mTAG, "Restic backup failed for ${p.packageName} $type")
                                 }
                             }
                             CloudType.SFTP -> {
@@ -239,6 +222,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                             }
                         }
                     } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
                         Log.e(mTAG, "Upload failed for ${p.packageName}, type: $type", e)
                         t.update(dataType = type, state = OperationState.ERROR, log = e.message)
                         return
@@ -253,6 +237,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
             Log.d(mTAG, "Backup completed successfully for ${p.packageName}, type: $type")
 
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(mTAG, "Backup failed for ${p.packageName}, type: $type", e)
             t.update(dataType = type, state = OperationState.ERROR, log = e.message)
             throw e
@@ -342,6 +327,10 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                 false
             }
         } catch (e: Exception) {
+            // 【取消传播】协程取消异常必须重抛，不能吞成 false，否则备份协程无法退栈，
+            // 强杀 root 后仍会续跑 postProcessing 重建 root 进程。
+            if (e is kotlinx.coroutines.CancellationException) throw e
+
             // 【关键】异常时也要清除标签
             mCurrentProcessingTag = null
             mCurrentBackupCancelId = 0L
@@ -431,6 +420,10 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                 false
             }
         } catch (e: Exception) {
+            // 【取消传播】协程取消异常必须重抛，不能吞成 false，否则备份协程无法退栈，
+            // 强杀 root 后仍会续跑 postProcessing 重建 root 进程。
+            if (e is kotlinx.coroutines.CancellationException) throw e
+
             // 【关键】异常时也要清除标签
             mCurrentProcessingTag = null
             mCurrentBackupCancelId = 0L
@@ -438,6 +431,45 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
             Log.e("RusticCancel", "backupWithResticToFtp failed/cancelled, package=$packageName, msg=${e.message}")
             Log.e(mTAG, "Error during FTP Restic backup", e)
             false
+        }
+    }
+
+    /**
+     * 按云类型分派到对应的 Restic 备份实现。
+     * 目前仅收敛走 restic 的 S3 与 FTP：FTP 走 opendal:ftp，其余（默认）走 COS/S3。
+     * SFTP/WEBDAV/SMB 尚未迁移到 restic，仍在 backup() 的 when 分支各自走 upload，
+     * 待后续迁移到 opendal 后再并入本方法。
+     */
+    private suspend fun backupWithResticByType(
+        packageName: String,
+        compressedFile: File,
+        dataType: DataType,
+        remotePath: String,
+        t: TaskDetailPackageEntity
+    ): Boolean {
+        return when (mCloudEntity.type) {
+            CloudType.FTP -> {
+                val ftpExtra = json.decodeFromString<FTPExtra>(mCloudEntity.extra)
+                backupWithResticToFtp(
+                    packageName = packageName,
+                    compressedFile = compressedFile,
+                    dataType = dataType,
+                    ftpExtra = ftpExtra,
+                    remotePath = remotePath,
+                    t = t
+                )
+            }
+            else -> {
+                val s3Extra = json.decodeFromString<S3Extra>(mCloudEntity.extra)
+                backupWithResticToS3(
+                    packageName = packageName,
+                    compressedFile = compressedFile,
+                    dataType = dataType,
+                    s3Extra = s3Extra,
+                    remotePath = remotePath,
+                    t = t
+                )
+            }
         }
     }
 

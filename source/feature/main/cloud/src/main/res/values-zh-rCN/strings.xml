@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- S3 Restic 初始化字符串 -->
-    <string name="s3_restic_initialization">S3 Restic初始化</string>
-    <string name="s3_restic_password">S3 Restic密码</string>
+    <!-- 云端 Restic 初始化字符串 -->
+    <string name="s3_restic_initialization">云端 Restic 初始化</string>
+    <string name="s3_restic_password">云端 Restic 密码</string>
     <string name="s3_restic_not_initialized">未初始化</string>
     <string name="s3_restic_initializing">初始化中...</string>
     <string name="s3_restic_initialized_at">已初始化: %s</string>

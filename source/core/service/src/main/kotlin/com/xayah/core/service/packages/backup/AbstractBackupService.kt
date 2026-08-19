@@ -276,12 +276,21 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                 mRootService.mkdirs(dstDir)
 
                 if (onAppDirCreated(archivesRelativeDir = p.archivesRelativeDir)) {
-                    backup(type = DataType.PACKAGE_APK, p = p, r = restoreEntity, t = pkg, dstDir = dstDir)
-                    backup(type = DataType.PACKAGE_USER, p = p, r = restoreEntity, t = pkg, dstDir = dstDir)
-                    backup(type = DataType.PACKAGE_USER_DE, p = p, r = restoreEntity, t = pkg, dstDir = dstDir)
-                    backup(type = DataType.PACKAGE_DATA, p = p, r = restoreEntity, t = pkg, dstDir = dstDir)
-                    backup(type = DataType.PACKAGE_OBB, p = p, r = restoreEntity, t = pkg, dstDir = dstDir)
-                    backup(type = DataType.PACKAGE_MEDIA, p = p, r = restoreEntity, t = pkg, dstDir = dstDir)
+                    val dataTypes = listOf(
+                        DataType.PACKAGE_APK,
+                        DataType.PACKAGE_USER,
+                        DataType.PACKAGE_USER_DE,
+                        DataType.PACKAGE_DATA,
+                        DataType.PACKAGE_OBB,
+                        DataType.PACKAGE_MEDIA,
+                    )
+                    for (type in dataTypes) {
+                        if (isCanceled()) {
+                            log { "Backup canceled, skipping remaining data types for ${p.packageName}" }
+                            break
+                        }
+                        backup(type = type, p = p, r = restoreEntity, t = pkg, dstDir = dstDir)
+                    }
 
                     if (isCanceled()) {
                         log { "Backup canceled after data backup, skipping config save" }
@@ -522,7 +531,6 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                 progressCallback = progressCallback,
                 cancelId = cancelId
             )
-
             // 【新增】清除当前标签
             mCurrentProcessingTag = null
             mCurrentBackupCancelId = 0L
@@ -548,6 +556,7 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                 false
             }
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e   // ★ 新增：取消异常直接重抛，勿吞
             // 【新增】异常时也要清除标签
             mCurrentProcessingTag = null
             mCurrentBackupCancelId = 0L

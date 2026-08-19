@@ -555,6 +555,18 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         android.util.Log.i("RusticCancel", "impl.cancelRusticBackup id=$cancelId returned")
     }
 
+    // 兜底：协作式取消（cancelRusticBackup）无效时，由 binder 线程池空闲线程执行，
+    // 直接硬杀整个 root 守护进程（含卡在阻塞 socket 上的备份线程）。
+    // 绝不能用 synchronized(lock)：卡死的 createRusticSnapshot 正持有 lock。
+    override fun forceStopSelf() {
+        Log.i("CancelFallback", "[CancelFallback] forceStopSelf called, pid=${android.os.Process.myPid()}, killing root process now")
+        // 杀掉本进程（root 守护进程），卡死的 native 调用随进程一起终止；
+        // app 侧阻塞的 binder 调用会因进程死亡抛 DeadObjectException 解栈。
+        android.os.Process.killProcess(android.os.Process.myPid())
+        // 兜底：极少数情况下 killProcess 未立即生效时，强制退出。
+        kotlin.system.exitProcess(0)
+    }
+
     override fun restoreRusticSnapshot(
         repositoryPath: String,
         password: String,
