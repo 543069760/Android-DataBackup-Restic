@@ -82,6 +82,24 @@ jobs:
           DYNAMIC_CODE=$((BASE_CODE + COMMITS))  
           echo "code=$DYNAMIC_CODE" >> $GITHUB_OUTPUT  
           
+          # 记录本次构建基于的 commit hash（完整 + 短）  
+          COMMIT_HASH=$(git rev-parse HEAD)  
+          COMMIT_SHORT=$(git rev-parse --short HEAD)  
+          echo "commit=$COMMIT_HASH" >> $GITHUB_OUTPUT  
+          echo "commit_short=$COMMIT_SHORT" >> $GITHUB_OUTPUT  
+          
+          # 记录 commit message（完整，可能多行 → 使用多行分隔符语法写入 GITHUB_OUTPUT）  
+          COMMIT_MSG=$(git log -1 --pretty=%B)  
+          {  
+            echo "commit_msg<<COMMIT_MSG_EOF"  
+            echo "$COMMIT_MSG"  
+            echo "COMMIT_MSG_EOF"  
+          } >> $GITHUB_OUTPUT  
+          
+          # 记录 commit 标题（单行摘要）  
+          COMMIT_SUBJECT=$(git log -1 --pretty=%s)  
+          echo "commit_subject=$COMMIT_SUBJECT" >> $GITHUB_OUTPUT  
+          
           # 确定版本名称  
           if [ -n "${{ github.event.inputs.version_name }}" ]; then  
             VERSION_NAME="${{ github.event.inputs.version_name }}"  
@@ -91,7 +109,9 @@ jobs:
           echo "name=$VERSION_NAME" >> $GITHUB_OUTPUT  
           
           echo "Final Version Code: $DYNAMIC_CODE"  
-          echo "Final Version Name: $VERSION_NAME"
+          echo "Final Version Name: $VERSION_NAME"  
+          echo "Commit: $COMMIT_HASH"  
+          echo "Commit Subject: $COMMIT_SUBJECT"
         working-directory: source
 
       - name: Build with gradle (Dynamic Version Injection)
@@ -152,6 +172,12 @@ jobs:
             - **Version:** `${{ steps.calc_version.outputs.name }}`  
             - **Build Code:** `${{ steps.calc_version.outputs.code }}` (Base 30000 + Commits)  
             - **Branch:** `${{ github.event.inputs.branch }}`  
+            - **Commit:** [`${{ steps.calc_version.outputs.commit_short }}`](https://github.com/${{ github.repository }}/commit/${{ steps.calc_version.outputs.commit }})  
+            
+            ### Commit Message  
+            ```  
+            ${{ steps.calc_version.outputs.commit_msg }}  
+            ```  
             
             ### Included Variants  
             - Alpha: ${{ github.event.inputs.Alpha }}  

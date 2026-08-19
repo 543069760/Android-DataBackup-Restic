@@ -3,10 +3,10 @@ name: Lint
 on:
   push:
     paths:
-    - source/**
+      - source/**
   pull_request:
     paths:
-    - source/**
+      - source/**
 
 jobs:
   build:
@@ -24,18 +24,34 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # 获取完整提交历史
+          submodules: recursive     # 拉取 tar / zstd-jni / rustic_core 子模块
 
       - name: Validate gradle wrapper
         uses: gradle/actions/wrapper-validation@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'zulu'
           java-version: 17
 
       - name: Setup gradle
         uses: gradle/gradle-build-action@v2
+
+      # ── Rust 工具链（settings.gradle.kts 配置阶段调用 cargo metadata 所需）──
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable   # edition 2024 需 Rust >= 1.85
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: source/native/src/main/jni/external/rustic/rustic
+      # ─────────────────────────────────────────────────────────────────
 
       - name: Setup gradlew
         run: chmod +x gradlew
