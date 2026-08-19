@@ -10,5 +10,5 @@
     <string name="s3_restic_init_status">初始化状态</string>
     <string name="s3_restic_initialize">初始化</string>
     <!-- FTP 公网 IP 警示 -->
-    <string name="ftp_public_ip_warning">检测到公网 IP 地址。请确保公网带宽足够、FTP 服务器并发连接数足够，并已将被动模式（PASV）配置为公网 IP 且被动端口段已通过防火墙。FTP 服务端配置不当可能会导致连接失败、备份速度异常缓慢等问题，否则不建议在公网环境中使用 FTP 协议。</string>
+    <string name="ftp_public_ip_warning">检测到公网IP地址。请确保公共网络带宽充足，FTP服务器的并发连接数足够，并且被动模式（PASV）配置了公共网络IP（对于具有VPC属性的常见VPS，通常使用VPC内网IP，如AWS、阿里云、腾讯云等，需要特别注意将配置修改为公共网络IP），并且被动端口范围已通过防火墙。FTP服务器配置不当可能导致连接失败、备份速度异常缓慢，甚至备份失败。否则，不建议在公共互联网环境下使用FTP协议。</string>
 </resources>
