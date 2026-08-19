@@ -42,7 +42,7 @@
     <string name="cancel">Cancel</string>
     <string name="restic_not_detected">No Restic detected</string>
     <string name="restic_compression_level">Restic compression level</string>
-    <string name="restic_compression_level_desc">OFF - No compression, FASTEST - Fastest compression, AUTO - Automatic selection, BETTER - Better compression, MAX - Maximum compression</string>
+    <string name="restic_compression_level_desc">A higher level means a higher compression ratio but slower speed and more resource usage. Choose a level that suits your device. This setting only takes effect when initializing the repository; changing it afterwards will not affect an existing repository.</string>
     <!-- Cloud Restic 初始化字符串 -->
     <string name="s3_restic_initialization">Cloud Restic Initialization</string>
     <string name="s3_restic_password">Cloud Restic Password</string>
