@@ -23,6 +23,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import com.xayah.core.ui.component.BodyMediumText
+import com.xayah.core.ui.component.Card
+import com.xayah.core.ui.component.paddingHorizontal
+import com.xayah.core.ui.material3.CardDefaults
+import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
+import com.xayah.core.ui.theme.value
 import com.xayah.core.datastore.KeyBackupConfigs
 import com.xayah.core.datastore.KeyFollowSymlinks
 import com.xayah.core.datastore.readResticCompressionLevel
@@ -45,6 +54,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt  // 添加这行
 
 @SuppressLint("StringFormatInvalid")
+@ExperimentalFoundationApi
 @ExperimentalLayoutApi
 @ExperimentalAnimationApi
 @ExperimentalMaterial3Api
@@ -84,13 +94,28 @@ fun PageBackupSettings() {
                     value = compressionLevel.toFloat(),
                     valueRange = -1F..22F,
                     steps = 22,
-                    desc = "$currentLevelText\n$compressionDescText"
+                    desc = currentLevelText
                 ) {
                     val level = it.roundToInt()
                     Log.i("ResticCompression", "slider changed to $level")
                     scope.launch {
                         context.saveResticCompressionLevel(level)
                     }
+                }
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .paddingHorizontal(SizeTokens.Level24),
+                    colors = CardDefaults.cardColors(
+                        containerColor = ThemedColorSchemeKeyTokens.BluePrimaryContainer.value
+                    ),
+                ) {
+                    BodyMediumText(
+                        modifier = Modifier.padding(SizeTokens.Level16),
+                        text = compressionDescText,
+                        color = ThemedColorSchemeKeyTokens.BlueOnPrimaryContainer.value
+                    )
                 }
 
                 val items = stringArrayResource(id = R.array.kill_app_options)

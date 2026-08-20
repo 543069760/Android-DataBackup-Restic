@@ -6,45 +6,33 @@ import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Block
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xayah.core.datastore.KeyAutoScreenOff
 import com.xayah.core.datastore.KeyMonet
 import com.xayah.core.datastore.KeyResticEnableCompression
+import com.xayah.core.datastore.readResticCompressionLevel
 import com.xayah.core.ui.component.Clickable
 import com.xayah.core.ui.component.InnerBottomSpacer
 import com.xayah.core.ui.component.Switchable
@@ -77,16 +65,6 @@ fun PageSettings() {
     val snapshotCount by resticViewModel.resticSnapshotCountState.collectAsStateWithLifecycle(initialValue = 0)
     val repoPath by resticViewModel.repoPathState.collectAsStateWithLifecycle()
     val resticError by resticViewModel.resticErrorState.collectAsStateWithLifecycle()
-    val downloadState by resticViewModel.downloadState.collectAsStateWithLifecycle()
-
-    var showDownloadDialog by remember { mutableStateOf(false) }
-
-    // 逻辑：自动弹出下载对话框（仅当未检测到版本且不在下载中时）
-    LaunchedEffect(resticVersion, downloadState) {
-        if (resticVersion == null && downloadState is ResticViewModel.DownloadState.Idle) {
-            showDownloadDialog = true
-        }
-    }
 
     // 逻辑：首次进入页面检查状态
     LaunchedEffect(Unit) {
@@ -173,10 +151,7 @@ fun PageSettings() {
             Title(title = stringResource(id = R.string.restic_configuration)) {
                 Clickable(
                     title = stringResource(id = R.string.restic_version),
-                    // 修复点：如果正在下载，显示“正在下载...”，增强用户反馈
-                    value = if (downloadState is ResticViewModel.DownloadState.Downloading)
-                        "正在下载并检测..."
-                    else (resticVersion ?: stringResource(id = R.string.restic_not_detected))
+                    value = resticVersion ?: stringResource(id = R.string.restic_not_detected)
                 ) {
                     scope.launch {
                         resticViewModel.checkResticStatus()
@@ -214,9 +189,15 @@ fun PageSettings() {
                 ) {
                     navController.navigateSingle(MainRoutes.ResticPassword.route)
                 }
+                val compressionLevel by context.readResticCompressionLevel().collectAsStateWithLifecycle(initialValue = -1)
+                val currentLevelLabel = when (compressionLevel) {
+                    -1 -> "AUTO"
+                    0 -> "OFF"
+                    else -> "L$compressionLevel"
+                }
                 Clickable(
                     title = stringResource(id = R.string.restic_enable_compression),
-                    value = stringResource(id = R.string.restic_compression_level_desc),
+                    value = stringResource(R.string.args_current_level, currentLevelLabel),
                 ) {
                     navController.navigateSingle(MainRoutes.BackupSettings.route)
                 }
@@ -253,86 +234,4 @@ fun PageSettings() {
             InnerBottomSpacer(innerPadding = paddingValues)
         }
     }
-
-    if (showDownloadDialog) {
-        ResticDownloadDialog(
-            viewModel = resticViewModel,
-            onDismiss = { showDownloadDialog = false },
-            onDownloadComplete = {
-                showDownloadDialog = false
-                // 修复点：在 UI 层确保下载完成后强制刷新状态
-                scope.launch {
-                    resticViewModel.checkResticStatus()
-                }
-            }
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ResticDownloadDialog(
-    viewModel: ResticViewModel,
-    onDismiss: () -> Unit,
-    onDownloadComplete: () -> Unit
-) {
-    val downloadState by viewModel.downloadState.collectAsStateWithLifecycle()
-    var urlInput by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("下载Restic二进制文件") },
-        text = {
-            Column {
-                Text("Restic二进制文件不存在，请输入下载URL:")
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = urlInput,
-                    onValueChange = { urlInput = it },
-                    label = { Text("下载URL") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                val state = downloadState
-                when (state) {
-                    is ResticViewModel.DownloadState.Downloading -> {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                        Text("正在下载...")
-                    }
-                    is ResticViewModel.DownloadState.Error -> {
-                        Text("下载失败: ${state.message}", color = MaterialTheme.colorScheme.error)
-                    }
-                    is ResticViewModel.DownloadState.Success -> {
-                        Text("下载成功!", color = MaterialTheme.colorScheme.primary)
-                    }
-                    else -> {}
-                }
-            }
-        },
-        confirmButton = {
-            val state = downloadState
-            if (state is ResticViewModel.DownloadState.Success) {
-                Button(onClick = onDownloadComplete) { Text("完成") }
-            } else {
-                Button(
-                    onClick = {
-                        viewModel.setDownloadUrl(urlInput)
-                        scope.launch {
-                            viewModel.downloadResticBinary(urlInput)
-                        }
-                    },
-                    enabled = urlInput.isNotBlank() && state !is ResticViewModel.DownloadState.Downloading
-                ) {
-                    Text(if (state is ResticViewModel.DownloadState.Downloading) "下载中..." else "下载")
-                }
-            }
-        },
-        dismissButton = {
-            if (downloadState !is ResticViewModel.DownloadState.Downloading) {
-                TextButton(onClick = onDismiss) { Text("取消") }
-            }
-        }
-    )
 }

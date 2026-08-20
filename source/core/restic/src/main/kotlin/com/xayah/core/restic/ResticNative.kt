@@ -13,8 +13,6 @@ class ResticNative @Inject constructor(
 ) {
     companion object {
         private const val TAG = "ResticNative"
-        private const val DOWNLOAD_PREFS_NAME = "restic_download"
-        private const val NEED_DOWNLOAD_KEY = "need_download"
     }
 
     /**
@@ -52,10 +50,8 @@ class ResticNative @Inject constructor(
             }
         }
 
-        // 3. 都不存在，触发下载
+        // 3. 都不存在（JNI 方案下不再下载二进制）
         logger.logBinaryNotFound(privateBinaryPath)
-        triggerDownloadFlow(context)
-
         return privateBinaryPath
     }
 
@@ -73,25 +69,6 @@ class ResticNative @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Failed to set permissions", e)
         }
-    }
-
-    private fun triggerDownloadFlow(context: Context) {
-        val prefs = context.getSharedPreferences(DOWNLOAD_PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putBoolean(NEED_DOWNLOAD_KEY, true).apply()
-        Log.d(TAG, "Download flow triggered")
-    }
-
-    fun isDownloadNeeded(context: Context): Boolean {
-        val prefs = context.getSharedPreferences(DOWNLOAD_PREFS_NAME, Context.MODE_PRIVATE)
-        // 如果物理文件丢失，也视为需要下载
-        val binaryMissing = !File(context.filesDir, "restic").exists()
-        return prefs.getBoolean(NEED_DOWNLOAD_KEY, false) || binaryMissing
-    }
-
-    fun clearDownloadFlag(context: Context) {
-        val prefs = context.getSharedPreferences(DOWNLOAD_PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().remove(NEED_DOWNLOAD_KEY).apply()
-        Log.d(TAG, "Download flag cleared")
     }
 
     /**

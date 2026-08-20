@@ -22,14 +22,12 @@ import com.xayah.core.util.command.SELinux
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.net.HttpURLConnection
 import java.net.URL
 import javax.inject.Inject
 
@@ -47,22 +45,6 @@ class ResticViewModel @Inject constructor(
 ) : BaseViewModel<ResticUiState, ResticUiIntent, IndexUiEffect>(ResticUiState) {
 
     // --- 状态流管理 ---
-    // 修改点 1: 初始值设为 None，防止进入页面立即弹窗
-    private val _downloadState = MutableStateFlow<DownloadState>(DownloadState.None)
-    val downloadState: StateFlow<DownloadState> = _downloadState.asStateFlow()
-
-    // 修改点 2: 统一定义 DownloadState，增加 None 状态 (删除了类中后面重复的定义)
-    sealed class DownloadState {
-        object None : DownloadState()      // 默认静默状态，不触发 UI
-        object Idle : DownloadState()      // 确认需要下载时设为此状态，触发 UI 弹窗
-        object Downloading : DownloadState()
-        data class Success(val path: String) : DownloadState()
-        data class Error(val message: String) : DownloadState()
-    }
-
-    private val _downloadUrlState = MutableStateFlow<String>("")
-    val downloadUrlState: StateFlow<String> = _downloadUrlState.asStateFlow()
-
     private val _repoPathState = MutableStateFlow<String?>(null)
     val repoPathState: StateFlow<String?> = _repoPathState.asStateFlow()
 
@@ -96,21 +78,7 @@ class ResticViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            // 首先执行状态检查，确保拿到版本号（如果有的话）
             checkResticStatus()
-
-            val version = _resticVersionState.value
-
-            if (version == null) {
-                // 确实没有版本，根据标记判断是否需要弹出下载
-                if (resticNative.isDownloadNeeded(context)) {
-                    _downloadState.value = DownloadState.Idle
-                }
-            } else {
-                // 修改点 3: 已有版本的情况下，设为 None 保持静默
-                // 这样 UI 既不会弹出输入框，也不会弹出“下载成功”的提示
-                _downloadState.value = DownloadState.None
-            }
         }
     }
 
@@ -131,10 +99,8 @@ class ResticViewModel @Inject constructor(
                 Log.d(TAG, "DEBUG: 尝试获取版本结果: $version")
                 _resticVersionState.value = version
 
-                // 2. 版本获取成功则清除下载标志位；失败则直接返回（UI 显示未检测到）
-                if (version != null) {
-                    resticNative.clearDownloadFlag(context)
-                } else {
+                // 2. 版本获取失败则直接返回（UI 显示未检测到）
+                if (version == null) {
                     _resticInitializedState.value = false
                     _resticRepoPathState.value = ""
                     return@withContext
@@ -145,7 +111,6 @@ class ResticViewModel @Inject constructor(
                 _repoPathState.value = repoPath
 
                 // 4. 仓库校验 / 快照数（注意：checkRepository / listSnapshots 仍走 CLI，
-                //    尚未迁移到 JNI；删除二进制后这两步会失败，属预期，
                 //    不影响上面 getVersion 的验证结论）
                 val password = getResticPassword()
                 val isInitialized = resticRepo.checkRepository(repoPath, password)
@@ -255,73 +220,6 @@ class ResticViewModel @Inject constructor(
         }
     }
 
-    // --- 下载管理 ---
-    suspend fun downloadResticBinary(url: String): Boolean {
-        _downloadState.value = DownloadState.Downloading
-        return withContext(Dispatchers.IO) {
-            try {
-                val targetFile = File(resticNative.getResticBinaryPath(context))
-                if (targetFile.exists()) targetFile.delete()
-
-                downloadFile(url, targetFile)
-
-                // 设置所有组可执行，libsu 的 Shell 才能运行它
-                targetFile.setReadable(true, false)
-                targetFile.setExecutable(true, false)
-
-                resticNative.clearDownloadFlag(context)
-
-                // 这里保持 Success，因为这是真正的下载动作完成
-                _downloadState.value = DownloadState.Success(targetFile.absolutePath)
-
-                delay(300)
-                checkResticStatus()
-                true
-            } catch (e: Exception) {
-                Log.e(TAG, "下载Restic失败", e)
-                _downloadState.value = DownloadState.Error(e.message ?: "下载失败")
-                false
-            }
-        }
-    }
-
-    private fun downloadFile(url: String, targetFile: File) {
-        val connection = URL(url).openConnection() as HttpURLConnection
-        connection.connectTimeout = 10000
-        connection.readTimeout = 30000
-        connection.connect()
-
-        if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-            throw Exception("HTTP错误: ${connection.responseCode}")
-        }
-
-        connection.inputStream.use { input ->
-            targetFile.outputStream().use { output ->
-                val buffer = ByteArray(8192)
-                var bytesRead: Int
-                while (input.read(buffer).also { bytesRead = it } != -1) {
-                    output.write(buffer, 0, bytesRead)
-                }
-            }
-        }
-    }
-
-    fun getFullPathFromUri(uri: Uri): String? {
-        val path = uri.path ?: return null
-        return when {
-            path.contains("primary:") -> {
-                "/storage/emulated/0/${path.split("primary:")[1]}"
-            }
-            path.contains(":") -> {
-                val parts = path.split(":")
-                val diskId = parts[0].split("/").last()
-                val relativePath = parts[1]
-                "/storage/$diskId/$relativePath"
-            }
-            else -> null
-        }
-    }
-
     // --- 辅助方法 ---
     fun saveInitializationState(repoPath: String, password: String) {
         viewModelScope.launch {
@@ -383,8 +281,6 @@ class ResticViewModel @Inject constructor(
     private suspend fun getResticPassword(): String {
         return context.readResticPassword() ?: "databackup_default"
     }
-
-    fun setDownloadUrl(url: String) { _downloadUrlState.value = url }
 
     override suspend fun onEvent(state: ResticUiState, intent: ResticUiIntent) {}
 
