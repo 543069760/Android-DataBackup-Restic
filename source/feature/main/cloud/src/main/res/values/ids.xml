@@ -19,7 +19,6 @@
     <item name="_continue" type="string"/>
     <item name="ftp_setup" type="string"/>
     <item name="webdav_setup" type="string"/>
-    <item name="smb_setup" type="string"/>
     <item name="sftp_setup" type="string"/>
     <item name="server" type="string"/>
     <item name="add_account" type="string"/>
@@ -36,7 +35,6 @@
     <item name="confirm" type="string"/>
 
     <item name="ftp_auth_mode" type="array"/>
-    <item name="smb_auth_mode" type="array"/>
     <item name="sftp_auth_mode" type="array" />
 
     <item name="ic_rounded_link" type="drawable"/>

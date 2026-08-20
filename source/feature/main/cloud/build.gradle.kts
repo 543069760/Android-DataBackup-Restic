@@ -6,6 +6,9 @@ plugins {
 
 android {
     namespace = "com.xayah.feature.main.cloud"
+    lint {
+        disable += "MissingTranslation"
+    }
 }
 
 dependencies {
