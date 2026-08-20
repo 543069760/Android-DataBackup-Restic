@@ -92,25 +92,8 @@ enum class EmojiString(val emoji: String) {
 enum class CloudType(val title: String) {
     FTP("FTP"),
     WEBDAV("WebDAV"),
-    SMB("SMB / CIFS"),
     SFTP("SFTP"),
-    S3("Amazon S3"),  // 新增
-}
-
-enum class SmbVersion(val text: String) {
-    SMB_2_0_2("2.0.2"),
-    SMB_2_1("2.1"),
-    SMB_3_0("3.0"),
-    SMB_3_0_2("3.0.2"),
-    SMB_3_1_1("3.1.1"),
-}
-
-enum class SmbAuthMode() {
-    PASSWORD,
-    GUEST,
-    ANONYMOUS;
-
-    companion object
+    S3("Amazon S3"),
 }
 
 enum class SFTPAuthMode(val index: Int) {

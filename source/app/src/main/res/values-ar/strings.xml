@@ -333,7 +333,6 @@
     <string name="dark_theme">اختيار الوضع الداكن/الوضع الساطع</string>
     <string name="ftp_setup">إعداد FTP</string>
     <string name="webdav_setup">إعداد WebDAV</string>
-    <string name="smb_setup">إعداد SMB/CIFS</string>
     <string name="server">الخادم</string>
     <string name="add_account">إضافة حساب</string>
     <string name="provider">المزود</string>

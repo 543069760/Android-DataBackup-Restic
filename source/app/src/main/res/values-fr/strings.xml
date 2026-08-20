@@ -266,7 +266,6 @@
     <string name="theme_light">Clair</string>
     <string name="dark_theme">Thème sombre</string>
     <string name="webdav_setup">Configuration WebDAV</string>
-    <string name="smb_setup">Configuration SMB / CIFS</string>
     <string name="sftp_setup">Configuration SFTP</string>
     <string name="add_account">Ajouter un compte</string>
     <string name="theme_light_desc">Toujours en mode clair</string>

@@ -367,7 +367,6 @@
     <string name="dark_theme">تم تیره</string>
     <string name="ftp_setup">راه‌اندازی FTP</string>
     <string name="webdav_setup">راه‌اندازی WebDAV</string>
-    <string name="smb_setup">راه‌اندازی SMB / CIFS</string>
     <string name="unblock">رفع مسدودیت</string>
     <string name="args_files_backed_up">%1$s پرونده پشتیبان‌گیری شد</string>
     <string name="backed_up_files">پرونده‌های پشتیبان‌گیری‌شده</string>

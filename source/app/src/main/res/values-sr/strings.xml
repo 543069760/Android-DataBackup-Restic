@@ -228,7 +228,6 @@
     <string name="dark_theme">Tamna tema</string>
     <string name="ftp_setup">FTP podešavanja</string>
     <string name="webdav_setup">WebDAV podešavanja</string>
-    <string name="smb_setup">SMB / CIFS podešavanja</string>
     <string name="server">Server</string>
     <string name="add_account">Dodaj račun</string>
     <string name="provider">Provajder</string>

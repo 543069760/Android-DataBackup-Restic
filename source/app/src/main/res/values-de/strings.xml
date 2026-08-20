@@ -122,7 +122,6 @@
     <string name="sftp_setup">SFTP-Einrichtung</string>
     <string name="dark_theme">Dunkles Thema</string>
     <string name="webdav_setup">WebDAV-Einrichtung</string>
-    <string name="smb_setup">SMB/CIFS-Einrichtung</string>
     <string name="server">Server</string>
     <string name="add_account">Konto hinzufügen</string>
     <string name="provider">Anbieter</string>

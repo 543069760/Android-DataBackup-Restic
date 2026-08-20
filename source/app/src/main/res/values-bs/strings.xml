@@ -307,7 +307,6 @@
     <string name="appearance">Izgled</string>
     <string name="ftp_setup">FTP podešavanja</string>
     <string name="webdav_setup">WebDAV podešavanja</string>
-    <string name="smb_setup">SMB / CIFS podešavanja</string>
     <string name="server">Server</string>
     <string name="provider">Provajder</string>
     <string name="delete_account">Izbriši račun</string>

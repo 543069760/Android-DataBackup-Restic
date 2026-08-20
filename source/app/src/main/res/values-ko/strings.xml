@@ -198,7 +198,6 @@
     <string name="remote_path">원격 경로</string>
     <string name="add_account">계정 추가</string>
     <string name="provider">제공자</string>
-    <string name="smb_setup">SMB / CIFS 설정</string>
     <string name="sftp_setup">SFTP 설정</string>
     <string name="server">서버</string>
     <string name="files">파일</string>

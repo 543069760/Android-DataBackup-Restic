@@ -17,7 +17,6 @@ val CloudType.icon: ImageVector
         return when (this) {
             CloudType.FTP -> Icons.Rounded.Web
             CloudType.WEBDAV -> Icons.Rounded.Language
-            CloudType.SMB -> Icons.Rounded.Storage
             CloudType.SFTP -> Icons.Rounded.Lan
             CloudType.S3 -> Icons.Rounded.Storage
         }

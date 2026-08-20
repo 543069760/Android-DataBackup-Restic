@@ -7,12 +7,9 @@ import androidx.navigation.NavHostController
 import com.xayah.core.data.repository.CloudRepository
 import com.xayah.core.model.CloudType
 import com.xayah.core.model.SFTPAuthMode
-import com.xayah.core.model.SmbAuthMode
-import com.xayah.core.model.SmbVersion
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.FTPExtra
 import com.xayah.core.model.database.SFTPExtra
-import com.xayah.core.model.database.SMBExtra
 import com.xayah.core.model.database.WebDAVExtra
 import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.database.S3Protocol
@@ -152,29 +149,6 @@ class IndexViewModel @Inject constructor(
                 url = bucket,
                 username = accessKeyId,
                 password = secretAccessKey,
-                extra = extra,
-                remote = remote,
-            )
-        )
-    }
-
-    suspend fun updateSMBEntity(name: String, remote: String, url: String, username: String, password: String, share: String, port: String, domain: String, mode: SmbAuthMode) {
-        val extra = GsonUtil().toJson(
-            SMBExtra(
-                share = share,
-                port = port.toIntOrNull() ?: 445,
-                domain = domain,
-                version = listOf(SmbVersion.SMB_2_0_2, SmbVersion.SMB_2_1, SmbVersion.SMB_3_0, SmbVersion.SMB_3_0_2, SmbVersion.SMB_3_1_1),
-                mode = mode,
-            )
-        )
-        emitIntent(
-            IndexUiIntent.UpdateEntity(
-                name = name,
-                type = CloudType.SMB,
-                url = url,
-                username = username,
-                password = password,
                 extra = extra,
                 remote = remote,
             )

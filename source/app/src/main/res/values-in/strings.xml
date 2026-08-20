@@ -237,7 +237,6 @@
     <string name="dark_theme">Tema Gelap</string>
     <string name="server">Server</string>
     <string name="webdav_setup">Penyiapan WebDAV</string>
-    <string name="smb_setup">Penyiapan SMB / CIFS</string>
     <string name="sftp_setup">Penyiapan SFTP</string>
     <string name="calculating">Kalkulasi</string>
     <string name="restart_to_take_effect">Muat ulang aplikasi agar terlihat perubahan yang akan terjadi</string>

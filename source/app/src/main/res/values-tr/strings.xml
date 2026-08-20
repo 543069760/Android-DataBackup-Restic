@@ -312,7 +312,6 @@
     <string name="backup_settings">Yedekleme ayarları</string>
     <string name="restore_settings">Geri yükleme ayarları</string>
     <string name="webdav_setup">WebDAV kurulumu</string>
-    <string name="smb_setup">SMB / CIFS kurulumu</string>
     <string name="add_account">Hesap ekle</string>
     <string name="provider">Sağlayıcı</string>
     <string name="remote_path">Uzak konum</string>

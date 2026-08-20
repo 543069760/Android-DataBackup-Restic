@@ -264,7 +264,6 @@
     <string name="confirm_delete">Esto eliminará todos los archivos relacionados que hayas seleccionado</string>
     <string name="ftp_setup">Configuración FTP</string>
     <string name="webdav_setup">Configuración webDav</string>
-    <string name="smb_setup">Configuración SMB / CIFS</string>
     <string name="server">Servidor</string>
     <string name="add_account">Añadir cuenta</string>
     <string name="provider">Proveedor</string>

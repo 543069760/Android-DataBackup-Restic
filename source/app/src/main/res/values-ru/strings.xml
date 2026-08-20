@@ -310,7 +310,6 @@
     <string name="dark_theme">Темная тема</string>
     <string name="ftp_setup">Настройка FTP</string>
     <string name="webdav_setup">Настройка WebDAV</string>
-    <string name="smb_setup">Настройка SMB / CIFS</string>
     <string name="server">Сервер</string>
     <string name="add_account">Добавить аккаунт</string>
     <string name="provider">Провайдер</string>

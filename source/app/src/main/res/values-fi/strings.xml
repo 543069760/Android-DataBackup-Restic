@@ -285,7 +285,6 @@
     <string name="theme_dark_desc">Aina tummatilassa</string>
     <string name="ftp_setup">FTP-asettaminen</string>
     <string name="webdav_setup">WebDAV-asettaminen</string>
-    <string name="smb_setup">SMB / CIFS -asettaminen</string>
     <string name="sftp_setup">SFTP-asettaminen</string>
     <string name="server">Palvelin</string>
     <string name="add_account">Lisää tili</string>

@@ -290,7 +290,6 @@
     <string name="dark_theme">Dark theme</string>
     <string name="ftp_setup">FTP Setup</string>
     <string name="webdav_setup">WebDAV Setup</string>
-    <string name="smb_setup">SMB / CIFS Setup</string>
     <string name="sftp_setup">SFTP Setup</string>
     <string name="server">Server</string>
     <string name="add_account">Add account</string>

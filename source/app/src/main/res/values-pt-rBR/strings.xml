@@ -275,7 +275,6 @@
     <string name="dark_theme">Tema escuro</string>
     <string name="ftp_setup">Configurar FTP</string>
     <string name="webdav_setup">Configurar WebDAV</string>
-    <string name="smb_setup">Configurar SMB / CIFS</string>
     <string name="server">Servidor</string>
     <string name="add_account">Adicionar conta</string>
     <string name="remote_path">Caminho remoto</string>

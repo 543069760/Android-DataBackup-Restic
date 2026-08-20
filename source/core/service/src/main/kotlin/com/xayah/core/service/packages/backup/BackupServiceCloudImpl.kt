@@ -208,18 +208,6 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                                     isCanceled = { isCanceled() }
                                 )
                             }
-                            CloudType.SMB -> {
-                                Log.d(mTAG, "Using SMB upload for ${p.packageName}")
-                                mPackagesBackupUtil.upload(
-                                    client = mClient,
-                                    p = p,
-                                    t = t,
-                                    dataType = type,
-                                    srcDir = dstDir,
-                                    dstDir = remoteAppDir,
-                                    isCanceled = { isCanceled() }
-                                )
-                            }
                         }
                     } catch (e: Exception) {
                         if (e is kotlinx.coroutines.CancellationException) throw e

@@ -10,7 +10,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.CompositionLocalProvider
-//import androidx.core.view.WindowCompat
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
@@ -30,7 +29,6 @@ import com.xayah.feature.main.restore.CloudFilesBackupDetailPage
 import com.xayah.feature.main.cloud.add.PageCloudAddAccount
 import com.xayah.feature.main.cloud.add.PageFTPSetup
 import com.xayah.feature.main.cloud.add.PageSFTPSetup
-import com.xayah.feature.main.cloud.add.PageSMBSetup
 import com.xayah.feature.main.cloud.add.PageWebDAVSetup
 import com.xayah.feature.main.cloud.add.PageS3Setup
 import com.xayah.feature.main.configurations.PageConfigurations
@@ -120,13 +118,10 @@ class MainActivity : AppCompatActivity() {
                         composable(MainRoutes.WebDAVSetup.route) {
                             PageWebDAVSetup()
                         }
-                        composable(MainRoutes.SMBSetup.route) {
-                            PageSMBSetup()
-                        }
                         composable(MainRoutes.SFTPSetup.route) {
                             PageSFTPSetup()
                         }
-                        composable(MainRoutes.S3Setup.route) {  // 新增路由注册
+                        composable(MainRoutes.S3Setup.route) {
                             PageS3Setup()
                         }
                         composable(MainRoutes.List.route) {

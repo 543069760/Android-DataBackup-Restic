@@ -285,7 +285,6 @@
     <string name="dark_theme">Темна тема</string>
     <string name="ftp_setup">Налаштування FTP</string>
     <string name="webdav_setup">Налаштування WebDAV</string>
-    <string name="smb_setup">Налаштування SMB / CIFS</string>
     <string name="sftp_setup">Налаштування SFTP</string>
     <string name="server">Сервер</string>
     <string name="provider">Провайдер</string>

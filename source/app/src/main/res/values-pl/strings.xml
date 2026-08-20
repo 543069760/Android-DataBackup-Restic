@@ -239,7 +239,6 @@
     <string name="manage_backups">Zarządzaj kopiami zapasowymi</string>
     <string name="ftp_setup">Konfiguracja FTP</string>
     <string name="webdav_setup">Konfiguracja WebDAV</string>
-    <string name="smb_setup">Konfiguracja SMB / CIFS</string>
     <string name="sftp_setup">Konfiguracja SFTP</string>
     <string name="server">Serwer</string>
     <string name="delete_account_desc">To konto zostanie usunięte</string>

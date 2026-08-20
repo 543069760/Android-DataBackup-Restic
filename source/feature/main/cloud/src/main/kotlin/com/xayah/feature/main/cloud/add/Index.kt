@@ -58,12 +58,6 @@ fun PageCloudAddAccount() {
                     navController.navigateSingle(MainRoutes.WebDAVSetup.getRoute(encodedURLWithSpace))
                 }
                 Clickable(
-                    icon = CloudType.SMB.icon,
-                    title = CloudType.SMB.title,
-                ) {
-                    navController.navigateSingle(MainRoutes.SMBSetup.getRoute(encodedURLWithSpace))
-                }
-                Clickable(
                     icon = CloudType.SFTP.icon,
                     title = CloudType.SFTP.title,
                 ) {

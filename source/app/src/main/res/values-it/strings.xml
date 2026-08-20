@@ -288,7 +288,6 @@
     <string name="theme_dark_desc">Sempre in modalità nera</string>
     <string name="ftp_setup">Configurazione FTP</string>
     <string name="webdav_setup">Configurazione WebDAV</string>
-    <string name="smb_setup">Configurazione SMB/CIFS</string>
     <string name="sftp_setup">Configurazione SFTP</string>
     <string name="server">Server</string>
     <string name="add_account">Aggiungi account</string>

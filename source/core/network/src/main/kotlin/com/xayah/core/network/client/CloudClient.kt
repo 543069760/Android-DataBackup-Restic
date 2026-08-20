@@ -5,7 +5,6 @@ import com.xayah.core.model.CloudType
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.FTPExtra
 import com.xayah.core.model.database.SFTPExtra
-import com.xayah.core.model.database.SMBExtra
 import com.xayah.core.model.database.WebDAVExtra
 import com.xayah.core.network.util.getExtraEntity
 import com.xayah.core.rootservice.parcelables.PathParcelable
@@ -48,11 +47,6 @@ fun CloudEntity.getCloud(uploadIdDao: UploadIdDao) = when (this.type) {
         WebDAVClientImpl(this, extra)
     }
 
-    CloudType.SMB -> {
-        val extra = getExtraEntity<SMBExtra>()!!
-        SMBClientImpl(this, extra)
-    }
-
     CloudType.SFTP -> {
         val extra = getExtraEntity<SFTPExtra>()!!
         SFTPClientImpl(this, extra)
@@ -60,6 +54,6 @@ fun CloudEntity.getCloud(uploadIdDao: UploadIdDao) = when (this.type) {
 
     CloudType.S3 -> {
         val extra = getExtraEntity<S3Extra>()!!
-        S3ClientImpl(this, extra, uploadIdDao)  // 传递 uploadIdDao
+        S3ClientImpl(this, extra, uploadIdDao)
     }
 }

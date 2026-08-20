@@ -286,7 +286,6 @@
     <string name="dark_theme">Qorong\'i mavzu</string>
     <string name="ftp_setup">FTP sozlamalari</string>
     <string name="webdav_setup">WebDAV sozlamalari</string>
-    <string name="smb_setup">SMB / CIFS sozlamalari</string>
     <string name="about">Haqida</string>
     <string name="protect_desc">Ushbu zaxira nusxasini qayta yozishni oldini oling</string>
     <string name="about_app">Ilova haqida</string>
