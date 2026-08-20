@@ -37,14 +37,14 @@
 
 | 功能                 | 旧版 (DataBackup) | 新版 (DataBackup Revived 3.0.0) |  
 |--------------------| --- |-------------------------------|  
-| **本地存储**           | ✅ 已支持 | ✅ **块级去重（JNI rustic，已完成）** |  
-| **Tencent COS 协议** | ❌ 不支持 | ✅ **块级去重（JNI rustic，已完成）** |  
-| **FTP 协议**         | ✅ 已支持 | ⏳ 待迁移到 JNI |  
-| **SFTP 协议**        | ✅ 已支持 | ⏳ 待迁移到 JNI |  
-| **WebDAV 协议**      | ✅ 已支持 | ⏳ 待迁移到 JNI |  
-| **SMB/CIFS 协议**    | ✅ 已支持 | ⏳ 待迁移到 JNI |  
+| **本地存储**           | ✅ 已支持 | ✅ **块级去重（JNI rustic，已完成）**    |  
+| **Tencent COS 协议** | ❌ 不支持 | ✅ **块级去重（JNI rustic，已完成）**    |  
+| **FTP 协议**         | ✅ 已支持 | ✅ **块级去重（JNI rustic，已完成）**    |  
+| **SFTP 协议**        | ✅ 已支持 | ⏳ 待迁移到 JNI                    |  
+| **WebDAV 协议**      | ✅ 已支持 | ⏳ 待迁移到 JNI                    |  
+| **SMB/CIFS 协议**    | ✅ 已支持 | ❌ opendal不支持，后续移除             |  
 
-> 目前 JNI `rustic_core` 路径**覆盖本地存储**。远程协议（除腾讯云COS之外）/FTP/SFTP/WebDAV/SMB仍运行在旧路径上，**待迁移到 JNI**。
+> 目前 JNI `rustic_core` 路径**覆盖本地存储**。远程协议（除腾讯云COS之外）/SFTP/WebDAV/SMB仍运行在旧路径上，**待迁移到 JNI**。
 > 腾讯 COS：是兼容S3协议的对象存储，特别说明：S3之间（比如AWS S3、腾讯云COS、阿里云OSS）可能存在参数差异，目前只适配了腾讯云COS，额外的其他S3对象存储目前还没有支持，在逐步适配中，敬请期待.
 
 ### 备份架构演进
@@ -63,17 +63,13 @@
 
 ### 技术变更
 
-| 项目 | 旧版 | 新版 |  
-| --- | --- | --- |  
+| 项目 | 旧版                       | 新版 |  
+| --- |--------------------------| --- |  
 | **应用包名** | `com.xayah.databackup.*` | `com.xayah.databackup.revived.*` |  
-| **版本号** | 2.x.x | **3.0.0**（基于 rustic 的块级去重） |  
-| **Root 框架** | 自定义 Root 服务 | **libsu 集成** |  
-| **备份引擎** | 单一压缩 | **双层架构：非压缩 tar + rustic 块级去重与加密** |  
-| **Restic/rustic 运行时** | 外部 CGO 二进制（子进程） | **进程内 `rustic_core`，通过 JNI（`librustic.so`）** |  
-
-## JNI 迁移里程碑
-
-> 🎯 **本地备份/恢复现已全链路迁移到进程内 `rustic_core` 库（经 JNI，`librustic.so`），彻底消除对外部 Restic 二进制的运行时依赖。所有本地 APK、应用数据、文件备份均通过 JNI rustic 路径执行，具备块级去重、AES-256 加密与快照版本控制。远程协议（S3/FTP/SFTP/WebDAV/SMB）为下一步迁移目标。**
+| **版本号** | 2.x.x                    | **3.0.0**（基于 rustic 的块级去重） |  
+| **Root 框架** | 自定义 Root 服务              | **libsu 集成** |  
+| **备份引擎** | 单一压缩                     | **双层架构：非压缩 tar + rustic 块级去重与加密** |  
+| **Restic/rustic 运行时** | 无                        | **进程内 `rustic_core`，通过 JNI（`librustic.so`）** |
 
 ### 🏗️ 本地双层备份架构
 
@@ -94,16 +90,16 @@
 
 ### 📊 技术指标（本地）
 
-| 特性 | 旧版备份 | rustic 备份（JNI，本地） |  
-| --- | --- | --- |  
-| **存储效率** | 基础压缩 | **块级去重 + 压缩** |  
-| **增量备份** | 不支持 | **原生支持** |  
-| **数据加密** | 无 | **AES-256 加密** |  
-| **版本管理** | 文件覆盖 | **基于快照的版本控制** |  
-| **还原粒度** | 批量还原 | **支持单个应用和单个文件的精准还原** |  
-| **存储占用** | 线性增长 | **节省 60–90% 空间** |  
+| 特性 | 旧版备份  | rustic 备份（JNI，本地） |  
+| --- |-------| --- |  
+| **存储效率** | 基础压缩  | **块级去重 + 压缩** |  
+| **增量备份** | 不支持   | **原生支持** |  
+| **数据加密** | 无     | **AES-256 加密** |  
+| **版本管理** | 文件覆盖  | **基于快照的版本控制** |  
+| **还原粒度** | 批量还原  | **支持单个应用和单个文件的精准还原** |  
+| **存储占用** | 线性增长  | **节省 60–90% 空间** |  
 | **Root 权限** | 自定义实现 | **libsu 集成** |  
-| **备份运行时** | 外部 CGO 二进制 | **进程内 `rustic_core`，通过 JNI** |  
+| **备份运行时** | 无     | **进程内 `rustic_core`，通过 JNI** |  
 
 > **DataBackup Revived 现已成为一个现代化数据管理平台，具备本地块级去重（内置 rustic，经 JNI 调用）与 libsu 集成；远程协议向 JNI 的迁移正在进行中。**
 
@@ -158,9 +154,6 @@ rustic_core (Rust)  ──►  本地 / S3 仓库（经 opendal backend）
     - `Rustic.kt` 提供带 backend options（`Map<String,String>`，key/value 两个字符串数组经 JNI zip 成 map）的 Kotlin API。
     - `IRemoteRootService.aidl` 新增 10 个 Rustic 方法（`getRusticVersion`、`initRusticRepository`、`rusticRepositoryExists`、`validateRusticRepository`、`createRusticSnapshot`、`restoreRusticSnapshot`、`checkRusticRepository`、`forgetRusticSnapshot`、`pruneRusticRepository`、`listRusticSnapshotsDb`），并用 `ICallback` 传递进度。
     - root 进程启动时加载库（`System.loadLibrary("rustic")` + `Rustic.initLogger()`），`RemoteRootServiceImpl` 在 `synchronized(lock)` 下把每个 AIDL 调用转发给 `Rustic`。
-
-- **Backend options 贯通（为 S3 铺路）**：
-    - backend 选项从 Kotlin `Map<String,String>` 经 JNI 传入 `rustic_backend::BackendOptions`，使 `opendal` backend（本地 fs / S3）能接收配置。
 
 ### 迁移分阶段
 

@@ -39,12 +39,12 @@ Free and open-source data backup application
 |---------|------------------|----------------------------------|      
 | **Local Storage** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic, done)** |    
 | **Tencent COS Protocol** | ❌ Not supported | ✅ **Block-level deduplication (JNI rustic, done)** |      
-| **FTP Protocol** | ✅ Supported | ⏳ Pending migration to JNI |      
+| **FTP Protocol** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic, done)** |      
 | **SFTP Protocol** | ✅ Supported | ⏳ Pending migration to JNI |      
 | **WebDAV Protocol** | ✅ Supported | ⏳ Pending migration to JNI |      
-| **SMB/CIFS Protocol** | ✅ Multi-version support | ⏳ Pending migration to JNI |      
+| **SMB/CIFS Protocol** | ✅ Multi-version support | ❌ Opendal is not supported and will be removed in the future. |      
 
-> Currently, the JNI `rustic_core` path **overrides local storage**. Remote protocols (excluding Tencent Cloud COS), FTP, SFTP, WebDAV, and SMB still operate on the old path and are **pending migration to JNI**.
+> Currently, the JNI `rustic_core` path **overrides local storage**. Remote protocols (excluding Tencent Cloud COS), SFTP, WebDAV, and SMB still operate on the old path and are **pending migration to JNI**.
 > Tencent COS: This is an object storage service compatible with the S3 protocol. Please note: There may be parameter differences between S3 services (e.g., AWS S3, Tencent Cloud COS, Alibaba Cloud OSS). Currently, only Tencent Cloud COS is supported; other S3 object storage services are not yet supported but are being gradually adapted. Stay tuned.
 
 ### Backup Architecture Evolution
@@ -63,17 +63,13 @@ Free and open-source data backup application
 
 ### Technical Changes
 
-| Item | Legacy | New                                                       |    
-|------|-------|-----------------------------------------------------------|    
+| Item | Legacy                   | New                                                       |    
+|------|--------------------------|-----------------------------------------------------------|    
 | **Application package name** | `com.xayah.databackup.*` | `com.xayah.databackup.revived.*`                          |    
-| **Version number** | 2.x.x | **3.0.0** (block-level dedup via rustic)                   |    
-| **Root Framework** | Custom root service | **libsu integration**                                     |    
-| **Backup Engine** | Single compression | **Dual-layer: uncompressed tar + rustic block-level dedup & encryption** |    
-| **Restic/rustic runtime** | External CGO binary (child process) | **In-process `rustic_core` via JNI (`librustic.so`)** |    
-
-## JNI Migration Milestone
-
-> 🎯 **Local backup/restore is now fully migrated to the in-process `rustic_core` library over JNI (`librustic.so`), removing any runtime dependency on an external Restic binary. All local APK, App Data, and File backups run through the JNI rustic path with block-level deduplication, AES-256 encryption, and snapshot versioning. Remote protocols (S3/FTP/SFTP/WebDAV/SMB) are next in line for migration.**
+| **Version number** | 2.x.x                    | **3.0.0** (block-level dedup via rustic)                   |    
+| **Root Framework** | Custom root service      | **libsu integration**                                     |    
+| **Backup Engine** | Single compression       | **Dual-layer: uncompressed tar + rustic block-level dedup & encryption** |    
+| **Restic/rustic runtime** | non                      | **In-process `rustic_core` via JNI (`librustic.so`)** |    
 
 ### 🏗️ Dual-Layer Local Backup Architecture
 
@@ -158,9 +154,6 @@ rustic_core (Rust)  ──►  Local / S3 repository (via opendal backend)
   - `Rustic.kt` provides the Kotlin API with backend options passed as a `Map<String,String>` (key/value string arrays zipped into a map over JNI).
   - `IRemoteRootService.aidl` adds 10 Rustic methods (`getRusticVersion`, `initRusticRepository`, `rusticRepositoryExists`, `validateRusticRepository`, `createRusticSnapshot`, `restoreRusticSnapshot`, `checkRusticRepository`, `forgetRusticSnapshot`, `pruneRusticRepository`, `listRusticSnapshotsDb`), with `ICallback` carrying progress.
   - The root process loads the library at startup (`System.loadLibrary("rustic")` + `Rustic.initLogger()`), and `RemoteRootServiceImpl` forwards each AIDL call to `Rustic` under `synchronized(lock)`.
-
-- **Backend options passthrough (S3 groundwork)**:
-  - Backend options flow from the Kotlin `Map<String,String>` through JNI into `rustic_backend::BackendOptions`, so the `opendal` backends (local fs / S3) receive their configuration.
 
 ### Migration Phases
 
