@@ -12,10 +12,12 @@ data class FTPExtra(
     val resticPassword: String = "",   // 新增：按账户存储的 restic 仓库密码
 )
 
+@Serializable
 data class SFTPExtra(
     val port: Int,
     val privateKey: String,
     val mode: SFTPAuthMode = SFTPAuthMode.PASSWORD,
+    val resticPassword: String = "",   // 新增：按账户存储的 restic 仓库密码
 )
 
 @Serializable

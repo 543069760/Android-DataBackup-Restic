@@ -18,7 +18,7 @@ bytes = "1"
 
 # rustic_core submodule（同级目录，比 source-next 骨架少一层 external/rustic）
 rustic_core = { path = "../rustic_core/crates/core" }
-rustic_backend = { path = "../rustic_core/crates/backend", default-features = false, features = ["opendal"] }
+rustic_backend = { path = "../rustic_core/crates/backend", default-features = false, features = ["opendal", "rest"] }
 
 # 静态编译 SQLite，用于 list_snapshots_db 直写 .db
 rusqlite = { version = "0.32", features = ["bundled"] }

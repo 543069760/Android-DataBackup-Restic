@@ -92,12 +92,18 @@ class IndexViewModel @Inject constructor(
         )
     }
 
-    suspend fun updateSFTPEntity(name: String, remote: String, url: String, username: String, password: String, port: String, mode: SFTPAuthMode, privateKey: String) {
+    suspend fun updateSFTPEntity(
+        name: String, remote: String, url: String,
+        username: String, password: String, port: String,
+        mode: SFTPAuthMode, privateKey: String,
+        resticPassword: String = "",          // 新增：账户级 restic 仓库密码
+    ) {
         val extra = GsonUtil().toJson(
             SFTPExtra(
                 port = port.toIntOrNull() ?: 22,
                 privateKey = privateKey,
                 mode = mode,
+                resticPassword = resticPassword, // 新增
             )
         )
         emitIntent(

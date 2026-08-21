@@ -92,6 +92,13 @@ class ResticViewModel @Inject constructor(
      */
     suspend fun checkResticStatus() {
         withContext(Dispatchers.IO) {
+            // 临时探针：验证 root 进程 libgojni.so 加载 + rcloneRPC 打通
+            try {
+                val out = rootService.rcloneRpc("core/version", "{}")
+                Log.i("RcloneProbe", "core/version OK: $out")
+            } catch (e: Exception) {
+                Log.e("RcloneProbe", "core/version FAILED", e)
+            }
             try {
                 // 1. 获取版本号（通过 JNI：Rustic.getVersion → RootService）
                 //    不再检查二进制文件是否存在/可执行

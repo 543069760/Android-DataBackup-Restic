@@ -2,6 +2,11 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/source-next/native/src/main/jni/external/rustic/rustic_core" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/source-next/native/src/main/jni/external/tar/tar" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/source-next/native/src/main/jni/external/zstd/zstd-jni" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/source/native/src/main/jni/external/rclone/rclone" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/source/native/src/main/jni/external/rustic/rustic_core" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/source/native/src/main/jni/external/tar/tar" vcs="Git" />
   </component>
 </project>

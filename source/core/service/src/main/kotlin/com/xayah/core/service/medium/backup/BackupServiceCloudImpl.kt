@@ -36,6 +36,8 @@ import com.xayah.core.model.util.formatSize
 import com.xayah.core.restic.ResticRepositoryFtp
 import com.xayah.core.model.database.FTPExtra
 import com.xayah.core.datastore.readFtpResticPassword
+import com.xayah.core.restic.ResticRepositorySftp
+import com.xayah.core.model.database.SFTPExtra
 import com.xayah.core.restic.ResticRepositoryWebdav
 import com.xayah.core.model.database.WebDAVExtra
 import com.xayah.core.datastore.readWebdavResticPassword
@@ -77,6 +79,9 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
 
     @Inject
     lateinit var resticRepoWebdav: ResticRepositoryWebdav
+
+    @Inject
+    lateinit var resticRepoSftp: ResticRepositorySftp
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -152,9 +157,8 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                     // 根据云存储类型选择备份方式
                     try {
                         when (mCloudEntity.type) {
-                            CloudType.S3, CloudType.FTP, CloudType.WEBDAV -> {
+                            CloudType.S3, CloudType.FTP, CloudType.WEBDAV, CloudType.SFTP -> {
                                 Log.d(mTAG, "Using Restic backup for ${m.name}")
-                                // 只备份媒体文件
                                 val mediaSuccess = backupFileWithResticByType(
                                     mediaName = m.name,
                                     compressedFile = compressedFile,
@@ -162,7 +166,6 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                                     remotePath = "${m.archivesRelativeDir}",
                                     t = t
                                 )
-
                                 if (mediaSuccess) {
                                     Log.d(mTAG, "Restic backup successful for ${m.name}")
                                 } else {
@@ -170,17 +173,6 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                                     t.update(state = OperationState.ERROR, log = "Restic备份失败")
                                     return
                                 }
-                            }
-                            CloudType.SFTP -> {
-                                Log.d(mTAG, "Using SFTP upload for ${m.name}")
-                                mMediumBackupUtil.upload(
-                                    client = mClient,
-                                    m = m,
-                                    t = t,
-                                    srcDir = dstDir,
-                                    dstDir = remoteFileDir,
-                                    isCanceled = { isCanceled() }
-                                )
                             }
                         }
                     } catch (e: Exception) {
@@ -225,9 +217,10 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
 
     /**
      * 按云类型分派到对应的 Restic 备份实现。
-     * 目前仅收敛走 restic 的 S3 与 FTP：FTP 走 opendal:ftp，其余（默认）走 COS/S3。
-     * SFTP/WEBDAV/SMB 尚未迁移到 restic，仍在 backup() 的 when 分支各自走 upload，
-     * 待后续迁移到 opendal 后再并入本方法。
+     * 走 restic 的有 S3、FTP、WEBDAV、SFTP：
+     * FTP 走 opendal:ftp，WEBDAV 走 opendal:webdav，
+     * SFTP 经 librclone serve restic 起本地 REST 服务后走 rest: URL（密码认证由 rclone 完成），
+     * 其余（默认）走 COS/S3。
      */
     private suspend fun backupFileWithResticByType(
         mediaName: String,
@@ -255,6 +248,17 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                     compressedFile = compressedFile,
                     dataType = dataType,
                     webdavExtra = webdavExtra,
+                    remotePath = remotePath,
+                    t = t
+                )
+            }
+            CloudType.SFTP -> {
+                val sftpExtra = json.decodeFromString<SFTPExtra>(mCloudEntity.extra)
+                backupFileWithResticToSftp(
+                    mediaName = mediaName,
+                    compressedFile = compressedFile,
+                    dataType = dataType,
+                    sftpExtra = sftpExtra,
                     remotePath = remotePath,
                     t = t
                 )
@@ -549,6 +553,92 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
 
             Log.e("RusticCancel", "backupFileWithResticToWebdav failed/cancelled, media=$mediaName, msg=${e.message}")
             Log.e(mTAG, "Error during WebDAV file Restic backup", e)
+            false
+        }
+    }
+
+    /**
+     * 使用 Restic 备份文件到 SFTP（rest: → librclone serve restic）
+     */
+    private suspend fun backupFileWithResticToSftp(
+        mediaName: String,
+        compressedFile: File,
+        dataType: DataType,
+        sftpExtra: SFTPExtra,
+        remotePath: String,
+        t: TaskDetailMediaEntity? = null
+    ): Boolean {
+        return try {
+            val tagSuffix = when (dataType) {
+                DataType.PACKAGE_MEDIA -> "filesbackup"
+                DataType.PACKAGE_CONFIG -> "filesconfig"
+                else -> "filesbackup"
+            }
+
+            val tag = "$mediaName-$mBackupTimestamp-$tagSuffix"
+            val tags = listOf(tag)
+
+            Log.d("ResticTag", "Setting current tag: $tag")
+            mCurrentProcessingTag = tag
+
+            val cancelId = System.nanoTime()
+            mCurrentBackupCancelId = cancelId
+            Log.i("RusticCancel", "backupFileWithResticToSftp enter, media=$mediaName, tag=$tag, cancelId=$cancelId")
+
+            val unifiedRepoPath = mCloudEntity.remote
+
+            val result = resticRepoSftp.backupFileToSftp(
+                cloudEntity = mCloudEntity,
+                remotePath = unifiedRepoPath,
+                filePath = compressedFile.absolutePath,
+                tags = tags,
+                password = sftpExtra.resticPassword.ifEmpty { getResticPassword() },
+                progressCallback = object : ResticProgressCallback {
+                    override fun onBackupProgress(
+                        percentDone: Float, bytesDone: Long,
+                        bytesTotal: Long, filesDone: Long, filesTotal: Long,
+                        speed: Long
+                    ) {
+                        val speedText = if (speed > 0) speed.formatToStorageSizePerSecond() else ""
+                        val bytesText = bytesDone.toDouble().formatSize()
+                        val content = if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
+                        Log.d(mTAG, "Restic SFTP backup progress: $content")
+                        runBlocking {
+                            t?.update(content = "$speedText | $bytesText")
+                        }
+                    }
+
+                    override fun onRestoreProgress(
+                        filesFinished: Long, filesTotal: Long,
+                        bytesWritten: Long, bytesTotal: Long,
+                        filesSkipped: Long, bytesSkipped: Long
+                    ) {
+                        // 备份时不使用
+                    }
+                },
+                cancelId = cancelId
+            )
+
+            mCurrentProcessingTag = null
+            mCurrentBackupCancelId = 0L
+
+            if (result.first == 0) {
+                val snapshotId = extractSnapshotIdFromJson(result.second)
+                if (snapshotId != null) {
+                    Log.d(mTAG, "Restic SFTP backup successful for $mediaName, snapshotId: $snapshotId")
+                    updateCloudResticInfo(mediaName, snapshotId, remotePath)
+                }
+                true
+            } else {
+                Log.i("RusticCancel", "backupFileWithResticToSftp non-zero result, media=$mediaName, code=${result.first}, msg=${result.second}")
+                false
+            }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            mCurrentProcessingTag = null
+            mCurrentBackupCancelId = 0L
+            Log.e("RusticCancel", "backupFileWithResticToSftp failed/cancelled, media=$mediaName, msg=${e.message}")
+            Log.e(mTAG, "Error during SFTP file Restic backup", e)
             false
         }
     }

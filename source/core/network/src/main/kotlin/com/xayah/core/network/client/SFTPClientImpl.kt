@@ -85,7 +85,14 @@ class SFTPClientImpl(private val entity: CloudEntity, private val extra: SFTPExt
     }
 
     override fun disconnect() {
-        withSSHClient { it.disconnect() }
+        // 幂等：已断开（testConnection/withClient 的双重 disconnect）时直接返回，
+        // 不再经 withSSHClient 判空抛出 "SSHClient is null."
+        if (sshClient == null) {
+            sftpClient = null
+            return
+        }
+        // 不经 withSSHClient，直接访问已判非空的 sshClient，避免二次抛异常隐患
+        runCatching { sshClient?.disconnect() }
         sshClient = null
         sftpClient = null
     }

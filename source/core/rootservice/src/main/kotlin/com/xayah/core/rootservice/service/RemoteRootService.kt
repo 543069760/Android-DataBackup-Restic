@@ -65,7 +65,9 @@ class RemoteRootService(private val context: Context) {
             if (Process.myUid() == 0) {
                 System.loadLibrary("nativelib")
                 System.loadLibrary("rustic")
+                System.loadLibrary("gojni")
                 Rustic.initLogger()
+                org.rclone.gomobile.Gomobile.rcloneInitialize()
             }
         }
 
@@ -419,6 +421,9 @@ class RemoteRootService(private val context: Context) {
 
     suspend fun listRusticSnapshotsDb(repositoryPath: String, password: String, dbPath: String, options: Map<String, String> = emptyMap()) =
         runCatching { getService().listRusticSnapshotsDb(repositoryPath, password, options, dbPath) }.onFailure(onFailure)
+
+    suspend fun rcloneRpc(method: String, input: String): String =
+        runCatching { getService().rcloneRpc(method, input) }.onFailure(onFailure).getOrThrow()
 
     suspend fun writeJson(data: Any, dst: String): ShellResult = runCatching {
         var isSuccess: Boolean

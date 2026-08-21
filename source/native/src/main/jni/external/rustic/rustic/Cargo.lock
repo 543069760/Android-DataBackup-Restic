@@ -3660,6 +3660,7 @@ checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
 dependencies = [
  "base64",
  "bytes",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "http",
@@ -3676,6 +3677,8 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "rustls-platform-verifier",
+ "serde",
+ "serde_json",
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
@@ -3796,6 +3799,7 @@ name = "rustic_backend"
 version = "0.6.2"
 dependencies = [
  "aho-corasick",
+ "backon",
  "bytes",
  "bytesize",
  "derive_setters",
@@ -3805,6 +3809,7 @@ dependencies = [
  "log",
  "opendal",
  "rayon",
+ "reqwest",
  "rustic_core",
  "serde",
  "strum",

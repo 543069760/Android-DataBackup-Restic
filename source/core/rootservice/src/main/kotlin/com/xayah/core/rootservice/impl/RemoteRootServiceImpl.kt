@@ -53,6 +53,7 @@ import java.nio.file.Paths
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import kotlin.io.path.pathString
+import org.rclone.gomobile.Gomobile
 
 internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRootService.Stub() {
     private val lock = Any()
@@ -523,6 +524,14 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
     @Suppress("UNCHECKED_CAST")
     private fun Map<*, *>?.toStringMap(): Map<String, String> =
         this?.entries?.associate { (k, v) -> k.toString() to v.toString() } ?: emptyMap()
+
+    override fun rcloneRpc(method: String, input: String): String = synchronized(lock) {
+        val res = Gomobile.rcloneRPC(method, input)
+        if (res.status != 200L) {
+            throw IllegalStateException("rclone RPC `$method` failed: status=${res.status}, output=${res.output}")
+        }
+        res.output
+    }
 
     override fun getRusticVersion(): String = synchronized(lock) { Rustic.getVersion() }
 
