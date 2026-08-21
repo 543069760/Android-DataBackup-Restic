@@ -4,6 +4,7 @@ import android.content.Context
 import com.xayah.core.common.util.toPathString
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.WebDAVExtra
+import com.xayah.core.model.database.WebDAVProtocol
 import com.xayah.core.network.R
 import com.xayah.core.network.util.getExtraEntity
 import com.xayah.core.rootservice.parcelables.PathParcelable
@@ -251,6 +252,12 @@ class WebDAVClientImpl(private val entity: CloudEntity, private val extra: WebDA
 
     override suspend fun setRemote(context: Context, onSet: suspend (remote: String, extra: String) -> Unit) {
         val extra = entity.getExtraEntity<WebDAVExtra>()!!
+        // 兜底：旧账户 JSON 缺 protocol/resticPassword 时 Gson 会填 null，
+        // 直接 toJson 写回会把显式 null 持久化，导致 restic 层 kotlinx decodeFromString 抛异常。
+        val safeExtra = extra.copy(
+            protocol = extra.protocol ?: WebDAVProtocol.HTTPS,
+            resticPassword = extra.resticPassword.orEmpty(),
+        )
         connect()
         val prefix = "${context.getString(R.string.cloud)}:"
         val pickYou = PickYouLauncher(
@@ -266,7 +273,7 @@ class WebDAVClientImpl(private val entity: CloudEntity, private val extra: WebDA
         )
         withMainContext {
             val pathString = pickYou.awaitLaunch(context)
-            onSet(handleOriginalPath(pathString), GsonUtil().toJson(extra))
+            onSet(handleOriginalPath(pathString), GsonUtil().toJson(safeExtra))
         }
         disconnect()
     }

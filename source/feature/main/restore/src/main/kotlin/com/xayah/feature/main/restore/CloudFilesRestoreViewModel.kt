@@ -10,6 +10,7 @@ import com.xayah.core.data.repository.FilesRepo
 import com.xayah.core.datastore.readBackupDirectory
 import com.xayah.core.datastore.readS3ResticPassword
 import com.xayah.core.datastore.readFtpResticPassword
+import com.xayah.core.datastore.readWebdavResticPassword
 import com.xayah.core.model.DataType
 import com.xayah.core.model.CloudType
 import com.xayah.core.model.OpType
@@ -18,10 +19,12 @@ import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.MediaEntity
 import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.database.FTPExtra
+import com.xayah.core.model.database.WebDAVExtra
 import com.xayah.core.model.restic.ResticBackupFiles
 import com.xayah.core.restic.ResticRepository
 import com.xayah.core.restic.ResticRepositoryCos
 import com.xayah.core.restic.ResticRepositoryFtp
+import com.xayah.core.restic.ResticRepositoryWebdav
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.localBackupSaveDir
 import com.xayah.core.util.decodeURL
@@ -43,6 +46,7 @@ class CloudFilesRestoreViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val resticRepoCos: ResticRepositoryCos,
     private val resticRepoFtp: ResticRepositoryFtp,
+    private val resticRepoWebdav: ResticRepositoryWebdav,
     private val mediaDao: MediaDao,
     private val filesRepo: FilesRepo,
     private val rootService: RemoteRootService,
@@ -65,19 +69,23 @@ class CloudFilesRestoreViewModel @Inject constructor(
 
         private val json = Json { ignoreUnknownKeys = true }
 
-        /** 按账户类型解析 restic 仓库密码：账户级(extra) 优先，回落 DataStore 全局值 */
-        private suspend fun resolveResticPassword(cloudEntity: CloudEntity): String? {   // 新增
-            return when (cloudEntity.type) {
-                CloudType.FTP -> {
-                    val ftpExtra = runCatching { json.decodeFromString<FTPExtra>(cloudEntity.extra) }.getOrNull()
-                    ftpExtra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readFtpResticPassword()
-                }
-                else -> {
-                    val s3Extra = runCatching { json.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
-                    s3Extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readS3ResticPassword()
-                }
+    /** 按账户类型解析 restic 仓库密码：账户级(extra) 优先，回落 DataStore 全局值 */
+    private suspend fun resolveResticPassword(cloudEntity: CloudEntity): String? {
+        return when (cloudEntity.type) {
+            CloudType.FTP -> {
+                val ftpExtra = runCatching { json.decodeFromString<FTPExtra>(cloudEntity.extra) }.getOrNull()
+                ftpExtra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readFtpResticPassword()
+            }
+            CloudType.WEBDAV -> {                                                                     // 新增
+                val webdavExtra = runCatching { json.decodeFromString<WebDAVExtra>(cloudEntity.extra) }.getOrNull()
+                webdavExtra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readWebdavResticPassword()
+            }
+            else -> {
+                val s3Extra = runCatching { json.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
+                s3Extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readS3ResticPassword()
             }
         }
+    }
 
     fun setCloudEntity(accountName: String) {
         Log.d(TAG, "=== setCloudEntity 开始 ===")
@@ -116,10 +124,8 @@ class CloudFilesRestoreViewModel @Inject constructor(
             Log.d(TAG, "UI状态设置为Loading")
 
             try {
-                // ↓↓↓ 改动 1：密码解析按 CloudType 分派（FTP / S3 各取账户级 extra，回落各自 DataStore） ↓↓↓
                 Log.d(TAG, "读取 Restic 密码配置")
                 val password = resolveResticPassword(cloudEntity)
-                // ↑↑↑ 改动 1 结束 ↑↑↑
                 if (password.isNullOrEmpty()) {
                     Log.e(TAG, "Restic密码未配置或为空")
                     _uiState.value = CloudFilesRestoreUiState.Error("Restic密码未配置")
@@ -127,13 +133,12 @@ class CloudFilesRestoreViewModel @Inject constructor(
                 }
                 Log.d(TAG, "Restic密码配置已读取 (长度: ${password.length})")
 
-                // ↓↓↓ 改动 2：list 调用按 CloudType 分派到 FTP / S3 ↓↓↓
                 Log.d(TAG, "开始调用 listBackedUpFiles (JNI 模式), type=${cloudEntity.type}")
                 val files: List<ResticBackupFiles> = when (cloudEntity.type) {
                     CloudType.FTP -> resticRepoFtp.listBackedUpFilesFromFtpWithSqlJni(cloudEntity, password)
+                    CloudType.WEBDAV -> resticRepoWebdav.listBackedUpFilesFromWebdavWithSqlJni(cloudEntity, password)
                     else -> resticRepoCos.listBackedUpFilesFromS3WithSqlJni(cloudEntity, password)
                 }
-                // ↑↑↑ 改动 2 结束 ↑↑↑
 
                 Log.d(TAG, "获取到 ${files.size} 个文件备份项")
 
@@ -187,7 +192,7 @@ class CloudFilesRestoreViewModel @Inject constructor(
     suspend fun deleteCloudFileSnapshots(group: ResticFileBackupGroup): Boolean = withContext(Dispatchers.IO) {
         try {
             val cloudEntity = cloudRepo.queryByName(accountName) ?: return@withContext false
-            val password = resolveResticPassword(cloudEntity) ?: return@withContext false   // 改
+            val password = resolveResticPassword(cloudEntity) ?: return@withContext false
 
             val sortedBackups = group.backups.sortedBy { backup ->
                 when (backup.dataType) {
@@ -207,8 +212,11 @@ class CloudFilesRestoreViewModel @Inject constructor(
             sortedBackups.forEachIndexed { index, backup ->
                 _resticProgress.value = _resticProgress.value.copy(currentDataTypeIndex = index)
 
-                val success = when (cloudEntity.type) {                 // 改：按类型分派
+                val success = when (cloudEntity.type) {
                     CloudType.FTP -> resticRepoFtp.forgetSnapshotFromFtp(
+                        cloudEntity = cloudEntity, password = password, snapshotId = backup.snapshotId
+                    )
+                    CloudType.WEBDAV -> resticRepoWebdav.forgetSnapshotFromWebdav(
                         cloudEntity = cloudEntity, password = password, snapshotId = backup.snapshotId
                     )
                     else -> resticRepoCos.forgetSnapshotFromCos(
@@ -226,6 +234,7 @@ class CloudFilesRestoreViewModel @Inject constructor(
 
             val pruneSuccess = when (cloudEntity.type) {                // 改：按类型分派
                 CloudType.FTP -> resticRepoFtp.pruneFtpRepository(cloudEntity, password)
+                CloudType.WEBDAV -> resticRepoWebdav.pruneWebdavRepository(cloudEntity, password)   // 新增
                 else -> resticRepoCos.pruneCosRepository(cloudEntity, password)
             }
             _resticProgress.value = ResticProgressState()
@@ -346,6 +355,15 @@ class CloudFilesRestoreViewModel @Inject constructor(
                     val restoreStartTime = System.currentTimeMillis()
                     val success = when (cloudEntity.type) {
                         CloudType.FTP -> resticRepoFtp.restoreSnapshotFromFtp(
+                            cloudEntity = cloudEntity,
+                            password = password,
+                            snapshotId = backup.snapshotId,
+                            targetPath = fullTargetPath,
+                            snapshotSubPath = snapshotSubPath,
+                            includePath = includePath,
+                            progressCallback = progressCallback
+                        )
+                        CloudType.WEBDAV -> resticRepoWebdav.restoreSnapshotFromWebdav(   // 新增
                             cloudEntity = cloudEntity,
                             password = password,
                             snapshotId = backup.snapshotId,

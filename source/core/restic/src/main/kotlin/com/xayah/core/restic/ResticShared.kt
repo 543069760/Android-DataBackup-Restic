@@ -109,6 +109,11 @@ class ResticShared @Inject constructor(
         return "ftp://$cleanHost:$port"
     }
 
+    /** 构建 OpenDAL WebDAV Endpoint：host 本身即完整 URL（含 http(s)://），仅做 trim + 去尾部斜杠，不改 scheme。 */
+    fun buildOpenDALWebdavEndpoint(host: String): String {
+        return host.trim().removeSuffix("/")
+    }
+
     /** 构建 OpenDAL Endpoint,格式: protocol://endpoint (不含 bucket) */
     fun buildOpenDALEndpoint(extra: S3Extra): String {
         val protocol = when (extra.protocol) {

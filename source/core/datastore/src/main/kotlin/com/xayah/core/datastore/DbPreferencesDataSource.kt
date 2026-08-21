@@ -32,6 +32,11 @@ val KeyFtpResticRepoPath = stringPreferencesKey("ftp_restic_repo_path")
 val KeyFtpResticPassword = stringPreferencesKey("ftp_restic_password")
 val KeyFtpResticInitialized = booleanPreferencesKey("ftp_restic_initialized")
 
+// WebDAV Restic 配置键
+val KeyWebdavResticRepoPath = stringPreferencesKey("webdav_restic_repo_path")
+val KeyWebdavResticPassword = stringPreferencesKey("webdav_restic_password")
+val KeyWebdavResticInitialized = booleanPreferencesKey("webdav_restic_initialized")
+
 class DbPreferencesDataSource @Inject constructor(
     private val preferences: DataStore<Preferences>
 ) {
@@ -136,5 +141,42 @@ suspend fun Context.saveFtpResticRepoPath(path: String) {
 suspend fun Context.readFtpResticRepoPath(): String? {
     return dataStore.data.map { preferences ->
         preferences[KeyFtpResticRepoPath]
+    }.first()
+}
+
+// WebDAV Restic 配置扩展函数
+suspend fun Context.saveWebdavResticPassword(password: String) {
+    dataStore.edit { settings ->
+        settings[KeyWebdavResticPassword] = password
+    }
+}
+
+suspend fun Context.readWebdavResticPassword(): String? {
+    return dataStore.data.map { preferences ->
+        preferences[KeyWebdavResticPassword]
+    }.first()
+}
+
+suspend fun Context.saveWebdavResticInitialized(initialized: Boolean) {
+    dataStore.edit { settings ->
+        settings[KeyWebdavResticInitialized] = initialized
+    }
+}
+
+suspend fun Context.readWebdavResticInitialized(): Boolean {
+    return dataStore.data.map { preferences ->
+        preferences[KeyWebdavResticInitialized] ?: false
+    }.first()
+}
+
+suspend fun Context.saveWebdavResticRepoPath(path: String) {
+    dataStore.edit { settings ->
+        settings[KeyWebdavResticRepoPath] = path
+    }
+}
+
+suspend fun Context.readWebdavResticRepoPath(): String? {
+    return dataStore.data.map { preferences ->
+        preferences[KeyWebdavResticRepoPath]
     }.first()
 }

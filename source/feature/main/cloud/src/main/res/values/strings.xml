@@ -11,4 +11,6 @@
     <string name="s3_restic_initialize">Initialize</string>
     <!-- FTP Public IP Warning -->
     <string name="ftp_public_ip_warning">The public network IP address was detected. Please ensure that the public network bandwidth is sufficient, the number of FTP server concurrent connections is sufficient, and the passive mode ( PASV ) has been configured as a public network IP ( common vps with vpc attributes, mostly vpc internal network ip ( such as aws, Alibaba Cloud, Tencent Cloud, etc. ), special attention needs to be paid to modify the configuration as a public network ip ) and the passive port segment has passed the firewall. Improper configuration of FTP server may lead to connection failure, abnormal slow backup speed and even backup failure. Otherwise, it is not recommended to use FTP protocol in the Internet public network environment.</string>
+    <!-- WebDAV HTTPS CA Precheck -->
+    <string name="webdav_https_non_public_ca_unsupported">Certificates issued by non-public CAs (such as internal self-signed HTTPS) are not supported; only the use of the HTTP protocol is supported.</string>
 </resources>

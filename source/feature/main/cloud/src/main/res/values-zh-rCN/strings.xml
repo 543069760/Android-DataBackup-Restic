@@ -11,4 +11,6 @@
     <string name="s3_restic_initialize">初始化</string>
     <!-- FTP 公网 IP 警示 -->
     <string name="ftp_public_ip_warning">检测到公网IP地址。请确保公共网络带宽充足，FTP服务器的并发连接数足够，并且被动模式（PASV）配置了公共网络IP（对于具有VPC属性的常见VPS，通常使用VPC内网IP，如AWS、阿里云、腾讯云等，需要特别注意将配置修改为公共网络IP），并且被动端口范围已通过防火墙。FTP服务器配置不当可能导致连接失败、备份速度异常缓慢，甚至备份失败。否则，不建议在公共互联网环境下使用FTP协议。</string>
+    <!-- WebDAV HTTPS CA 预校验 -->
+    <string name="webdav_https_non_public_ca_unsupported">非公开 CA（比如内网自签 HTTPS）颁发的证书不被支持，仅支持使用 HTTP 协议</string>
 </resources>

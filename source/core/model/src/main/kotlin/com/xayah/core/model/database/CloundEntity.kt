@@ -18,8 +18,11 @@ data class SFTPExtra(
     val mode: SFTPAuthMode = SFTPAuthMode.PASSWORD,
 )
 
+@Serializable
 data class WebDAVExtra(
     val insecure: Boolean,
+    val protocol: WebDAVProtocol = WebDAVProtocol.HTTPS,
+    val resticPassword: String = "",   // 新增：按账户存储的 restic 仓库密码
 )
 
 @Serializable
@@ -36,6 +39,11 @@ data class S3Extra(
 )
 
 enum class S3Protocol {
+    HTTP,
+    HTTPS
+}
+
+enum class WebDAVProtocol {
     HTTP,
     HTTPS
 }

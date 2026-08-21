@@ -11,6 +11,7 @@ import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.FTPExtra
 import com.xayah.core.model.database.SFTPExtra
 import com.xayah.core.model.database.WebDAVExtra
+import com.xayah.core.model.database.WebDAVProtocol
 import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.database.S3Protocol
 import com.xayah.core.network.client.getCloud
@@ -112,13 +113,35 @@ class IndexViewModel @Inject constructor(
         )
     }
 
-    suspend fun updateWebDAVEntity(name: String, remote: String, url: String, username: String, password: String, insecure: Boolean) {
-        val extra = GsonUtil().toJson(WebDAVExtra(insecure = insecure))
+    suspend fun updateWebDAVEntity(
+        name: String,
+        remote: String,
+        url: String,
+        username: String,
+        password: String,
+        insecure: Boolean,
+        protocol: WebDAVProtocol,               // 新增
+        resticPassword: String = "",            // 新增
+    ) {
+        val extra = GsonUtil().toJson(
+            WebDAVExtra(
+                insecure = insecure,
+                protocol = protocol,
+                resticPassword = resticPassword,
+            )
+        )
+        // 入参 url 是"纯主机地址"。先剥离用户可能残留的 scheme，再按协议拼完整 URL 落库。
+        val cleanHost = url.trim()
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .removeSuffix("/")
+        val scheme = if (protocol == WebDAVProtocol.HTTPS) "https" else "http"
+        val fullUrl = "$scheme://$cleanHost"
         emitIntent(
             IndexUiIntent.UpdateEntity(
                 name = name,
                 type = CloudType.WEBDAV,
-                url = url,
+                url = fullUrl,                  // 最终落 CloudEntity.host
                 username = username,
                 password = password,
                 extra = extra,

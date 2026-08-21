@@ -25,7 +25,6 @@ import com.xayah.core.model.database.TaskDetailPackageEntity
 import com.xayah.core.model.database.TaskEntity
 import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.util.get
-import com.xayah.core.model.util.formatToStorageSizePerSecond
 import com.xayah.core.model.util.formatSize
 import com.xayah.core.network.client.CloudClient
 import com.xayah.core.network.client.S3ClientImpl
@@ -37,6 +36,9 @@ import com.xayah.core.util.localBackupSaveDir
 import com.xayah.core.restic.ResticRepositoryFtp
 import com.xayah.core.model.database.FTPExtra
 import com.xayah.core.datastore.readFtpResticPassword
+import com.xayah.core.restic.ResticRepositoryWebdav
+import com.xayah.core.model.database.WebDAVExtra
+import com.xayah.core.datastore.readWebdavResticPassword
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CoroutineScope
@@ -72,6 +74,9 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
 
     @Inject
     lateinit var resticRepoFtp: ResticRepositoryFtp
+
+    @Inject
+    lateinit var resticRepoWebdav: ResticRepositoryWebdav
 
     override val mTaskEntity by lazy {
         TaskEntity(
@@ -169,7 +174,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                     // 根据云存储类型选择备份方式
                     try {
                         when (mCloudEntity.type) {
-                            CloudType.S3, CloudType.FTP -> {
+                            CloudType.S3, CloudType.FTP, CloudType.WEBDAV -> {
                                 Log.d(mTAG, "Using Restic backup for ${p.packageName}")
                                 val resticSuccess = backupWithResticByType(
                                     packageName = p.packageName,
@@ -186,18 +191,6 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                             }
                             CloudType.SFTP -> {
                                 Log.d(mTAG, "Using SFTP upload for ${p.packageName}")
-                                mPackagesBackupUtil.upload(
-                                    client = mClient,
-                                    p = p,
-                                    t = t,
-                                    dataType = type,
-                                    srcDir = dstDir,
-                                    dstDir = remoteAppDir,
-                                    isCanceled = { isCanceled() }
-                                )
-                            }
-                            CloudType.WEBDAV -> {
-                                Log.d(mTAG, "Using WebDAV upload for ${p.packageName}")
                                 mPackagesBackupUtil.upload(
                                     client = mClient,
                                     p = p,
@@ -422,11 +415,95 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
         }
     }
 
+/**
+ * 使用 Restic 备份到 WebDAV（opendal:webdav，纯 JNI）
+ */
+private suspend fun backupWithResticToWebdav(
+    packageName: String,
+    compressedFile: File,
+    dataType: DataType,
+    webdavExtra: WebDAVExtra,
+    remotePath: String,
+    t: TaskDetailPackageEntity
+): Boolean {
+    return try {
+        val userId = extractUserIdFromPath(compressedFile.absolutePath)
+        val backupType = dataType.type
+
+        val tag = "$userId-$packageName-$mBackupTimestamp-$backupType"
+        val tags = listOf(tag)
+
+        Log.d("ResticTag", "Setting current tag: $tag")
+        mCurrentProcessingTag = tag
+
+        val cancelId = System.nanoTime()
+        mCurrentBackupCancelId = cancelId
+        Log.i("RusticCancel", "backupWithResticToWebdav enter, package=$packageName, tag=$tag, cancelId=$cancelId")
+
+        val unifiedRepoPath = mCloudEntity.remote
+
+        val result = resticRepoWebdav.backupFileToWebdav(
+            cloudEntity = mCloudEntity,
+            remotePath = unifiedRepoPath,
+            filePath = compressedFile.absolutePath,
+            tags = tags,
+            password = webdavExtra.resticPassword.ifEmpty { mContext.readWebdavResticPassword() ?: getResticPassword() },
+            progressCallback = object : ResticProgressCallback {
+                override fun onRestoreProgress(
+                    filesFinished: Long, filesTotal: Long,
+                    bytesWritten: Long, bytesTotal: Long,
+                    filesSkipped: Long, bytesSkipped: Long
+                ) {
+                    // 恢复进度,备份时不使用
+                }
+
+                override fun onBackupProgress(
+                    percentDone: Float, bytesDone: Long,
+                    bytesTotal: Long, filesDone: Long, filesTotal: Long,
+                    speed: Long
+                ) {
+                    val speedText = if (speed > 0) speed.formatToStorageSizePerSecond() else ""
+                    val bytesText = bytesDone.toDouble().formatSize()
+                    val content = if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
+                    Log.d(mTAG, "Restic WebDAV backup progress: $content")
+                    runBlocking {
+                        t.update(dataType = dataType, content = content)
+                    }
+                }
+            },
+            cancelId = cancelId
+        )
+
+        mCurrentProcessingTag = null
+        mCurrentBackupCancelId = 0L
+
+        if (result.first == 0) {
+            val snapshotId = extractSnapshotIdFromJson(result.second)
+            if (snapshotId != null) {
+                Log.d(mTAG, "Restic WebDAV backup successful for $packageName, snapshotId: $snapshotId")
+                updateCloudResticInfo(packageName, snapshotId, remotePath)
+            }
+            true
+        } else {
+            Log.i("RusticCancel", "backupWithResticToWebdav non-zero result, package=$packageName, code=${result.first}, msg=${result.second}")
+            false
+        }
+    } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
+
+        mCurrentProcessingTag = null
+        mCurrentBackupCancelId = 0L
+
+        Log.e("RusticCancel", "backupWithResticToWebdav failed/cancelled, package=$packageName, msg=${e.message}")
+        Log.e(mTAG, "Error during WebDAV Restic backup", e)
+        false
+    }
+}
+
     /**
      * 按云类型分派到对应的 Restic 备份实现。
-     * 目前仅收敛走 restic 的 S3 与 FTP：FTP 走 opendal:ftp，其余（默认）走 COS/S3。
-     * SFTP/WEBDAV/SMB 尚未迁移到 restic，仍在 backup() 的 when 分支各自走 upload，
-     * 待后续迁移到 opendal 后再并入本方法。
+     * 走 restic 的有 S3、FTP、WEBDAV：FTP 走 opendal:ftp，WEBDAV 走 opendal:webdav，其余（默认）走 COS/S3。
+     * SFTP 尚未迁移到 restic，仍在 backup() 的 when 分支走 upload，待后续迁移到 opendal 后再并入本方法。
      */
     private suspend fun backupWithResticByType(
         packageName: String,
@@ -447,6 +524,19 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                     t = t
                 )
             }
+
+            CloudType.WEBDAV -> {
+                val webdavExtra = json.decodeFromString<WebDAVExtra>(mCloudEntity.extra)
+                backupWithResticToWebdav(
+                    packageName = packageName,
+                    compressedFile = compressedFile,
+                    dataType = dataType,
+                    webdavExtra = webdavExtra,
+                    remotePath = remotePath,
+                    t = t
+                )
+            }
+
             else -> {
                 val s3Extra = json.decodeFromString<S3Extra>(mCloudEntity.extra)
                 backupWithResticToS3(
