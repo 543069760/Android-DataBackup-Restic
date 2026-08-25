@@ -53,6 +53,20 @@ jobs:
           workspaces: source/native/src/main/jni/external/rustic/rustic
       # ─────────────────────────────────────────────────────────────────
 
+      # ── Go + gomobile（:native:gomobileBindRclone 任务执行 gomobile bind 所需）──
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gobind@latest  
+          go install golang.org/x/mobile/cmd/gomobile@latest  
+          gomobile init  
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
+      # ─────────────────────────────────────────────────────────────────
+
       - name: Setup gradlew
         run: chmod +x gradlew
 
