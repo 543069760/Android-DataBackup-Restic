@@ -100,6 +100,23 @@ class ResticShared @Inject constructor(
         return if (withLeading.endsWith("/")) withLeading else "$withLeading/"
     }
 
+    /**
+     * SFTP 专用 root：rclone connection string 的路径区里，前导 "/" = 文件系统根，
+     * 无前导 = 登录用户家目录相对。为与路径选择器（handleOriginalPath 加 "." 浏览家目录）
+     * 保持一致，这里统一规整为“家目录相对”：去掉前导 "/" 与 "./"，去掉尾部 "/"。
+     * 空路径返回 ""（= rclone 家目录本身）。
+     */
+    fun formatSftpRoot(remotePath: String): String {
+        var s = remotePath.trim()
+        // 去掉选择器可能带的 "./" 前缀
+        while (s.startsWith("./")) s = s.removePrefix("./")
+        // 去掉所有前导 "/"，使其成为家目录相对
+        s = s.trimStart('/')
+        // 去掉尾部 "/"
+        s = s.trimEnd('/')
+        return s
+    }
+
     /** 构建 OpenDAL FTP Endpoint，格式: ftp://host:port（opendal FtpConfig.endpoint 需带 scheme 前缀） */
     fun buildOpenDALFtpEndpoint(host: String, port: Int): String {
         val cleanHost = host.trim()

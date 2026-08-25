@@ -94,7 +94,7 @@ class RcloneServe @Inject constructor(
         val host = cloudEntity.host.trim()
             .removePrefix("sftp://").removeSuffix("/")
         val user = cloudEntity.user
-        val root = shared.formatOpenDALRoot(remotePath)
+        val root = shared.formatSftpRoot(remotePath)
 
         val sb = StringBuilder(":sftp,")
         sb.append("host='").append(host).append("',")
