@@ -425,6 +425,9 @@ class RemoteRootService(private val context: Context) {
     suspend fun rcloneRpc(method: String, input: String): String =
         runCatching { getService().rcloneRpc(method, input) }.onFailure(onFailure).getOrThrow()
 
+    suspend fun rcloneRpcNoLock(method: String, input: String): String =
+        runCatching { getService().rcloneRpcNoLock(method, input) }.onFailure(onFailure).getOrThrow()
+
     suspend fun writeJson(data: Any, dst: String): ShellResult = runCatching {
         var isSuccess: Boolean
         val out = mutableListOf<String>()

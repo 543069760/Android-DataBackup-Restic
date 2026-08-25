@@ -7,6 +7,15 @@ import com.xayah.core.model.SFTPAuthMode
 import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.coroutineContext
 
 @Singleton
 class RcloneServe @Inject constructor(
@@ -45,6 +54,27 @@ class RcloneServe @Inject constructor(
         }.onFailure { Log.e(ResticShared.TAG, "serve/stop 失败 id=$id", it) }
     }
 
+    /** 每次备份开始前把 global accounting 归零，拿到干净基准。走无锁 RPC，避免被 createRusticSnapshot 的大锁挡住。 */
+    suspend fun resetStats() {
+        runCatching {
+            shared.rootService.rcloneRpcNoLock("core/stats-reset", "{}")
+        }.onFailure { Log.e(ResticShared.TAG, "core/stats-reset 失败", it) }
+    }
+
+    /** 读取 global accounting 的 bytes 与 speed（bytes/s）。走无锁 RPC，供备份进行期间轮询。 */
+    suspend fun readStatsBytesAndSpeed(): Pair<Long, Long> = runCatching {
+        val out = shared.rootService.rcloneRpcNoLock(
+            "core/stats", JSONObject().put("short", true).toString()
+        )
+        val json = JSONObject(out)
+        val bytes = json.optLong("bytes", 0L)
+        val speed = json.optLong("speed", 0L)
+        Pair(bytes, speed)
+    }.getOrElse {
+        Log.e(ResticShared.TAG, "core/stats 读取失败", it)
+        0L to 0L
+    }
+
     /** core/obscure 混淆明文密码，取返回 JSON 的 obscured 字段。 */
     private suspend fun obscure(plain: String): String {
         val out = shared.rootService.rcloneRpc(
@@ -81,6 +111,12 @@ class RcloneServe @Inject constructor(
                 sb.append("key_pem='").append(pem).append("'")
             }
         }
+        // 性能优化选项：消除 rclone 对 on-the-fly SFTP 后端每次连接的远端 shell 探测与多余往返。
+        // 追加位置必须在结尾 ':<root>' 之前——冒号是连接串参数区/路径区的分隔符。
+        sb.append(",disable_hashcheck=true")  // restic 自身做完整性校验，无需 rclone md5/sha1 远端探测
+        sb.append(",shell_type=none")         // 禁用所有基于远端 shell 命令的功能（含 about/df 探测）
+        sb.append(",set_modtime=false")       // 省去每个文件上传后的 setstat 往返
+        sb.append(",chunk_size=255k")         // 高延迟链路显著提速（OpenSSH 支持）
         sb.append(":").append(root)
         return sb.toString()
     }

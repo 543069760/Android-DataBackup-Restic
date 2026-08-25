@@ -7,6 +7,14 @@ import com.xayah.core.model.restic.ResticBackupFiles
 import com.xayah.core.rootservice.ICallback
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.coroutineContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -72,24 +80,48 @@ class ResticRepositorySftp @Inject constructor(
         cancelId: Long = 0L
     ): Pair<Int, String> = withContext(Dispatchers.IO) {
         val session = startServe(cloudEntity, remotePath)
+
+        // 轮询控制标志与句柄（在 finally 里停止 + join，避免泄漏）
+        val polling = AtomicBoolean(true)
+        var pollJob: Job? = null
+
         try {
             Log.i("ResticSftpRoot", "backupSftp restUrl=${session.restUrl} remotePath=$remotePath")
 
-            val callback: ICallback? = progressCallback?.let { cb ->
+            // 关键：每次备份各起一个 serve，但 rclone accounting 是进程级累计的，
+            // 必须先 reset 出干净基准，否则 core/stats 会带上历史字节。
+            rcloneServe.resetStats()
+
+            // 起轮询协程：从 rclone core/stats 读实时累计字节 + 速度，驱动进度显示。
+            // rest: 路径下 rustic 的写出计数只能按 pack 阶梯跳动，改由 rclone 侧
+            // RcatSize 流式 accounting 提供 sub-pack 平滑进度。
+            if (progressCallback != null) {
+                pollJob = CoroutineScope(coroutineContext).launch {
+                    while (polling.get() && isActive) {
+                        val (bytes, speed) = rcloneServe.readStatsBytesAndSpeed()
+                        Log.d("SftpStatsPoll", "poll bytes=$bytes speed=$speed")
+                        progressCallback.onBackupProgress(
+                            percentDone = 0f,
+                            bytesDone   = bytes,
+                            bytesTotal  = 0L,
+                            filesDone   = 0L,
+                            filesTotal  = 0L,
+                            speed       = speed
+                        )
+                        delay(300L)
+                    }
+                }
+            }
+
+            // ICallback 仍需传给 createRusticSnapshot 以维持回调链路，但 onProgress
+            // 不再驱动进度显示（避免与轮询两路互相覆盖）。取消走 cancelId，与本回调无关。
+            val callback: ICallback? = progressCallback?.let {
                 object : ICallback.Stub() {
-                    // 5 参签名，与 ICallback.aidl 一致
                     override fun onProgress(
                         readBytes: Long, readTotal: Long, readProgress: Float,
                         writtenBytes: Long, writtenSpeed: Long
                     ) {
-                        cb.onBackupProgress(
-                            percentDone = readProgress,
-                            bytesDone   = writtenBytes,
-                            bytesTotal  = readTotal,
-                            filesDone   = readBytes,
-                            filesTotal  = 0L,
-                            speed       = writtenSpeed
-                        )
+                        // no-op：进度显示改由 core/stats 轮询驱动
                     }
 
                     override fun onRestorePlan(
@@ -126,6 +158,9 @@ class ResticRepositorySftp @Inject constructor(
                 Pair(1, msg)
             }
         } finally {
+            // 先停轮询、等它干净结束，再停 serve，避免 serve 停后轮询仍打 RPC。
+            polling.set(false)
+            runCatching { pollJob?.cancelAndJoin() }
             stopServe(session)
         }
     }

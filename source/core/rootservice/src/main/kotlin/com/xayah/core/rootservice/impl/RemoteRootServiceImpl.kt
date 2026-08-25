@@ -533,6 +533,18 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         res.output
     }
 
+    // 注意：绝不能用 synchronized(lock)。createRusticSnapshot 持锁整个备份时长，
+    // 只读账务统计（core/stats / core/stats-reset）若也抢同一把锁，会被阻塞到备份结束，
+    // 导致进度轮询在整段上传期间一次都跑不了。librclone 的 Gomobile.rcloneRPC 可并发调用，
+    // core/stats 为只读统计，不与 createRusticSnapshot 的 native 备份互斥，故不加锁。
+    override fun rcloneRpcNoLock(method: String, input: String): String {
+        val res = Gomobile.rcloneRPC(method, input)
+        if (res.status != 200L) {
+            throw IllegalStateException("rclone RPC(NoLock) `$method` failed: status=${res.status}, output=${res.output}")
+        }
+        return res.output
+    }
+
     override fun getRusticVersion(): String = synchronized(lock) { Rustic.getVersion() }
 
     override fun initRusticRepository(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?): Unit = synchronized(lock) {

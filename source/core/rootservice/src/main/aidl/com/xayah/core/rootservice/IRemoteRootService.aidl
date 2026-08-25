@@ -65,4 +65,6 @@ interface IRemoteRootService {
     void listRusticSnapshotsDb(String repositoryPath, String password, in Map options, String dbPath);
     // rclone (librclone gomobile) —— 通用 RPC 透传，status!=200 时在 impl 抛异常
     String rcloneRpc(String method, String input);
+    // 只读账务统计专用（core/stats、core/stats-reset）：不走 lock，可与 createRusticSnapshot 并发
+    String rcloneRpcNoLock(String method, String input);
 }

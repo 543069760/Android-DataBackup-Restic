@@ -511,7 +511,9 @@ fn backends_with_progress(
         // 关键修复：COS 写后端也要过 wrapper，否则取消 flag 永远不被读。
         Ok(crate::cancel_backend::wrap_write_backends(backends, flag))
     } else {
-        // 本地裸路径回退：backends() 内部已过滤 COMPRESSION_KEY。
-        backends(repository_path, options, flag, cancel_id)
-    }
+            // 非 opendal（含 rest: SFTP、本地裸路径）：backends() 内部已做 cancel 包裹，
+            // 再套一层计数后端，使 rest: 写出字节也能累加到 counter，进度不再恒为 0。
+            let backends = backends(repository_path, options, flag, cancel_id)?;
+            Ok(crate::counting_backend::wrap_write_backends_with_counter(backends, counter))
+        }
 }

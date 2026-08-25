@@ -9,6 +9,7 @@ mod progress;
 mod repository;
 mod cancel;
 mod cancel_backend;
+mod counting_backend;
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
