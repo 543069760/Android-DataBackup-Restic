@@ -14,6 +14,7 @@ import com.xayah.core.ui.viewmodel.IndexUiEffect
 import com.xayah.core.ui.viewmodel.UiIntent
 import com.xayah.core.ui.viewmodel.UiState
 import com.xayah.core.util.GsonUtil
+import com.xayah.core.network.util.getExtraEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -50,6 +51,28 @@ class SftpResticViewModel @Inject constructor(
         object Initializing : SftpInitializationState()
         data class Success(val repoPath: String) : SftpInitializationState()
         data class Error(val message: String) : SftpInitializationState()
+    }
+
+    /**
+     * 从既有账户 CloudEntity 恢复 SFTP restic 初始化状态。
+     * 对照 FTP/WebDAV/S3 在 init{} 块里从 DataStore 恢复的做法；
+     * SFTP 按账户级设计，密码不写全局 datastore，而是存在该账户
+     * CloudEntity.extra 的 SFTPExtra.resticPassword，故这里改从实体反查恢复。
+     *
+     * 规则：解析出的 resticPassword 非空即视为"之前已初始化过"，
+     * 把密码回填 UI 状态，并把初始化状态置为 Success(remotePath)。
+     */
+
+    fun restoreStateFromEntity(cloudEntity: CloudEntity) {
+        if (cloudEntity.type != CloudType.SFTP) return
+        if (_sftpInitializationState.value !is SftpInitializationState.Idle) return
+
+        val sftpExtra = cloudEntity.getExtraEntity<SFTPExtra>() ?: return
+        val savedPassword = sftpExtra.resticPassword
+        if (savedPassword.isNotEmpty()) {
+            _sftpInitializationState.value = SftpInitializationState.Success(cloudEntity.remote)
+            Log.d(TAG, "已从账户恢复 SFTP Restic 初始化状态: ${cloudEntity.remote}")
+        }
     }
 
     /**

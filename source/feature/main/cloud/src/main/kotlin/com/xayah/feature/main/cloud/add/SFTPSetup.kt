@@ -107,7 +107,7 @@ fun PageSFTPSetup() {
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     val sftpViewModel = hiltViewModel<SftpResticViewModel>()
     val sftpInitState by sftpViewModel.sftpInitializationState.collectAsStateWithLifecycle()
-    var sftpPassword by rememberSaveable { mutableStateOf(uiState.cloudEntity?.getExtraEntity<SFTPExtra>()?.resticPassword ?: "") }
+    var sftpPassword by rememberSaveable(uiState.cloudEntity) { mutableStateOf(uiState.cloudEntity?.getExtraEntity<SFTPExtra>()?.resticPassword ?: "") }
     var sftpPasswordVisible by rememberSaveable { mutableStateOf(false) }
     val allFilled by rememberSaveable(
         name,
@@ -129,6 +129,13 @@ fun PageSFTPSetup() {
 
     LaunchedEffect(null) {
         viewModel.emitIntentOnIO(IndexUiIntent.Initialize)
+    }
+
+    // 编辑已有 SFTP 账户时，从账户 CloudEntity 恢复 restic 初始化状态与密码回填
+    LaunchedEffect(uiState.cloudEntity) {
+        uiState.cloudEntity?.let { entity ->
+            sftpViewModel.restoreStateFromEntity(entity)
+        }
     }
 
     AccountSetupScaffold(
