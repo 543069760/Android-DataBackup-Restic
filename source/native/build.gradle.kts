@@ -28,6 +28,8 @@ val gomobileBindRclone = tasks.register<Exec>("gomobileBindRclone") {
     val gomobileExe = if (isWindows) "gomobile.exe" else "gomobile"
     commandLine(
         gomobileExe, "bind", "-v",
+        "-trimpath",
+        "-ldflags", "-s -w",
         "-androidapi", "26",
         "-target=android/arm64,android/arm,android/amd64,android/386",
         "-javapkg=org.rclone",
