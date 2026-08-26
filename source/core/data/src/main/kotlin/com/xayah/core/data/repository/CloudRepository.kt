@@ -150,10 +150,18 @@ class CloudRepository @Inject constructor(
         log { "withClient: Getting client for $name" }
         val (client, entity) = getClient(name)
         log { "withClient: Client connected, executing block" }
-        block(client, entity)
-        log { "withClient: Block completed, disconnecting client" }
-        client.disconnect()
-        log { "withClient: Client disconnected" }
+        try {
+            block(client, entity)
+            log { "withClient: Block completed, disconnecting client" }
+        } catch (e: Throwable) {
+            // 关键:block 抛异常时也要在 finally 里断开,避免连接残留在服务器侧(FTP 421 诱因)
+            log { "withClient: Block threw ${e.message}, will disconnect in finally" }
+            throw e
+        } finally {
+            runCatching { client.disconnect() }
+                .onSuccess { log { "withClient: Client disconnected" } }
+                .onFailure { log { "withClient: disconnect 失败 ${it.message}" } }
+        }
     }
 
     // 2. 新增方法:直接使用 CloudEntity,可选跳过远程检查
@@ -171,10 +179,17 @@ class CloudRepository @Inject constructor(
             connect()
         }
         log { "withClient: Client connected, executing block" }
-        block(client, entity)
-        log { "withClient: Block completed, disconnecting client" }
-        client.disconnect()
-        log { "withClient: Client disconnected" }
+        try {
+            block(client, entity)
+            log { "withClient: Block completed, disconnecting client" }
+        } catch (e: Throwable) {
+            log { "withClient(entity=${entity.name}): Block threw ${e.message}, will disconnect in finally" }
+            throw e
+        } finally {
+            runCatching { client.disconnect() }
+                .onSuccess { log { "withClient: Client disconnected" } }
+                .onFailure { log { "withClient(entity=${entity.name}): disconnect 失败 ${it.message}" } }
+        }
     }
 
     // 3. 保留原有方法:处理多个激活的客户端
@@ -184,7 +199,18 @@ class CloudRepository @Inject constructor(
             if (it.remote.isEmpty()) throw IllegalAccessException("${it.name}: Remote directory is not set.")
             clients.add(it.getCloud(uploadIdDao).apply { connect() } to it)
         }
-        block(clients)
-        clients.forEach { it.first.disconnect() }
+        try {
+            block(clients)
+        } catch (e: Throwable) {
+            log { "withActivatedClients: Block threw ${e.message}, will disconnect all in finally" }
+            throw e
+        } finally {
+            // 遍历断开全部客户端,单个失败不影响其余
+            clients.forEach { (client, entity) ->
+                runCatching { client.disconnect() }
+                    .onFailure { log { "withActivatedClients: disconnect 失败 ${entity.name} ${it.message}" } }
+            }
+            log { "withActivatedClients: All clients disconnected (count=${clients.size})" }
+        }
     }
 }

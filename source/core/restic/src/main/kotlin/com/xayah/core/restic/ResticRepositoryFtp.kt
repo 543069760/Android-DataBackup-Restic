@@ -3,53 +3,62 @@ package com.xayah.core.restic
 import android.util.Log
 import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.model.database.CloudEntity
-import com.xayah.core.model.database.FTPExtra
 import com.xayah.core.model.restic.ResticBackupFiles
 import com.xayah.core.rootservice.ICallback
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.decodeFromString
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.coroutineContext
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * FTP 备份的 JNI 实现（纯 JNI，不依赖 restic 二进制），参照 ResticRepositoryCos。
- * scheme 使用 opendal:ftp，options key 依据 opendal 0.57.0 opendal-service-ftp 的 FtpConfig 字段：
- *   endpoint（形如 ftp://host:port）/ root / user / password。
- * 说明：user/password（FTP 登录）放入 options map；restic 仓库密码单独作为 password 参数传 JNI。
+ * FTP 备份的实现，彻底切换到 librclone serve restic（结构对照 ResticRepositorySftp）。
+ *
+ * 与旧 opendal:ftp 版的三点区别：
+ *  1) repositoryPath 使用 rclone serve restic 起服务后返回的 rest: URL（session.restUrl），
+ *     而不是 opendal:ftp；opendal 在 NAT/被动模式/TLS FTP 上会卡 0 字节，rclone 可穿透。
+ *  2) options 一律传 emptyMap()——FTP 的 host/port/user/pass 认证由 rclone 在 serve 侧完成，
+ *     rustic 侧只当作普通 REST 后端。
+ *  3) 每个方法都用 serve 生命周期包住：start() 起服务拿端口，finally { stop(id) } 收尾。
+ *     serve 必须在整批 JNI 调用期间一直存活，端口为 localhost:0 动态分配、不可跨会话复用。
+ *
+ * 说明：restic 仓库密码单独作为 password 参数传 JNI（与 SFTP 一致）。
  */
 @Singleton
 class ResticRepositoryFtp @Inject constructor(
     private val shared: ResticShared,
+    private val rcloneServe: RcloneServe,
 ) {
-    // initFtpRepository —— 对应 initCosRepository
-    // 压缩配置：仅在建库时合并压缩 key；语义与本地/COS 一致
-    //   -1(AUTO) -> resticCompressionOptions() 返回 emptyMap()（不设 set_compression → rustic v2 默认压缩）
-    //    0(OFF)  -> {COMPRESSION_KEY:"0"}（关闭压缩）
-    //  1..22     -> {COMPRESSION_KEY:"<level>"}（指定 zstd 级别）
-    // 该 key 会被 Rust 侧 backends() 过滤，不会进入 opendal 后端配置。
+    // initFtpRepository —— 对应 initSftpRepository
     suspend fun initFtpRepository(
         cloudEntity: CloudEntity, remotePath: String, password: String
     ): Result<String> = withContext(Dispatchers.IO) {
+        val session = startServe(cloudEntity, remotePath)
         try {
-            val options = buildFtpBackendOptions(cloudEntity, remotePath)
-            Log.i("ResticFtpRoot", "initFtp options=$options root=${options["root"]} endpoint=${options["endpoint"]}")
+            Log.i("ResticFtpRoot", "initFtp restUrl=${session.restUrl} remotePath=$remotePath")
 
             // 1) 建库
-            val initResult = shared.rootService.initRusticRepository("opendal:ftp", password, options)
+            val initResult = shared.rootService.initRusticRepository(session.restUrl, password, emptyMap())
             if (initResult.isFailure) {
                 return@withContext Result.failure(
                     Exception(initResult.exceptionOrNull()?.message ?: "Unknown error during rustic init")
                 )
             }
 
-            // 2) 复核：用相同 options 确认仓库 config 真的写进了 FTP
-            val exists = shared.rootService.rusticRepositoryExists("opendal:ftp", options)
+            // 2) 复核：确认仓库 config 真的写进了 FTP
+            val exists = shared.rootService.rusticRepositoryExists(session.restUrl, emptyMap())
             if (!exists) {
                 Log.e(ResticShared.TAG, "FTP init 报成功但 repositoryExists=false")
                 return@withContext Result.failure(
-                    Exception("init 报成功但仓库 config 未写入 FTP（疑似 opendal FTP 被动数据连接失败）")
+                    Exception("init 报成功但仓库 config 未写入 FTP（疑似 rclone serve/认证失败）")
                 )
             }
 
@@ -58,36 +67,59 @@ class ResticRepositoryFtp @Inject constructor(
         } catch (e: Exception) {
             Log.e(ResticShared.TAG, "initFtpRepository 异常", e)
             Result.failure(e)
+        } finally {
+            stopServe(session)
         }
     }
 
-    // backupFileToFtp —— 对应 backupFileToCos，返回 Pair<Int,String>（保持上层契约）
+    // backupFileToFtp —— 对应 backupFileToSftp，返回 Pair<Int,String>（保持上层契约）
     suspend fun backupFileToFtp(
         cloudEntity: CloudEntity, remotePath: String, filePath: String,
         tags: List<String>, password: String,
         progressCallback: ResticRepository.ResticProgressCallback? = null,
         cancelId: Long = 0L
     ): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val session = startServe(cloudEntity, remotePath)
+
+        // 轮询控制标志与句柄（在 finally 里停止 + join，避免泄漏）
+        val polling = AtomicBoolean(true)
+        var pollJob: Job? = null
+
         try {
-            val options = buildFtpBackendOptions(cloudEntity, remotePath)
+            Log.i("ResticFtpRoot", "backupFtp restUrl=${session.restUrl} remotePath=$remotePath")
 
-            Log.i("ResticFtpRoot", "backupFtp remotePath=$remotePath root=${options["root"]}")
+            // 关键：每次备份各起一个 serve，但 rclone accounting 是进程级累计的，
+            // 必须先 reset 出干净基准，否则 core/stats 会带上历史字节。
+            rcloneServe.resetStats()
 
-            val callback: ICallback? = progressCallback?.let { cb ->
+            // 起轮询协程：从 rclone core/stats 读实时累计字节 + 速度，驱动进度显示。
+            if (progressCallback != null) {
+                pollJob = CoroutineScope(coroutineContext).launch {
+                    while (polling.get() && isActive) {
+                        val (bytes, speed) = rcloneServe.readStatsBytesAndSpeed()
+                        Log.d("FtpStatsPoll", "poll bytes=$bytes speed=$speed")
+                        progressCallback.onBackupProgress(
+                            percentDone = 0f,
+                            bytesDone   = bytes,
+                            bytesTotal  = 0L,
+                            filesDone   = 0L,
+                            filesTotal  = 0L,
+                            speed       = speed
+                        )
+                        delay(300L)
+                    }
+                }
+            }
+
+            // ICallback 仍需传给 createRusticSnapshot 维持回调链路，但 onProgress 不再驱动
+            // 进度显示（避免与轮询两路互相覆盖）。取消走 cancelId，与本回调无关。
+            val callback: ICallback? = progressCallback?.let {
                 object : ICallback.Stub() {
-                    // 5 参签名，与 ICallback.aidl（commit cbd81d0e）一致
                     override fun onProgress(
                         readBytes: Long, readTotal: Long, readProgress: Float,
                         writtenBytes: Long, writtenSpeed: Long
                     ) {
-                        cb.onBackupProgress(
-                            percentDone = readProgress,
-                            bytesDone   = writtenBytes,
-                            bytesTotal  = readTotal,
-                            filesDone   = readBytes,
-                            filesTotal  = 0L,
-                            speed       = writtenSpeed
-                        )
+                        // no-op：进度显示改由 core/stats 轮询驱动
                     }
 
                     override fun onRestorePlan(
@@ -98,11 +130,11 @@ class ResticRepositoryFtp @Inject constructor(
             }
 
             val snapshotId = shared.rootService.createRusticSnapshot(
-                repositoryPath = "opendal:ftp",
+                repositoryPath = session.restUrl,
                 password = password,
                 sourcePaths = listOf(filePath),
                 tags = tags,
-                options = options,
+                options = emptyMap(),
                 callback = callback,
                 cancelId = cancelId
             )
@@ -123,19 +155,24 @@ class ResticRepositoryFtp @Inject constructor(
                 Log.e("RusticCancel", "backupFileToFtp failed, cancelId=$cancelId, msg=$msg")
                 Pair(1, msg)
             }
+        } finally {
+            // 先停轮询、等它干净结束，再停 serve，避免 serve 停后轮询仍打 RPC。
+            polling.set(false)
+            runCatching { pollJob?.cancelAndJoin() }
+            stopServe(session)
         }
     }
 
-    // restoreSnapshotFromFtp —— 对应 restoreSnapshotFromCos
+    // restoreSnapshotFromFtp —— 对应 restoreSnapshotFromSftp
     suspend fun restoreSnapshotFromFtp(
         cloudEntity: CloudEntity, password: String, snapshotId: String,
         targetPath: String, snapshotSubPath: String? = null,
         includePath: String? = null,
         progressCallback: ResticRepository.ResticProgressCallback? = null
     ): Boolean = withContext(Dispatchers.IO) {
+        val session = startServe(cloudEntity, cloudEntity.remote)
         try {
-            val options = buildFtpBackendOptions(cloudEntity, cloudEntity.remote)
-            Log.i("ResticFtpRoot", "listFtp root=${options["root"]}")
+            Log.i("ResticFtpRoot", "restoreFtp restUrl=${session.restUrl}")
             val fullSnapshotId = if (!snapshotSubPath.isNullOrEmpty()) "$snapshotId:$snapshotSubPath" else snapshotId
             val includeGlob = if (!includePath.isNullOrEmpty()) "!$includePath" else ""
             val callback: ICallback? = if (progressCallback != null) object : ICallback.Stub() {
@@ -156,56 +193,79 @@ class ResticRepositoryFtp @Inject constructor(
                 }
             } else null
             val result = shared.rootService.restoreRusticSnapshot(
-                repositoryPath = "opendal:ftp", password = password,
+                repositoryPath = session.restUrl, password = password,
                 snapshotId = fullSnapshotId, destinationPath = targetPath,
-                options = options, includeGlob = includeGlob, callback = callback
+                options = emptyMap(), includeGlob = includeGlob, callback = callback
             )
             result.isSuccess
-        } catch (e: Exception) { false }
+        } catch (e: Exception) {
+            Log.e(ResticShared.TAG, "restoreSnapshotFromFtp 异常", e)
+            false
+        } finally {
+            stopServe(session)
+        }
     }
 
-    // forgetSnapshotFromFtp —— 对应 forgetSnapshotFromCos
+    // forgetSnapshotFromFtp —— 对应 forgetSnapshotFromSftp
     suspend fun forgetSnapshotFromFtp(
         cloudEntity: CloudEntity, password: String, snapshotId: String
     ): Boolean = withContext(Dispatchers.IO) {
+        val session = startServe(cloudEntity, cloudEntity.remote)
         try {
-            val options = buildFtpBackendOptions(cloudEntity, cloudEntity.remote)
-            shared.rootService.forgetRusticSnapshot("opendal:ftp", password, snapshotId, options).isSuccess
-        } catch (e: Exception) { false }
+            Log.i("ResticFtpRoot", "forgetFtp restUrl=${session.restUrl} snapshotId=$snapshotId")
+            shared.rootService.forgetRusticSnapshot(session.restUrl, password, snapshotId, emptyMap()).isSuccess
+        } catch (e: Exception) {
+            Log.e(ResticShared.TAG, "forgetSnapshotFromFtp 异常", e)
+            false
+        } finally {
+            stopServe(session)
+        }
     }
 
-    // pruneFtpRepository —— 对应 pruneCosRepository（--max-unused unlimited）
+    // pruneFtpRepository —— 对应 pruneSftpRepository（--max-unused unlimited）
     suspend fun pruneFtpRepository(
         cloudEntity: CloudEntity, password: String
     ): Boolean = withContext(Dispatchers.IO) {
+        val session = startServe(cloudEntity, cloudEntity.remote)
         try {
-            val options = buildFtpBackendOptions(cloudEntity, cloudEntity.remote)
-            shared.rootService.pruneRusticRepository("opendal:ftp", password, "unlimited", options).isSuccess
-        } catch (e: Exception) { false }
+            Log.i("ResticFtpRoot", "pruneFtp restUrl=${session.restUrl}")
+            shared.rootService.pruneRusticRepository(session.restUrl, password, "unlimited", emptyMap()).isSuccess
+        } catch (e: Exception) {
+            Log.e(ResticShared.TAG, "pruneFtpRepository 异常", e)
+            false
+        } finally {
+            stopServe(session)
+        }
     }
 
-    // listBackedUpFilesFromFtpWithSqlJni —— 对应 listBackedUpFilesFromS3WithSqlJni
+    // listBackedUpFilesFromFtpWithSqlJni —— 对应 listBackedUpFilesFromSftpWithSqlJni
     suspend fun listBackedUpFilesFromFtpWithSqlJni(
         cloudEntity: CloudEntity, password: String
     ): List<ResticBackupFiles> = withContext(Dispatchers.IO) {
+        val session = startServe(cloudEntity, cloudEntity.remote)
         try {
-            val options = buildFtpBackendOptions(cloudEntity, cloudEntity.remote)
+            Log.i("ResticFtpRoot", "listFilesFtp restUrl=${session.restUrl}")
             val sqlDir = File(shared.context.cacheDir, "sql"); if (!sqlDir.exists()) sqlDir.mkdirs()
             val dbFile = File(sqlDir, "snapshots_files_ftp_${System.currentTimeMillis()}.db")
-            val result = shared.rootService.listRusticSnapshotsDb("opendal:ftp", password, dbFile.absolutePath, options)
+            val result = shared.rootService.listRusticSnapshotsDb(session.restUrl, password, dbFile.absolutePath, emptyMap())
             if (result.isFailure || !dbFile.exists() || dbFile.length() == 0L) { dbFile.delete(); return@withContext emptyList() }
             val files = shared.parseFilesDb(dbFile); dbFile.delete(); files
-        } catch (e: Exception) { emptyList() }
+        } catch (e: Exception) {
+            Log.e(ResticShared.TAG, "listBackedUpFilesFromFtpWithSqlJni 异常", e)
+            emptyList()
+        } finally {
+            stopServe(session)
+        }
     }
 
-    // listBackedUpAppsFromFtpWithSqlJni —— 对应 listBackedUpAppsFromS3WithSqlJni
+    // listBackedUpAppsFromFtpWithSqlJni —— 对应 listBackedUpAppsFromSftpWithSqlJni
     suspend fun listBackedUpAppsFromFtpWithSqlJni(
         cloudEntity: CloudEntity,
         password: String
     ): List<ResticBackupApp> = withContext(Dispatchers.IO) {
+        val session = startServe(cloudEntity, cloudEntity.remote)
         try {
-            val repoPath = "opendal:ftp"
-            val options = buildFtpBackendOptions(cloudEntity, cloudEntity.remote)
+            val repoPath = session.restUrl
 
             val sqlDir = File(shared.context.cacheDir, "sql")
             if (!sqlDir.exists()) sqlDir.mkdirs()
@@ -213,13 +273,12 @@ class ResticRepositoryFtp @Inject constructor(
             val dbFile = File(sqlDir, "snapshots_ftp_${System.currentTimeMillis()}.db")
 
             Log.d(ResticShared.TAG, "执行 JNI listSnapshotsDb (FTP)，repo=$repoPath，输出=${dbFile.absolutePath}")
-            Log.d(ResticShared.TAG, "options keys=${options.keys.joinToString(",")}")
 
             val result = shared.rootService.listRusticSnapshotsDb(
                 repositoryPath = repoPath,
                 password = password,
                 dbPath = dbFile.absolutePath,
-                options = options,
+                options = emptyMap(),
             )
             if (result.isFailure) {
                 Log.e(ResticShared.TAG, "listRusticSnapshotsDb (FTP) 失败", result.exceptionOrNull())
@@ -237,23 +296,25 @@ class ResticRepositoryFtp @Inject constructor(
         } catch (e: Exception) {
             Log.e(ResticShared.TAG, "listBackedUpAppsFromFtpWithSqlJni 异常", e)
             emptyList()
+        } finally {
+            stopServe(session)
         }
     }
 
     /**
-     * 把 CloudEntity(host/user/pass) + FTPExtra(port) 翻译成 opendal:ftp 后端 options map。
-     * key 名对应 opendal 0.57.0 FtpConfig 字段，原样透传给 opendal Operator::via_iter。
-     * restic 仓库密码不放 map，单独作为 password 参数传给 JNI。
+     * 起 librclone serve restic：把 FTP 表单字段（host/port/user/pass + remotePath）交给
+     * 接入层，由 rclone 在 serve 侧完成 FTP + 密码认证，返回本地 rest: URL 与 serve id。
+     * 端口为 localhost:0 动态分配，session 只在本次调用内有效。
      */
-    private fun buildFtpBackendOptions(cloudEntity: CloudEntity, remotePath: String): Map<String, String> {
-        val extra = ResticShared.json.decodeFromString<FTPExtra>(cloudEntity.extra)
-        val options = mapOf(
-            "endpoint" to shared.buildOpenDALFtpEndpoint(cloudEntity.host, extra.port),
-            "root" to shared.formatOpenDALRoot(remotePath),
-            "user" to cloudEntity.user,
-            "password" to cloudEntity.pass,
-        )
-        Log.i("ResticFtpRoot", "buildFtpOptions remotePath=$remotePath root=${options["root"]} endpoint=${options["endpoint"]}")
-        return options
+    private suspend fun startServe(cloudEntity: CloudEntity, remotePath: String): RcloneServe.Session =
+        rcloneServe.start(cloudEntity, remotePath)
+
+    /** 收尾：停掉本次 serve（传 id）。异常吞掉，避免影响主流程结果。 */
+    private suspend fun stopServe(session: RcloneServe.Session) {
+        try {
+            rcloneServe.stop(session.id)
+        } catch (e: Exception) {
+            Log.w("ResticFtpRoot", "rcloneServeStop 失败 id=${session.id}", e)
+        }
     }
 }
