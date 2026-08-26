@@ -35,16 +35,16 @@ Free and open-source data backup application
 
 ### Cloud Storage Protocol Support
 
-| Feature | Legacy (DataBackup) | New (DataBackup Revived 3.0.0) |      
-|---------|------------------|----------------------------------|      
-| **Local Storage** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic, done)** |    
-| **Tencent COS Protocol** | ❌ Not supported | ✅ **Block-level deduplication (JNI rustic, done)** |      
-| **FTP Protocol** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic, done)** |      
-| **SFTP Protocol** | ✅ Supported | ⏳ Pending migration to JNI |      
-| **WebDAV Protocol** | ✅ Supported | ⏳ Pending migration to JNI |      
-| **SMB/CIFS Protocol** | ✅ Multi-version support | ❌ Opendal is not supported and will be removed in the future. |      
+| Feature | Legacy (DataBackup) | New (DataBackup Revived 3.0.0)                                    |      
+|---------|------------------|-------------------------------------------------------------------|      
+| **Local Storage** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic, done)**                |    
+| **Tencent COS Protocol** | ❌ Not supported | ✅ **Block-level deduplication (JNI rustic, done)**                |      
+| **FTP Protocol** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic over librclone, done)** |      
+| **SFTP Protocol** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic over librclone, done)**                                        |      
+| **WebDAV Protocol** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic, done)**                                        |      
+| **SMB/CIFS Protocol** | ✅ Multi-version support | ❌ Opendal is not supported and will be removed in the future.     |      
 
-> Currently, the JNI `rustic_core` path **overrides local storage**. Remote protocols (excluding Tencent Cloud COS), SFTP, WebDAV, and SMB still operate on the old path and are **pending migration to JNI**.
+> Currently, both the JNI `rustic_core` **local storage** and **remote protocol** have been migrated to JNI.
 > Tencent COS: This is an object storage service compatible with the S3 protocol. Please note: There may be parameter differences between S3 services (e.g., AWS S3, Tencent Cloud COS, Alibaba Cloud OSS). Currently, only Tencent Cloud COS is supported; other S3 object storage services are not yet supported but are being gradually adapted. Stay tuned.
 
 ### Backup Architecture Evolution
