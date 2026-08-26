@@ -7,6 +7,7 @@ import com.google.gson.annotations.SerializedName
  */
 data class Release(
     @SerializedName("html_url") val url: String = "",
+    @SerializedName("tag_name") val tagName: String = "",
     @SerializedName("name") val name: String = "",
     @SerializedName("assets") val assets: List<Asset> = listOf(),
     @SerializedName("body") val body: String = "",

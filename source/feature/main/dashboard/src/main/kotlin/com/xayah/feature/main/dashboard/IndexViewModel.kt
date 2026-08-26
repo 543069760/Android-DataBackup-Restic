@@ -40,16 +40,13 @@ class IndexViewModel @Inject constructor(
         when (intent) {
             is IndexUiIntent.Update -> {
                 directoryRepo.updateSelected()
-
-                if (BuildConfigUtil.FLAVOR_feature == ConstantUtil.FLAVOR_PREMIUM) {
-                    // Premium only
-                    runCatching {
-                        val release = githubRepo.getLatestRelease()
-                        if (release.name != BuildConfigUtil.VERSION_NAME) {
-                            emitState(state.copy(latestRelease = release))
-                        } else {
-                            emitState(state.copy(latestRelease = null))
-                        }
+                runCatching {
+                    val release = githubRepo.getLatestRelease()
+                    val remoteCode = parseReleaseCode(release)
+                    if (remoteCode > BuildConfigUtil.VERSION_CODE) {
+                        emitState(state.copy(latestRelease = release))
+                    } else {
+                        emitState(state.copy(latestRelease = null))
                     }
                 }
             }
@@ -58,6 +55,18 @@ class IndexViewModel @Inject constructor(
                 runCatching { intent.context.toBrowser(intent.url) }.onFailure { emitEffect(IndexUiEffect.ShowSnackbar(message = context.getString(R.string.no_browser))) }
             }
         }
+    }
+
+    /**
+     * 从 release 中解析出 CI 生成的 build code。
+     * 优先取 tagName（形如 v3.0.0-S3-revived.30000）中最后一个 "." 之后的数字；
+     * 否则从 name（形如 v3.0.0-S3-revived (Build 30000)）中用正则提取。
+     * 解析失败返回 Long.MIN_VALUE，避免对不含 code 的旧 release 误报升级。
+     */
+    private fun parseReleaseCode(release: Release): Long {
+        release.tagName.substringAfterLast('.', "").toLongOrNull()?.let { return it }
+        Regex("Build\\s+(\\d+)").find(release.name)?.groupValues?.getOrNull(1)?.toLongOrNull()?.let { return it }
+        return Long.MIN_VALUE
     }
 
     private val _lastBackupTime: Flow<Long> = context.readLastBackupTime().flowOnIO()
