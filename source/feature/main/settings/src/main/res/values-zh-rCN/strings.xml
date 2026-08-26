@@ -51,4 +51,10 @@
     <string name="s3_restic_initialized_at">初始化位置：%s</string>
     <string name="s3_restic_init_failed">初始化失败：%s</string>
     <string name="s3_restic_initialize">初始化云端仓库</string>
+    <!-- 更新通道 -->
+    <string name="update_channel">更新通道</string>
+    <string name="update_channel_stable">正式版</string>
+    <string name="update_channel_beta">测试版</string>
+    <string name="update_channel_beta_title">切换到测试版通道？</string>
+    <string name="update_channel_beta_warning">测试版为不稳定构建，功能可能随时变动调整，且可能存在数据风险，请谨慎使用。</string>
 </resources>

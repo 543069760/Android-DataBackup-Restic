@@ -4,8 +4,8 @@ import android.content.Context
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.xayah.core.common.util.BuildConfigUtil
 import com.xayah.core.data.repository.DirectoryRepository
-import com.xayah.core.datastore.ConstantUtil
 import com.xayah.core.datastore.readLastBackupTime
+import com.xayah.core.datastore.readUpdateChannel
 import com.xayah.core.model.database.DirectoryEntity
 import com.xayah.core.network.model.Release
 import com.xayah.core.network.retrofit.GitHubRepository
@@ -18,6 +18,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 
 data class IndexUiState(
@@ -41,9 +42,17 @@ class IndexViewModel @Inject constructor(
             is IndexUiIntent.Update -> {
                 directoryRepo.updateSelected()
                 runCatching {
-                    val release = githubRepo.getLatestRelease()
-                    val remoteCode = parseReleaseCode(release)
-                    if (remoteCode > BuildConfigUtil.VERSION_CODE) {
+                    // 0 = 正式版通道, 1 = 测试版通道
+                    val channel = context.readUpdateChannel().first()
+                    val release: Release? = if (channel == 1) {
+                        // 测试版：全部 release（含 pre-release 与正式版）中取 build code 最大的
+                        githubRepo.getReleases().maxByOrNull { parseReleaseCode(it) }
+                    } else {
+                        // 正式版：releases/latest 本身排除 pre-release
+                        githubRepo.getLatestRelease()
+                    }
+                    val remoteCode = release?.let { parseReleaseCode(it) } ?: Long.MIN_VALUE
+                    if (release != null && remoteCode > BuildConfigUtil.VERSION_CODE) {
                         emitState(state.copy(latestRelease = release))
                     } else {
                         emitState(state.copy(latestRelease = null))

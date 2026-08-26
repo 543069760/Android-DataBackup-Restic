@@ -21,6 +21,7 @@ import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -31,12 +32,18 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xayah.core.datastore.KeyAutoScreenOff
 import com.xayah.core.datastore.KeyMonet
-import com.xayah.core.datastore.KeyResticEnableCompression
 import com.xayah.core.datastore.readResticCompressionLevel
+import com.xayah.core.datastore.readUpdateChannel
+import com.xayah.core.datastore.saveUpdateChannel
 import com.xayah.core.ui.component.Clickable
 import com.xayah.core.ui.component.InnerBottomSpacer
+import com.xayah.core.ui.component.LocalSlotScope
+import com.xayah.core.ui.component.Selectable
 import com.xayah.core.ui.component.Switchable
 import com.xayah.core.ui.component.Title
+import com.xayah.core.ui.component.confirm
+import com.xayah.core.ui.component.select
+import com.xayah.core.ui.model.DialogRadioItem
 import com.xayah.core.ui.route.MainRoutes
 import com.xayah.core.ui.token.SizeTokens
 import com.xayah.core.ui.util.LocalNavController
@@ -58,6 +65,7 @@ fun PageSettings() {
     val directoryState by viewModel.directoryState.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     val scope = rememberCoroutineScope()
+    val dialogState = LocalSlotScope.current!!.dialogSlot
 
     // 状态收集
     val resticVersion by resticViewModel.resticVersionState.collectAsStateWithLifecycle()
@@ -230,7 +238,41 @@ fun PageSettings() {
                 ) {
                     navController.navigateSingle(MainRoutes.About.route)
                 }
+
+                // --- 更新通道 ---
+                val channelOptions = listOf(
+                    stringResource(id = R.string.update_channel_stable),
+                    stringResource(id = R.string.update_channel_beta),
+                )
+                val updateChannelTitle = stringResource(id = R.string.update_channel)
+                val betaTitle = stringResource(id = R.string.update_channel_beta_title)
+                val betaWarning = stringResource(id = R.string.update_channel_beta_warning)
+                val channelDialogItems = remember(channelOptions) {
+                    channelOptions.map { DialogRadioItem<Unit>(enum = null, title = it, desc = null) }
+                }
+                val currentChannel by context.readUpdateChannel().collectAsStateWithLifecycle(initialValue = 0)
+                Selectable(
+                    title = updateChannelTitle,
+                    current = channelOptions[currentChannel.coerceIn(0, 1)]
+                ) {
+                    val (state, selectedIndex) = dialogState.select(
+                        title = updateChannelTitle,
+                        defIndex = currentChannel.coerceIn(0, 1),
+                        items = channelDialogItems
+                    )
+                    if (state.isConfirm) {
+                        if (selectedIndex == 1) {
+                            // 测试版：二次确认
+                            if (dialogState.confirm(title = betaTitle, text = betaWarning)) {
+                                context.saveUpdateChannel(1)
+                            }
+                        } else {
+                            context.saveUpdateChannel(0)
+                        }
+                    }
+                }
             }
+
             InnerBottomSpacer(innerPadding = paddingValues)
         }
     }

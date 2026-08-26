@@ -52,4 +52,10 @@
     <string name="s3_restic_initialized_at">Initialized at: %s</string>
     <string name="s3_restic_init_failed">Initialization failed: %s</string>
     <string name="s3_restic_initialize">Initialize Cloud Repository</string>
+    <!-- 更新通道 -->
+    <string name="update_channel">Update Channel</string>
+    <string name="update_channel_stable">Stable</string>
+    <string name="update_channel_beta">Beta</string>
+    <string name="update_channel_beta_title">Switch to Beta Channel?</string>
+    <string name="update_channel_beta_warning">Beta builds are unstable. Features may change or be adjusted at any time, and there may be data risks. Please use with caution.</string>
 </resources>
