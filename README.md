@@ -1,225 +1,231 @@
-<div align="center">      
+<div align="center">  
 
-<span style="font-weight: bold"> <a href="./README.md"> English </a> | <a href="./README_zh-CN.md"> 中文 </a> </span>      
+<span style="font-weight: bold"> <a href="./README.md"> 中文 </a> | <a href="./README_en.md"> English </a> </span>  
 
-<img src="./fastlane/metadata/android/en-US/images/icon.png" alt="logo" width="128px" />      
+<img src="./fastlane/metadata/android/en-US/images/icon.png" alt="logo" width="128px" />  
 
-<h1 align="center">DataBackup Revived</h1>      
+<h1 align="center">DataBackup Revived</h1>
 
-Free and open-source data backup application
+**更好用、更强大的 安卓备份工具。** 备份自动加密更安全，全面切换到rustic（restic），原生**支持增量备份**，备份更快更省时（**比如微信增量备份，不用重新完整备份，省时快速**），同时节省 60–90% 的存储空间。
 
-</div>  
+[![GitHub release](https://img.shields.io/github/v/release/543069760/Android-DataBackup-Restic?color=orange)](https://github.com/543069760/Android-DataBackup-S3/releases)
+[![License](https://img.shields.io/github/license/543069760/Android-DataBackup-Restic?color=ff69b4)](./LICENSE)
+[![Download](https://img.shields.io/github/downloads/543069760/Android-DataBackup-S3/total)](https://github.com/543069760/Android-DataBackup-S3/releases)
 
-> ℹ️ **No external Restic binary required.** Local backup/restore is powered by the Rust `rustic_core` library (a Rust implementation compatible with the restic repository format), compiled into `librustic.so`, shipped inside the App, and invoked directly over JNI. There is **no longer any need to download, install, or manage a separate Restic Android CGO binary** — the previous DNS/dynamic-linking limitations of the upstream binary no longer apply. See [Native JNI Migration](#native-jni-migration-rustic-jni-branch) for details.
+</div>
 
-## Overview
+> ℹ️ **无需任何外部 Restic 二进制文件。** 本地备份/恢复由 Rust 的 `rustic_core` 库驱动（Rust 实现，兼容 restic 仓库格式），编译进 `librustic.so` 随 App 一同分发，并通过 JNI 直接调用。**不再需要下载、安装或管理独立的 Restic Android CGO 二进制文件**，此前上游二进制在 Android 上的 DNS 解析与动态链接问题也不复存在。详见 [Native JNI 迁移](#native-jni-迁移rustic-jni-分支)。
 
-<a href="https://hellogithub.com/repository/3e9dc382d4764688856238a83616de5b" target="_blank"><img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=3e9dc382d4764688856238a83616de5b&claim_uid=POXv2xVC71JHihc&theme=neutral" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" /></a>
+## 功能特性
 
-:star: Forked from [XayahSuSuSu](https://github.com/XayahSuSuSu/Android-DataBackup).
+* :deciduous_tree: **需要 Root 权限。支持 [Magisk](https://github.com/topjohnwu/Magisk)、[KernelSU](https://github.com/tiann/KernelSU) 以及 [APatch](https://github.com/bmax121/APatch)**
+* :cyclone: **多用户支持**
+* :cloud: **支持多种云存储协议**
+* :sunglasses: **100% 数据完整性保证**
+* :zap: **极速**
+* :sunny: **简单易用**
+* :sparkles: **支持多版本备份**
+* :rose: **本地备份基于内置 `rustic_core`（JNI，兼容 restic 仓库）的块级去重**
+* :electric_plug: **无需外部二进制——`rustic_core` 编译进 `librustic.so` 并通过 JNI 调用**
+* :rocket: **集成 libsu 以增强 Root 操作体验**
 
-## Features
+## 版本对比
 
-* :deciduous_tree: **Requires root access. Supports [Magisk](https://github.com/topjohnwu/Magisk), [KernelSU](https://github.com/tiann/KernelSU), and [APatch](https://github.com/bmax121/APatch)**
-* :cyclone: **Multi-user support**
-* :cloud: **Supports multiple cloud storage protocols**
-* :sunglasses: **100% data integrity guarantee**
-* :zap: **Fast**
-* :sunny: **Simple and easy to use**
-* :sparkles: **Multi-version backup support**
-* :rose: **Block-level deduplication for local backups via the built-in `rustic_core` (JNI, restic-compatible repositories)**
-* :electric_plug: **No external binary — `rustic_core` is compiled into `librustic.so` and called over JNI**
-* :rocket: **libsu integration for enhanced root operations**
+### 云存储协议支持
 
-## Version Comparison
+| 功能                 | 旧版 (DataBackup) | 新版 (DataBackup Revived 3.0.0)         |  
+|--------------------| --- |---------------------------------------|  
+| **本地存储**           | ✅ 已支持 | ✅ **块级去重（JNI rustic，已完成）**            |  
+| **Tencent COS 协议** | ❌ 不支持 | ✅ **块级去重（JNI rustic，已完成）**            |  
+| **FTP 协议**         | ✅ 已支持 | ✅ **块级去重（JNI rustic over librclone，已完成）** |  
+| **SFTP 协议**        | ✅ 已支持 | ✅ **块级去重（JNI rustic over librclone，已完成）**  |  
+| **WebDAV 协议**      | ✅ 已支持 | ✅ **块级去重（JNI rustic，已完成）**            |  
+| **SMB/CIFS 协议**    | ✅ 已支持 | ❌ opendal不支持，后续移除                     |  
 
-### Cloud Storage Protocol Support
+> 目前 JNI `rustic_core` **本地存储**,**远程协议**均迁移到 JNI**。
+> 腾讯 COS：是兼容S3协议的对象存储，特别说明：S3之间（比如AWS S3、腾讯云COS、阿里云OSS）可能存在参数差异，目前只适配了腾讯云COS，额外的其他S3对象存储目前还没有支持，在逐步适配中，敬请期待.
 
-| Feature | Legacy (DataBackup) | New (DataBackup Revived 3.0.0)                                    |      
-|---------|------------------|-------------------------------------------------------------------|      
-| **Local Storage** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic, done)**                |    
-| **Tencent COS Protocol** | ❌ Not supported | ✅ **Block-level deduplication (JNI rustic, done)**                |      
-| **FTP Protocol** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic over librclone, done)** |      
-| **SFTP Protocol** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic over librclone, done)**                                        |      
-| **WebDAV Protocol** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic, done)**                                        |      
-| **SMB/CIFS Protocol** | ✅ Multi-version support | ❌ Opendal is not supported and will be removed in the future.     |      
+### 备份架构演进
 
-> Currently, both the JNI `rustic_core` **local storage** and **remote protocol** have been migrated to JNI.
-> Tencent COS: This is an object storage service compatible with the S3 protocol. Please note: There may be parameter differences between S3 services (e.g., AWS S3, Tencent Cloud COS, Alibaba Cloud OSS). Currently, only Tencent Cloud COS is supported; other S3 object storage services are not yet supported but are being gradually adapted. Stay tuned.
+| 功能 | 旧版 | 新版 (已完成)                 |  
+| --- | --- |--------------------------|  
+| **本地备份引擎** | 仅 tar+zstd 压缩 | **rustic 块级增量去重（JNI，无二进制）** |  
+| **Root 权限** | 自定义实现 | **集成 libsu**             |  
+| **存储效率** | 线性增长 | **节省 60–90% 空间**         |  
+| **数据加密** | 无 | **AES-256 加密**           |  
+| **增量备份** | 不支持 | **原生支持**                 |  
+| **版本管理** | 文件覆盖 | **基于快照的版本控制**            |  
+| **APK 备份（本地）** | 仅压缩 | **rustic 增量去重**          |  
+| **应用数据备份（本地）** | 仅压缩 | **rustic 增量去重**          |  
+| **文件备份（本地）** | 仅压缩 | **rustic 增量去重** |  
 
-### Backup Architecture Evolution
+### 技术变更
 
-| Feature | Legacy | New (Completed) |    
-|---------|-------|-------|    
-| **Local Backup Engine** | tar+zstd compression only | **rustic block-level deduplication (JNI, no binary)** |    
-| **Root Access** | Custom implementation | **libsu integration** |    
-| **Storage Efficiency** | Linear growth | **60–90% space savings** |    
-| **Data Encryption** | None | **AES-256 encryption** |    
-| **Incremental Backup** | Not supported | **Native support** |    
-| **Version Management** | File overwrite | **Snapshot-based versioning** |    
-| **APK Backup (Local)** | Compression only | **rustic deduplication** |    
-| **App Data Backups (Local)** | Compression only | **rustic deduplication** |    
-| **File Backups (Local)** | Compression only | **rustic deduplication** |    
+| 项目 | 旧版                       | 新版 |  
+| --- |--------------------------| --- |  
+| **应用包名** | `com.xayah.databackup.*` | `com.xayah.databackup.revived.*` |  
+| **版本号** | 2.x.x                    | **3.0.0**（基于 rustic 的块级去重） |  
+| **Root 框架** | 自定义 Root 服务              | **libsu 集成** |  
+| **备份引擎** | 单一压缩                     | **双层架构：非压缩 tar + rustic 块级去重与加密** |  
+| **Restic/rustic 运行时** | 无                        | **进程内 `rustic_core`，通过 JNI（`librustic.so`）** |
 
-### Technical Changes
+### 🏗️ 本地双层备份架构
 
-| Item | Legacy                   | New                                                       |    
-|------|--------------------------|-----------------------------------------------------------|    
-| **Application package name** | `com.xayah.databackup.*` | `com.xayah.databackup.revived.*`                          |    
-| **Version number** | 2.x.x                    | **3.0.0** (block-level dedup via rustic)                   |    
-| **Root Framework** | Custom root service      | **libsu integration**                                     |    
-| **Backup Engine** | Single compression       | **Dual-layer: uncompressed tar + rustic block-level dedup & encryption** |    
-| **Restic/rustic runtime** | non                      | **In-process `rustic_core` via JNI (`librustic.so`)** |    
+原始数据 → **非压缩** `tar` 打包 → **rustic 块级去重（JNI）** → 本地仓库
 
-### 🏗️ Dual-Layer Local Backup Architecture
+- **第 1 层：打包层** — 将 APK/数据/文件打包为**非压缩**的 `.tar` 归档，以最大化去重效率（例如 OBB/DATA/USER/USER_DE/MEDIA 输出 `apk.tar`）。
+- **第 2 层：rustic 去重层** — 在 restic 兼容仓库上进行块级去重、AES-256 加密与快照管理（标签格式：`userId-packageName-timestamp-apk`）。
 
-Raw data → **uncompressed** `tar` → **rustic block-level deduplication (JNI)** → Local repository
+> ✅ 通过在去重前避免压缩，rustic 能更有效地识别并消除不同备份批次和设备之间的冗余数据块。
 
-- **Layer 1: Packaging Layer** — packages APK/data/files into an **uncompressed** `.tar` archive to maximize deduplication efficiency (output e.g. `apk.tar` for OBB/DATA/USER/USER_DE/MEDIA).
-- **Layer 2: rustic Deduplication Layer** — block-level deduplication, AES-256 encryption, and snapshot management on restic-compatible repositories (tag format: `userId-packageName-timestamp-apk`).
+### 🔄 libsu 集成
+- Root 权限通过 **libsu** 处理，获得更好的 Magisk/KernelSU/APatch 支持、改进的错误处理与更强的安全性。
 
-> ✅ By avoiding compression before dedup, rustic can more effectively identify and eliminate redundant blocks across different backup runs and devices.
+### 📦 覆盖范围（本地，经 JNI rustic）
+- **APK 备份**、**应用数据备份**、**文件备份** 均通过 JNI rustic 路径执行。
+- 新 UI：还原列表页（浏览/选择快照）、快照详情页（类型与进度）。
+- 交互流程：配置仓库 → 浏览快照 → 选择应用/文件版本 → 查看详情 → 一键还原。
 
-### 🔄 libsu Integration
-- Root access is handled via **libsu** for better Magisk/KernelSU/APatch support, improved error handling, and enhanced security.
+### 📊 技术指标（本地）
 
-### 📦 Coverage (Local, via JNI rustic)
-- **APK Backups**, **App Data Backups**, and **File Backups** all run through the JNI rustic path.
-- New UI: Restore List Page (browse/select snapshots) and Snapshot Detail Page (types & progress).
-- Flow: Configure repository → Browse snapshots → Select app/file version → View details → One-click restore.
+| 特性 | 旧版备份  | rustic 备份（JNI，本地） |  
+| --- |-------| --- |  
+| **存储效率** | 基础压缩  | **块级去重 + 压缩** |  
+| **增量备份** | 不支持   | **原生支持** |  
+| **数据加密** | 无     | **AES-256 加密** |  
+| **版本管理** | 文件覆盖  | **基于快照的版本控制** |  
+| **还原粒度** | 批量还原  | **支持单个应用和单个文件的精准还原** |  
+| **存储占用** | 线性增长  | **节省 60–90% 空间** |  
+| **Root 权限** | 自定义实现 | **libsu 集成** |  
+| **备份运行时** | 无     | **进程内 `rustic_core`，通过 JNI** |  
 
-### 📊 Technical Metrics (Local)
+> **DataBackup Revived 现已成为一个现代化数据管理平台，具备本地块级去重（内置 rustic，经 JNI 调用）与 libsu 集成；远程协议向 JNI 的迁移正在进行中。**
 
-| Feature | Legacy Backup | rustic Backup (JNI, Local) |    
-|--------|---------------|---------------------------|    
-| **Storage Efficiency** | Basic compression | **Block-level deduplication + compression** |    
-| **Incremental Backup** | Not supported | **Supported** |    
-| **Data Encryption** | None | **AES-256 encryption** |    
-| **Version Management** | File overwrite | **Snapshot-based versioning** |    
-| **Restore Granularity** | Batch restore | **Per-app and per-file precision** |    
-| **Storage Footprint** | Linear growth | **60–90% space savings** |    
-| **Root Access** | Custom implementation | **libsu integration** |    
-| **Backup Runtime** | External CGO binary | **In-process `rustic_core` via JNI** |  
+## Native JNI 迁移（`rustic-jni` 分支）
 
-> **DataBackup Revived is now a modern data management platform with local block-level deduplication (built-in rustic over JNI) and libsu integration; remote protocol migration to JNI is in progress.**
+> 🎯 **本地备份/恢复已从"调用外部 Restic Android CGO 二进制"迁移到"通过 JNI 直接调用 Rust 的 `rustic_core` 库"。Rust 代码编译进 `librustic.so` 随 App 分发，彻底消除对外部二进制的运行时依赖。**
 
-## Native JNI Migration (`rustic-jni` branch)
+### 背景与动机
 
-> 🎯 **Local backup/restore has been migrated from invoking an external Restic Android CGO binary to calling the Rust `rustic_core` library directly over JNI. The Rust code is compiled into `librustic.so` and shipped inside the App, removing any runtime dependency on an external binary.**
+此前，所有本地备份/恢复都要调用外部 Restic Android CGO 二进制：需要单独分发/管理二进制、每次操作 fork 子进程、并解析文本/JSON 输出；上游二进制在 Android 上还存在 DNS 解析和动态链接问题。`rustic-jni` 迁移用原生进程内集成替代了它：
 
-### Background & Motivation
+- **`rustic_core`** 固定到 **`0.12.0`**，作为 native 子模块参考引入。
+- Rust crate 编译为**静态库**，链接进 JNI 锚点，打包为 **`librustic.so`** 随 App 分发。
+- 本地操作在运行时**不再需要任何外部二进制，也不再 fork 子进程**。
+- 仓库格式仍与 **restic 兼容**，现有仓库可继续使用。
 
-Previously, all local backup/restore operations shelled out to an external Restic Android CGO binary. This required distributing/managing a separate binary, forking a child process for every operation, and parsing textual/JSON output; the upstream binary also suffered from DNS-resolution and dynamic-linking issues on Android. The `rustic-jni` migration replaces this with a native, in-process integration:
-
-- **`rustic_core`** is pinned to **`0.12.0`** and vendored as a native submodule reference.
-- The Rust crate is compiled to a **static library**, linked into a JNI anchor, and packaged as **`librustic.so`** distributed with the App.
-- **No external binary and no child-process spawning** are needed at runtime for local operations.
-- The repository format remains **restic-compatible**, so existing repositories keep working.
-
-### Architecture
+### 架构
 
 ```  
 Kotlin (Rustic.kt)  
       │  external fun native*  (JNI)  
       ▼  
-AIDL (IRemoteRootService) ──► RemoteRootService / RemoteRootServiceImpl  (root process)  
+AIDL (IRemoteRootService) ──► RemoteRootService / RemoteRootServiceImpl  （root 进程）  
       │  
       ▼  
-librustic.so  (JNI anchor rustic.cpp + Rust staticlib)  
+librustic.so  （JNI 锚点 rustic.cpp + Rust 静态库）  
       │  
       ▼  
-rustic_core (Rust)  ──►  Local / S3 repository (via opendal backend)  
+rustic_core (Rust)  ──►  本地 / S3 仓库（经 opendal backend）  
       ▲  
-      └── progress callback (bytes/speed/percent) ──► Kotlin onProgress(JJF)V  
+      └── 进度回调（字节/速度/百分比）──► Kotlin onProgress(JJF)V  
 ```  
 
-- **Rust side** (`source/native/src/main/jni/external/rustic/rustic`):
-  - `lib.rs` wires the crate modules (`error`, `jni_bridge`, `jni_progress`, `progress`, `repository`) and enables `#![deny(improper_ctypes_definitions)]`.
-  - `jni_bridge.rs` exposes the `Java_com_xayah_libnative_Rustic_*` symbols.
-  - `repository.rs` wraps the full capability set: `init_repository`, `repository_exists`, `validate_repository`, `create_snapshot` (plus a progress variant), `restore_snapshot` (plus a progress variant), `check_repository`, `forget_snapshot`, `prune_repository`, and `list_snapshots_db`.
-  - `list_snapshots_db` opens the repository, reads all snapshots, and **writes them directly into a SQLite `.db` file** using a statically-compiled `rusqlite` (`bundled`). The DB contains 4 tables plus a `v_snapshots_full` view, so the Android side can `SQLiteDatabase.openDatabase(...)` and `rawQuery(...)` directly.
+- **Rust 侧**（`source/native/src/main/jni/external/rustic/rustic`）：
+  - `lib.rs` 组织 crate 模块（`error`、`jni_bridge`、`jni_progress`、`progress`、`repository`），并启用 `#![deny(improper_ctypes_definitions)]`。
+  - `jni_bridge.rs` 暴露 `Java_com_xayah_libnative_Rustic_*` 符号。
+  - `repository.rs` 封装完整能力集：`init_repository`、`repository_exists`、`validate_repository`、`create_snapshot`（含带进度版本）、`restore_snapshot`（含带进度版本）、`check_repository`、`forget_snapshot`、`prune_repository`、`list_snapshots_db`。
+  - `list_snapshots_db` 打开仓库读取全部快照，用静态编译的 `rusqlite`（`bundled`）**直写 SQLite `.db` 文件**：含 4 张表 + `v_snapshots_full` 视图，Android 侧可用 `SQLiteDatabase.openDatabase(...)` 直接 `rawQuery(...)`。
 
-- **Progress reporting**:
-  - `progress.rs` defines a JNI-agnostic `RusticProgressCallback` trait, bridged to `rustic_core`'s `ProgressBars` via `AndroidProgressBars`. Only byte-level progress (`ProgressType::Bytes`) is surfaced; spinner/counter progress is hidden.
-  - Progress callbacks are throttled to once per second (`PROGRESS_CALLBACK_INTERVAL = 1s`); on `finish`, the average transfer speed for the whole run is reported.
-  - `jni_progress.rs` caches the `onProgress(JJF)V` method ID and calls back into Kotlin via `attach_current_thread`.
+- **进度回调**：
+  - `progress.rs` 定义与 JNI 无关的 `RusticProgressCallback` trait，通过 `AndroidProgressBars` 桥接 `rustic_core` 的 `ProgressBars`；只上报字节级进度（`ProgressType::Bytes`），spinner/counter 进度隐藏。
+  - 进度回调节流到每秒一次（`PROGRESS_CALLBACK_INTERVAL = 1s`）；`finish` 时上报整段传输的平均速度。
+  - `jni_progress.rs` 缓存 `onProgress(JJF)V` 方法 ID，通过 `attach_current_thread` 回调 Kotlin。
 
-- **Build wiring (CMake + Corrosion)**:
-  - `source/native/src/main/jni/CMakeLists.txt` adds the `rustic` subdirectory.
-  - `source/native/src/main/jni/rustic/CMakeLists.txt` uses **Corrosion (v0.6.1)** via `FetchContent` + `corrosion_import_crate` to build the Rust staticlib (`PROFILE release`, `LOCKED`), then links it into the JNI anchor `rustic.cpp` with `--whole-archive` to produce `librustic.so`.
-  - A `rustic.map` version script restricts exported symbols to `Java_com_xayah_libnative_Rustic_*` only.
-  - The Cargo release profile enables `lto = true`, `codegen-units = 1`, `panic = "abort"`, and `strip = true` for size/performance.
+- **构建接线（CMake + Corrosion）**：
+  - `source/native/src/main/jni/CMakeLists.txt` 加入 `rustic` 子目录。
+  - `source/native/src/main/jni/rustic/CMakeLists.txt` 通过 `FetchContent` + `corrosion_import_crate` 使用 **Corrosion (v0.6.1)** 构建 Rust 静态库（`PROFILE release`、`LOCKED`），再用 `--whole-archive` 链接进 JNI 锚点 `rustic.cpp` 生成 `librustic.so`。
+  - `rustic.map` 版本脚本仅导出 `Java_com_xayah_libnative_Rustic_*` 符号。
+  - Cargo release profile 开启 `lto = true`、`codegen-units = 1`、`panic = "abort"`、`strip = true`，确保原生性能。
 
-- **Kotlin & AIDL layer**:
-  - `Rustic.kt` provides the Kotlin API with backend options passed as a `Map<String,String>` (key/value string arrays zipped into a map over JNI).
-  - `IRemoteRootService.aidl` adds 10 Rustic methods (`getRusticVersion`, `initRusticRepository`, `rusticRepositoryExists`, `validateRusticRepository`, `createRusticSnapshot`, `restoreRusticSnapshot`, `checkRusticRepository`, `forgetRusticSnapshot`, `pruneRusticRepository`, `listRusticSnapshotsDb`), with `ICallback` carrying progress.
-  - The root process loads the library at startup (`System.loadLibrary("rustic")` + `Rustic.initLogger()`), and `RemoteRootServiceImpl` forwards each AIDL call to `Rustic` under `synchronized(lock)`.
+- **Kotlin 与 AIDL 层**：
+  - `Rustic.kt` 提供带 backend options（`Map<String,String>`，key/value 两个字符串数组经 JNI zip 成 map）的 Kotlin API。
+  - `IRemoteRootService.aidl` 新增 10 个 Rustic 方法（`getRusticVersion`、`initRusticRepository`、`rusticRepositoryExists`、`validateRusticRepository`、`createRusticSnapshot`、`restoreRusticSnapshot`、`checkRusticRepository`、`forgetRusticSnapshot`、`pruneRusticRepository`、`listRusticSnapshotsDb`），并用 `ICallback` 传递进度。
+  - root 进程启动时加载库（`System.loadLibrary("rustic")` + `Rustic.initLogger()`），`RemoteRootServiceImpl` 在 `synchronized(lock)` 下把每个 AIDL 调用转发给 `Rustic`。
 
-### Migration Phases
+### 迁移分阶段
 
-- **Phase 0** — Pin `rustic_core` to `0.12.0` and sync upstream source as the JNI reference.
-- **Phase 1** — Stand up the JNI bridge and close the loop capability-by-capability: `get_version` → `init`/`exists`/`validate` → `create`/`restore` (with progress) → `check` → `forget`/`prune` → `list_snapshots_db` (direct SQLite write); add opendal backend-options passthrough.
-- **Phase 2** — Wire the new JNI symbols into CMake + instrumented tests; AIDL + `RemoteRootService` wiring.
-- **Phase 3** — Migrate local **restore** to JNI rustic with progress/plan callbacks; ship the Rust release profile so native performance meets expectations.
+- **阶段 0** — 固定 `rustic_core` 到 `0.12.0` 并同步上游源作为 JNI 参考。
+- **阶段 1** — 搭建 JNI 桥并逐个能力打通：`get_version` → `init`/`exists`/`validate` → `create`/`restore`（带进度）→ `check` → `forget`/`prune` → `list_snapshots_db` 直写 SQLite；追加 opendal backend-options 贯通。
+- **阶段 2** — 为新 JNI 符号接入 CMake + instrumented 测试；AIDL + `RemoteRootService` 接线。
+- **阶段 3** — 本地 **restore** 迁移到 JNI rustic，贯通进度/plan 回调；发布 Rust release profile 使原生性能达到预期。
 
-### Testing
+### 测试
 
-- **Host tests** (`base_test.rs`): repository probe/validate, snapshot create-restore-check, multi-source snapshots, snapshot-with-progress, forget/prune, and SQLite export.
-- **Device tests** (`RusticInstrumentedTest.kt`): full lifecycle plus querying `v_snapshots_full` through `SQLiteDatabase`, covering the new JNI symbols and the `opendal:fs` non-empty options passthrough.
+- **Host 端测试**（`base_test.rs`）：仓库探测/校验、快照创建-恢复-校验、多源快照、带进度快照、forget/prune、写 SQLite。
+- **设备端测试**（`RusticInstrumentedTest.kt`）：完整生命周期，并用 `SQLiteDatabase` 查询 `v_snapshots_full`，覆盖新增 JNI 符号与 `opendal:fs` 非空选项贯通。
 
-## Screenshots – Restic
+## 屏幕截图 – Restic
 
-<div align="center">      
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233244_345_20.png" width="275px">  
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233246_347_20.png" width="275px">  
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233248_349_20.png" width="275px">      
-</div>      
+<div align="center">  
 
-## Screenshots – S3
+<img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233244_345_20.png" width="275px">  
 
-<div align="center">      
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233930_19_20.jpg" width="275px">  
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233931_20_20.jpg" width="275px">  
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233931_21_20.jpg" width="275px">      
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233932_22_20.jpg" width="275px">  
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233933_23_20.jpg" width="275px">  
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112234045_24_20.jpg" width="275px">      
-</div>      
+<img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233246_347_20.png" width="275px">  
 
-## Screenshots
+<img src="./fastlane/metadata/android/en-US/images/phoneScreenshotsrestic/20251219233248_349_20.png" width="275px">  
 
-<div align="center">      
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/01.jpg" width="275px">  
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/02.jpg" width="275px">  
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/03.jpg" width="275px">      
-</div>      
-<div align="center">      
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/04.jpg" width="275px">  
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/05.jpg" width="275px">  
-    <img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/06.jpg" width="275px">      
-</div>      
+</div>  
 
-## Download
+## 屏幕截图 – S3
 
-Get the APK from [Releases](https://github.com/543069760/Android-DataBackup-S3/releases).
+<div align="center">  
 
-## Translation
+<img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233930_19_20.jpg" width="275px">  
 
-[<img src="https://hosted.weblate.org/widget/databackup/main/open-graph.png" alt="Translation">](https://hosted.weblate.org/engage/databackup/)
+<img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233931_20_20.jpg" width="275px">  
 
-## Contributors
+<img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233931_21_20.jpg" width="275px">  
 
-Thanks to all these amazing people!
+<img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233932_22_20.jpg" width="275px">  
 
-[[Contributors](https://contrib.rocks/image?repo=543069760/Android-DataBackup-S3)](https://github.com/543069760/Android-DataBackup-S3/graphs/contributors)
+<img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112233933_23_20.jpg" width="275px">  
 
-## Support
+<img src="./fastlane/metadata/android/en-US/images/phoneScreenshotss3/20251112234045_24_20.jpg" width="275px">  
 
-If you like this app and want to help make it better, feel free to sponsor me!
+</div>  
 
-[<img src="./docs/static/img/pp_h_rgb.svg" alt="PayPal" height="60">](https://paypal.me/XayahSuSuSu)    
-[<img src="./docs/static/img/afdian.svg" alt="Afdian" height="60">](https://afdian.net/a/XayahSuSuSu)
+## 更多屏幕截图
 
-## License
+<div align="center">  
 
-[GNU General Public License v3.0](./LICENSE)
+<img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/01.jpg" width="275px">  
+
+<img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/02.jpg" width="275px">  
+
+<img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/03.jpg" width="275px">  
+
+</div>  
+
+<div align="center">  
+
+<img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/04.jpg" width="275px">  
+
+<img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/05.jpg" width="275px">  
+
+<img src="./fastlane/metadata/android/en-US/images/phoneScreenshots/06.jpg" width="275px">  
+
+</div>  
+
+## 下载
+
+请从 [Releases](https://github.com/543069760/Android-DataBackup-S3/releases) 获取 APK。
+
+**原作者 [XayahSuSuSu](https://github.com/XayahSuSuSu/Android-DataBackup)**：
+
+- PayPal：https://paypal.me/XayahSuSuSu
+- 爱发电：https://afdian.net/a/XayahSuSuSu
+
+## 开源协议
+
+本项目基于 [XayahSuSuSu/Android-DataBackup](https://github.com/XayahSuSuSu/Android-DataBackup) 修改，遵循 [GNU General Public License v3.0](./LICENSE)。
