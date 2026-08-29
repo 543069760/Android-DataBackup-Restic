@@ -45,7 +45,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch }}
           fetch-depth: 0            # 获取完整提交历史以统计 commit 数量
-          submodules: recursive     # 拉取 tar / zstd-jni / rustic_core 子模块（rustic_core 已固定在 82f32a4）
+          submodules: recursive     # 拉取 tar / zstd-jni / rustic_core 子模块
 
       - name: Validate gradle wrapper
         uses: gradle/wrapper-validation-action@v1
@@ -90,43 +90,82 @@ jobs:
         id: calc_version
         shell: bash
         run: |
-          # 核心逻辑：基础 30000 + Commit 总数    
-          COMMITS=$(git rev-list --count HEAD)    
-          BASE_CODE=30000    
-          DYNAMIC_CODE=$((BASE_CODE + COMMITS))    
-          echo "code=$DYNAMIC_CODE" >> $GITHUB_OUTPUT    
+          # 核心逻辑：基础 30000 + Commit 总数  
+          COMMITS=$(git rev-list --count HEAD)  
+          BASE_CODE=30000  
+          DYNAMIC_CODE=$((BASE_CODE + COMMITS))  
+          echo "code=$DYNAMIC_CODE" >> $GITHUB_OUTPUT  
           
-          # 记录本次构建基于的 commit hash（完整 + 短）    
-          COMMIT_HASH=$(git rev-parse HEAD)    
-          COMMIT_SHORT=$(git rev-parse --short HEAD)    
-          echo "commit=$COMMIT_HASH" >> $GITHUB_OUTPUT    
-          echo "commit_short=$COMMIT_SHORT" >> $GITHUB_OUTPUT    
+          # 记录本次构建基于的 commit hash（完整 + 短）  
+          COMMIT_HASH=$(git rev-parse HEAD)  
+          COMMIT_SHORT=$(git rev-parse --short HEAD)  
+          echo "commit=$COMMIT_HASH" >> $GITHUB_OUTPUT  
+          echo "commit_short=$COMMIT_SHORT" >> $GITHUB_OUTPUT  
           
-          # 记录 commit message（完整，可能多行 → 使用多行分隔符语法写入 GITHUB_OUTPUT）    
-          COMMIT_MSG=$(git log -1 --pretty=%B)    
-          {    
-            echo "commit_msg<<COMMIT_MSG_EOF"    
-            echo "$COMMIT_MSG"    
-            echo "COMMIT_MSG_EOF"    
-          } >> $GITHUB_OUTPUT    
+          # 记录 commit message（完整，可能多行 → 使用多行分隔符语法写入 GITHUB_OUTPUT）  
+          COMMIT_MSG=$(git log -1 --pretty=%B)  
+          {  
+            echo "commit_msg<<COMMIT_MSG_EOF"  
+            echo "$COMMIT_MSG"  
+            echo "COMMIT_MSG_EOF"  
+          } >> $GITHUB_OUTPUT  
           
-          # 记录 commit 标题（单行摘要）    
-          COMMIT_SUBJECT=$(git log -1 --pretty=%s)    
-          echo "commit_subject=$COMMIT_SUBJECT" >> $GITHUB_OUTPUT    
+          # 记录 commit 标题（单行摘要）  
+          COMMIT_SUBJECT=$(git log -1 --pretty=%s)  
+          echo "commit_subject=$COMMIT_SUBJECT" >> $GITHUB_OUTPUT  
           
-          # 确定版本名称    
-          if [ -n "${{ github.event.inputs.version_name }}" ]; then    
-            VERSION_NAME="${{ github.event.inputs.version_name }}"    
-          else    
-            VERSION_NAME=$(grep "versionName" gradle/libs.versions.toml | cut -d'"' -f2)    
-          fi    
-          echo "name=$VERSION_NAME" >> $GITHUB_OUTPUT    
+          # 确定版本名称  
+          if [ -n "${{ github.event.inputs.version_name }}" ]; then  
+            VERSION_NAME="${{ github.event.inputs.version_name }}"  
+          else  
+            VERSION_NAME=$(grep "versionName" gradle/libs.versions.toml | cut -d'"' -f2)  
+          fi  
+          echo "name=$VERSION_NAME" >> $GITHUB_OUTPUT  
           
-          echo "Final Version Code: $DYNAMIC_CODE"    
-          echo "Final Version Name: $VERSION_NAME"    
-          echo "Commit: $COMMIT_HASH"    
+          echo "Final Version Code: $DYNAMIC_CODE"  
+          echo "Final Version Name: $VERSION_NAME"  
+          echo "Commit: $COMMIT_HASH"  
           echo "Commit Subject: $COMMIT_SUBJECT"
         working-directory: source
+
+      # ── 解码签名 keystore（debug 与 release 均使用固定签名，解决签名不匹配问题）──
+      - name: Decode signing keystore
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then  
+            echo "::error::secrets.KEYSTORE_BASE64 未配置，无法进行固定签名。"  
+            exit 1  
+          fi  
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$GITHUB_WORKSPACE/source/keystore.jks"  
+          echo "Keystore written:"  
+          ls -l "$GITHUB_WORKSPACE/source/keystore.jks"
+      # ─────────────────────────────────────────────────────────────────
+
+      # ── 仅稳定版：生成自上一稳定版以来的变更日志──────────────────────
+      - name: Generate stable changelog
+        if: github.event.inputs.release_type == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OUT="$GITHUB_WORKSPACE/source/CHANGELOG_RANGE.md"  
+          # 查找最近一个非 pre-release 的发布 tag  
+          LAST_STABLE=$(gh release list --limit 100 --json tagName,isPrerelease \  
+            --jq '[.[] | select(.isPrerelease==false)] | .[0].tagName' 2>/dev/null || echo "")  
+          if [ -n "$LAST_STABLE" ] && git rev-parse "$LAST_STABLE" >/dev/null 2>&1; then  
+            echo "Last stable tag: $LAST_STABLE"  
+            git log "${LAST_STABLE}..HEAD" --no-merges --pretty=format:'- %s (%h)' > "$OUT"  
+          else  
+            echo "No previous stable release found; listing full history."  
+            git log --no-merges --pretty=format:'- %s (%h)' > "$OUT"  
+          fi  
+          if [ ! -s "$OUT" ]; then  
+            echo "- 无变更 / No changes since last stable release" > "$OUT"  
+          fi  
+          echo "----- changelog -----"  
+          cat "$OUT"
+        working-directory: source
+      # ─────────────────────────────────────────────────────────────────
 
       - name: Build with gradle (Dynamic Version Injection)
         id: gradle
@@ -135,35 +174,49 @@ jobs:
           BUILD_ALPHA: ${{ github.event.inputs.Alpha }}
           BUILD_PREMIUM: ${{ github.event.inputs.Premium }}
           BUILD_FOSS: ${{ github.event.inputs.Foss }}
+          RELEASE_TYPE: ${{ github.event.inputs.release_type }}
+          # 签名配置（debug 与 release 均复用；STORE_FILE 指向解码后的绝对路径）
+          STORE_FILE: ${{ github.workspace }}/source/keystore.jks
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          TASKS=""    
-          if [ "${BUILD_ALPHA}" = 'true' ]; then    
-            TASKS="$TASKS assembleArm64-v8aAlphaDebug assembleArmeabi-v7aAlphaDebug assembleX86AlphaDebug assembleX86_64AlphaDebug"    
-          fi    
-          if [ "${BUILD_PREMIUM}" = 'true' ]; then    
-            TASKS="$TASKS assembleArm64-v8aPremiumDebug assembleArmeabi-v7aPremiumDebug assembleX86PremiumDebug assembleX86_64PremiumDebug"    
-          fi    
-          if [ "${BUILD_FOSS}" = 'true' ]; then    
-            TASKS="$TASKS assembleArm64-v8aFossDebug assembleArmeabi-v7aFossDebug assembleX86FossDebug assembleX86_64FossDebug"    
-          fi    
-          TASKS="$(echo "$TASKS" | xargs)"    
-          if [ -z "${TASKS}" ]; then    
-            TASKS="assembleDebug"    
-          fi    
+          # 根据 release_type 决定构建变体后缀：release → Release，其它（pre-release）→ Debug  
+          if [ "${RELEASE_TYPE}" = 'release' ]; then  
+            BUILD_SUFFIX="Release"  
+          else  
+            BUILD_SUFFIX="Debug"  
+          fi  
+          echo "Selected build suffix: ${BUILD_SUFFIX}"  
           
-          echo "Resolved gradle tasks: [$TASKS]"    
+          TASKS=""  
+          if [ "${BUILD_ALPHA}" = 'true' ]; then  
+            TASKS="$TASKS assembleArm64-v8aAlpha${BUILD_SUFFIX} assembleArmeabi-v7aAlpha${BUILD_SUFFIX} assembleX86Alpha${BUILD_SUFFIX} assembleX86_64Alpha${BUILD_SUFFIX}"  
+          fi  
+          if [ "${BUILD_PREMIUM}" = 'true' ]; then  
+            TASKS="$TASKS assembleArm64-v8aPremium${BUILD_SUFFIX} assembleArmeabi-v7aPremium${BUILD_SUFFIX} assembleX86Premium${BUILD_SUFFIX} assembleX86_64Premium${BUILD_SUFFIX}"  
+          fi  
+          if [ "${BUILD_FOSS}" = 'true' ]; then  
+            TASKS="$TASKS assembleArm64-v8aFoss${BUILD_SUFFIX} assembleArmeabi-v7aFoss${BUILD_SUFFIX} assembleX86Foss${BUILD_SUFFIX} assembleX86_64Foss${BUILD_SUFFIX}"  
+          fi  
+          TASKS="$(echo "$TASKS" | xargs)"  
+          if [ -z "${TASKS}" ]; then  
+            TASKS="assemble${BUILD_SUFFIX}"  
+          fi  
           
-          chmod +x gradlew    
-          # 注入版本参数，对应 build.gradle.kts 中的 project.hasProperty 逻辑（单行避免续行空白参数）    
+          echo "Resolved gradle tasks: [$TASKS]"  
+          
+          chmod +x gradlew  
+          # 注入版本参数，对应 build.gradle.kts 中的 project.hasProperty 逻辑（单行避免续行空白参数）  
           ./gradlew $TASKS -PversionCode=${{ steps.calc_version.outputs.code }} -PversionName="${{ steps.calc_version.outputs.name }}" --daemon --parallel
         working-directory: source
 
       - name: Move APKs to root
         shell: bash
         run: |
-          mkdir -p ../build-output    
-          find . -name "*.apk" -exec mv {} ../build-output/ \;    
-          echo "Collected APKs:"    
+          mkdir -p ../build-output  
+          find . -name "*.apk" -exec mv {} ../build-output/ \;  
+          echo "Collected APKs:"  
           ls -R ../build-output/
         working-directory: source
 
@@ -173,33 +226,72 @@ jobs:
           name: APKs-v${{ steps.calc_version.outputs.name }}-b${{ steps.calc_version.outputs.code }}
           path: build-output/*.apk
 
-      - name: Create Release
-        if: github.event.inputs.release_type != ''
+      # ── 仅稳定版：从仓库文件读取固定正文 + 追加变更日志──────────────────
+      - name: Compose stable release notes
+        if: github.event.inputs.release_type == 'release'
+        shell: bash
+        run: |
+          BODY="$GITHUB_WORKSPACE/RELEASE_BODY.md"  
+          NOTES="$GITHUB_WORKSPACE/.github/release-notes/stable.md"  
+          if [ ! -f "$NOTES" ]; then  
+            echo "::error::未找到固定说明文件 $NOTES"  
+            exit 1  
+          fi  
+          cp "$NOTES" "$BODY"  
+          # 追加自上一稳定版以来的变更日志  
+          {  
+            echo ""  
+            echo "---"  
+            echo ""  
+            echo "## 📝 本次更新内容 / Changelog"  
+            echo ""  
+            cat "$GITHUB_WORKSPACE/source/CHANGELOG_RANGE.md"  
+          } >> "$BODY"  
+          echo "----- final release body -----"  
+          cat "$BODY"
+      # ─────────────────────────────────────────────────────────────────
+
+      # ── 稳定版发布（固定正文 + Changelog，正式签名，非 pre-release）──────
+      - name: Create Release (Stable)
+        if: github.event.inputs.release_type == 'release'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.calc_version.outputs.name }}.${{ steps.calc_version.outputs.code }}
           name: v${{ steps.calc_version.outputs.name }} (Build ${{ steps.calc_version.outputs.code }})
-          prerelease: ${{ github.event.inputs.release_type == 'pre-release' }}
+          prerelease: false
+          files: build-output/*.apk
+          body_path: RELEASE_BODY.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 测试版发布（保持原有格式，含单 commit message 提示）──────────────
+      - name: Create Release (Pre-release)
+        if: github.event.inputs.release_type == 'pre-release'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.calc_version.outputs.name }}.${{ steps.calc_version.outputs.code }}
+          name: v${{ steps.calc_version.outputs.name }} (Build ${{ steps.calc_version.outputs.code }})
+          prerelease: true
           files: build-output/*.apk
           body: |
-            ## Release Info    
-            - **Version:** `${{ steps.calc_version.outputs.name }}`    
-            - **Build Code:** `${{ steps.calc_version.outputs.code }}` (Base 30000 + Commits)    
-            - **Branch:** `${{ github.event.inputs.branch }}`    
-            - **Commit:** [`${{ steps.calc_version.outputs.commit_short }}`](https://github.com/${{ github.repository }}/commit/${{ steps.calc_version.outputs.commit }})    
+            ## Release Info  
+            - **Version:** `${{ steps.calc_version.outputs.name }}`  
+            - **Build Code:** `${{ steps.calc_version.outputs.code }}` (Base 30000 + Commits)  
+            - **Branch:** `${{ github.event.inputs.branch }}`  
+            - **Commit:** [`${{ steps.calc_version.outputs.commit_short }}`](https://github.com/${{ github.repository }}/commit/${{ steps.calc_version.outputs.commit }})  
             
-            ### Commit Message    
-            ```    
-            ${{ steps.calc_version.outputs.commit_msg }}    
-            ```    
+            ### Commit Message  
+            ```  
+            ${{ steps.calc_version.outputs.commit_msg }}  
+            ```  
             
-            ### Included Variants    
-            - Alpha: ${{ github.event.inputs.Alpha }}    
-            - Premium: ${{ github.event.inputs.Premium }}    
-            - Foss: ${{ github.event.inputs.Foss }}    
+            ### Included Variants  
+            - Alpha: ${{ github.event.inputs.Alpha }}  
+            - Premium: ${{ github.event.inputs.Premium }}  
+            - Foss: ${{ github.event.inputs.Foss }}  
             
-            ### Note    
-            ⚠️ This is a **DEBUG** build without formal signing, created for testing purposes.    
+            ### Note  
+            ⚠️ This is a **Pre-release** build for testing purposes.  
             All ABIs in this build share the same Version Code.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

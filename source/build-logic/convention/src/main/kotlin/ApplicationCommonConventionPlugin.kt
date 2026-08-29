@@ -25,18 +25,27 @@ private fun Project.configureCommon() {
             release {
                 isMinifyEnabled = true
                 isShrinkResources = true
-                proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+                proguardFiles(
+                    getDefaultProguardFile("proguard-android-optimize.txt"),
+                    "proguard-rules.pro"
+                )
                 buildConfigField("Boolean", "ENABLE_VERBOSE", "false")
                 signingConfig = signingConfigs.getByName("release")
             }
             debug {
                 isMinifyEnabled = false
                 isShrinkResources = false
-                proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+                proguardFiles(
+                    getDefaultProguardFile("proguard-android-optimize.txt"),
+                    "proguard-rules.pro"
+                )
                 buildConfigField("Boolean", "ENABLE_VERBOSE", "false")
+                // 仅当提供了有效 keystore（如 CI 中）才复用 release 签名，否则回退到默认 debug 签名
+                if (System.getenv("STORE_FILE") != null && file(System.getenv("STORE_FILE")).exists()) {
+                    signingConfig = signingConfigs.getByName("release")
+                }
             }
         }
-
         compileOptions {
             sourceCompatibility = JavaVersion.VERSION_17
             targetCompatibility = JavaVersion.VERSION_17
