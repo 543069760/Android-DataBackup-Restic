@@ -8,17 +8,17 @@ on:
         required: true
         default: 'rustic-jni'
       Alpha:
-        description: 'Alpha'
-        required: true
-        default: 'true'
+        description: 'Alpha (留空按发布类型默认：release 默认不构建)'
+        required: false
+        default: ''
       Premium:
-        description: 'Premium'
-        required: true
-        default: 'true'
+        description: 'Premium (留空按发布类型默认：pre-release 默认不构建)'
+        required: false
+        default: ''
       Foss:
-        description: 'Foss'
-        required: true
-        default: 'true'
+        description: 'Foss (留空按发布类型默认：pre-release 默认不构建)'
+        required: false
+        default: ''
       release_type:
         description: 'Release Type'
         required: true
@@ -70,7 +70,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: source/native/src/main/jni/external/rustic/rustic
-      # ─────────────────────────────────────────────────────────────────
 
       # ── Go + gomobile（:native:gomobileBindRclone 任务执行 gomobile bind 所需）──
       - name: Set up Go
@@ -83,8 +82,7 @@ jobs:
           go install golang.org/x/mobile/cmd/gobind@latest  
           go install golang.org/x/mobile/cmd/gomobile@latest  
           gomobile init  
-          echo "$HOME/go/bin" >> "$GITHUB_PATH"
-      # ─────────────────────────────────────────────────────────────────
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"  
 
       - name: Calculate Dynamic Version
         id: calc_version
@@ -128,20 +126,19 @@ jobs:
           echo "Commit Subject: $COMMIT_SUBJECT"
         working-directory: source
 
-      # ── 解码签名 keystore（debug 与 release 均使用固定签名，解决签名不匹配问题）──
+      # ── 解码签名 keystore（debug 与 release 均使用固定签名）──────────────
       - name: Decode signing keystore
         shell: bash
         run: |
           if [ -z "${{ secrets.KEYSTORE_BASE64 }}" ]; then  
-            echo "::error::secrets.KEYSTORE_BASE64 未配置，无法进行固定签名。"  
+            echo "ERROR: KEYSTORE_BASE64 secret is not set."  
             exit 1  
           fi  
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$GITHUB_WORKSPACE/source/keystore.jks"  
           echo "Keystore written:"  
-          ls -l "$GITHUB_WORKSPACE/source/keystore.jks"
-      # ─────────────────────────────────────────────────────────────────
+          ls -l "$GITHUB_WORKSPACE/source/keystore.jks"  
 
-      # ── 仅稳定版：生成自上一稳定版以来的变更日志──────────────────────
+      # ── 生成稳定版 changelog（仅 release 时；只列距上一正式版的增量）────────
       - name: Generate stable changelog
         if: github.event.inputs.release_type == 'release'
         shell: bash
@@ -149,23 +146,18 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           OUT="$GITHUB_WORKSPACE/source/CHANGELOG_RANGE.md"  
-          # 查找最近一个非 pre-release 的发布 tag  
-          LAST_STABLE=$(gh release list --limit 100 --json tagName,isPrerelease \  
-            --jq '[.[] | select(.isPrerelease==false)] | .[0].tagName' 2>/dev/null || echo "")  
+          git fetch --tags --force  
+          # 查找上一“正式版”（非 pre-release、非 draft）tag；命令写成单行避免续行空参数  
+          LAST_STABLE=$(gh release list --exclude-pre-releases --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName // ""' 2>/dev/null || echo "")  
           if [ -n "$LAST_STABLE" ] && git rev-parse "$LAST_STABLE" >/dev/null 2>&1; then  
             echo "Last stable tag: $LAST_STABLE"  
-            git log "${LAST_STABLE}..HEAD" --no-merges --pretty=format:'- %s (%h)' > "$OUT"  
+            git log "${LAST_STABLE}..HEAD" --pretty=format:'- %s (%h)' > "$OUT"  
           else  
             echo "No previous stable release found; listing full history."  
-            git log --no-merges --pretty=format:'- %s (%h)' > "$OUT"  
-          fi  
-          if [ ! -s "$OUT" ]; then  
-            echo "- 无变更 / No changes since last stable release" > "$OUT"  
+            git log --pretty=format:'- %s (%h)' > "$OUT"  
           fi  
           echo "----- changelog -----"  
-          cat "$OUT"
-        working-directory: source
-      # ─────────────────────────────────────────────────────────────────
+          cat "$OUT"  
 
       - name: Build with gradle (Dynamic Version Injection)
         id: gradle
@@ -175,7 +167,6 @@ jobs:
           BUILD_PREMIUM: ${{ github.event.inputs.Premium }}
           BUILD_FOSS: ${{ github.event.inputs.Foss }}
           RELEASE_TYPE: ${{ github.event.inputs.release_type }}
-          # 签名配置（debug 与 release 均复用；STORE_FILE 指向解码后的绝对路径）
           STORE_FILE: ${{ github.workspace }}/source/keystore.jks
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -188,6 +179,23 @@ jobs:
             BUILD_SUFFIX="Debug"  
           fi  
           echo "Selected build suffix: ${BUILD_SUFFIX}"  
+          
+          # 仅在用户留空时按 release_type 应用默认值；显式填 true/false 则尊重用户  
+          if [ -z "${BUILD_ALPHA}" ]; then  
+            if [ "${RELEASE_TYPE}" = 'release' ]; then BUILD_ALPHA="false"; else BUILD_ALPHA="true"; fi  
+          fi  
+          if [ -z "${BUILD_PREMIUM}" ]; then  
+            if [ "${RELEASE_TYPE}" = 'pre-release' ]; then BUILD_PREMIUM="false"; else BUILD_PREMIUM="true"; fi  
+          fi  
+          if [ -z "${BUILD_FOSS}" ]; then  
+            if [ "${RELEASE_TYPE}" = 'pre-release' ]; then BUILD_FOSS="false"; else BUILD_FOSS="true"; fi  
+          fi  
+          echo "Effective flavors -> Alpha=${BUILD_ALPHA} Premium=${BUILD_PREMIUM} Foss=${BUILD_FOSS}"  
+          
+          # 把计算后的有效 flavor 值写入 step 输出，供发布说明引用  
+          echo "eff_alpha=${BUILD_ALPHA}" >> $GITHUB_OUTPUT  
+          echo "eff_premium=${BUILD_PREMIUM}" >> $GITHUB_OUTPUT  
+          echo "eff_foss=${BUILD_FOSS}" >> $GITHUB_OUTPUT  
           
           TASKS=""  
           if [ "${BUILD_ALPHA}" = 'true' ]; then  
@@ -226,19 +234,13 @@ jobs:
           name: APKs-v${{ steps.calc_version.outputs.name }}-b${{ steps.calc_version.outputs.code }}
           path: build-output/*.apk
 
-      # ── 仅稳定版：从仓库文件读取固定正文 + 追加变更日志──────────────────
+      # ── 组装稳定版发布说明：固定正文 + changelog ─────────────────────────
       - name: Compose stable release notes
         if: github.event.inputs.release_type == 'release'
         shell: bash
         run: |
-          BODY="$GITHUB_WORKSPACE/RELEASE_BODY.md"  
-          NOTES="$GITHUB_WORKSPACE/.github/release-notes/stable.md"  
-          if [ ! -f "$NOTES" ]; then  
-            echo "::error::未找到固定说明文件 $NOTES"  
-            exit 1  
-          fi  
-          cp "$NOTES" "$BODY"  
-          # 追加自上一稳定版以来的变更日志  
+          BODY="$GITHUB_WORKSPACE/source/RELEASE_BODY.md"  
+          cp "$GITHUB_WORKSPACE/.github/release-notes/stable.md" "$BODY"  
           {  
             echo ""  
             echo "---"  
@@ -247,11 +249,10 @@ jobs:
             echo ""  
             cat "$GITHUB_WORKSPACE/source/CHANGELOG_RANGE.md"  
           } >> "$BODY"  
-          echo "----- final release body -----"  
-          cat "$BODY"
-      # ─────────────────────────────────────────────────────────────────
+          echo "----- release body -----"  
+          cat "$BODY"  
 
-      # ── 稳定版发布（固定正文 + Changelog，正式签名，非 pre-release）──────
+      # ── 正式版发布（固定正文 + changelog，正式签名，非 pre-release）──────────
       - name: Create Release (Stable)
         if: github.event.inputs.release_type == 'release'
         uses: softprops/action-gh-release@v1
@@ -260,7 +261,7 @@ jobs:
           name: v${{ steps.calc_version.outputs.name }} (Build ${{ steps.calc_version.outputs.code }})
           prerelease: false
           files: build-output/*.apk
-          body_path: RELEASE_BODY.md
+          body_path: source/RELEASE_BODY.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -286,9 +287,9 @@ jobs:
             ```  
             
             ### Included Variants  
-            - Alpha: ${{ github.event.inputs.Alpha }}  
-            - Premium: ${{ github.event.inputs.Premium }}  
-            - Foss: ${{ github.event.inputs.Foss }}  
+            - Alpha: ${{ steps.gradle.outputs.eff_alpha }}  
+            - Premium: ${{ steps.gradle.outputs.eff_premium }}  
+            - Foss: ${{ steps.gradle.outputs.eff_foss }}  
             
             ### Note  
             ⚠️ This is a **Pre-release** build for testing purposes.  
