@@ -91,17 +91,20 @@ class CommonBackupUtil @Inject constructor(
         val out = mutableListOf<String>()
 
         if (context.readCompressionTest().first()) {
-            Tar.test(src = src, extra = ct.decompressPara)
-                .also { result ->
-                    code = result.code
-                    input = result.input
-                    if (result.isSuccess.not()) {
-                        out.add(log { "$src is broken, trying to delete it." })
-                        rootService.deleteRecursively(src)
-                    } else {
-                        out.add(log { "Everything seems fine." })
-                    }
+            Tar.test(
+                cacheDir = context.cacheDir.path,
+                callTar = { stdOut, stdErr, argv -> rootService.callTarCli(stdOut, stdErr, argv) },
+                src = src,
+            ).also { result ->
+                code = result.code
+                input = result.input
+                if (result.isSuccess.not()) {
+                    out.add(log { "$src is broken, trying to delete it." })
+                    rootService.deleteRecursively(src)
+                } else {
+                    out.add(log { "Everything seems fine." })
                 }
+            }
         } else {
             code = 0
             input = listOf()

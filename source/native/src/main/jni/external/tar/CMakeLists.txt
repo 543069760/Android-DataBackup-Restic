@@ -17,6 +17,12 @@ add_link_options(
         -Wl,--build-id=none
         -Wl,--hash-style=both
         -Wl,-allow-multiple-definition
+
+        # lld bug: https://bugs.llvm.org/show_bug.cgi?id=36295
+        # error: symbol __aeabi_*@@LIBC_N has undefined version LIBC_N
+        -Wl,-Bsymbolic
+        -Wl,--exclude-libs,ALL
+        -Wl,-soname,ld-android.so
 )
 
 # libgnu.a
@@ -263,8 +269,8 @@ target_include_directories(libtar
         tar/lib
 )
 
-# tar
-add_executable(tar
+# tar.a
+add_library(tar STATIC
         tar/src/buffer.c
         tar/src/checkpoint.c
         tar/src/compare.c
@@ -303,9 +309,16 @@ target_include_directories(tar
         tar/lib
         tar/src
 )
-target_link_libraries(tar
-        -static
+
+# libtar-wrapper.so
+add_library(tar-wrapper SHARED
+        tar-wrapper.cpp
+)
+
+target_link_libraries(tar-wrapper
+        android
+        log
         libgnu
         libtar
+        tar
 )
-install(TARGETS tar DESTINATION bin)

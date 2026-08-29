@@ -4,3 +4,4 @@ project("native")
 
 add_subdirectory(nativelib)
 add_subdirectory(rustic)
+add_subdirectory(external)

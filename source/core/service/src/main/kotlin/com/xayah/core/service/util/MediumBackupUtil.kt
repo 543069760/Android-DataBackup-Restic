@@ -102,13 +102,14 @@ class MediumBackupUtil @Inject constructor(
             out.add(log { "Data has not changed." })
         } else {
             // Compress and test.
-            Tar.compress(
+            Tar.compressToFile(
+                cacheDir = context.cacheDir.path,
+                callTar = { o, e, a -> rootService.callTarCli(o, e, a) },
                 exclusionList = listOf(),
                 h = if (context.readFollowSymlinks().first()) "-h" else "",
                 srcDir = srcDir,
                 src = PathUtil.getFileName(src),
                 dst = dst,
-                extra = ct.getCompressPara(context.readCompressionLevel().first())
             ).also { result ->
                 isSuccess = result.isSuccess
                 out.addAll(result.out)

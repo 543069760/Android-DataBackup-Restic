@@ -76,12 +76,13 @@ class MediumRestoreUtil @Inject constructor(
 
             // Decompress the archive.
             Tar.decompress(
+                cacheDir = context.cacheDir.path,
+                callTar = { stdOut, stdErr, argv -> rootService.callTarCli(stdOut, stdErr, argv) },
                 exclusionList = listOf(),
                 clear = if (context.readCleanRestoring().first()) "--recursive-unlink" else "",
                 m = false,
                 src = src,
                 dst = dstDir,
-                extra = ct.decompressPara
             ).also { result ->
                 isSuccess = result.isSuccess
                 out.addAll(result.out)

@@ -178,7 +178,12 @@ class PackagesRestoreUtil @Inject constructor(
                 val tmpApkPath = pathUtil.getTmpApkPath(packageName = packageName)
                 rootService.deleteRecursively(tmpApkPath)
                 rootService.mkdirs(tmpApkPath)
-                Tar.decompress(src = src, dst = tmpApkPath, extra = ct.decompressPara).also { result ->
+                Tar.decompress(
+                    cacheDir = context.cacheDir.path,
+                    callTar = { stdOut, stdErr, argv -> rootService.callTarCli(stdOut, stdErr, argv) },
+                    src = src,
+                    dst = tmpApkPath,
+                ).also { result ->
                     isSuccess = result.isSuccess
                     out.addAll(result.out)
                 }
@@ -298,12 +303,13 @@ class PackagesRestoreUtil @Inject constructor(
 
                     // Decompress the archive.
                     Tar.decompress(
+                        cacheDir = context.cacheDir.path,
+                        callTar = { stdOut, stdErr, argv -> rootService.callTarCli(stdOut, stdErr, argv) },
                         exclusionList = exclusionList,
                         clear = if (context.readCleanRestoring().first()) "--recursive-unlink" else "",
                         m = true,
                         src = src,
                         dst = dstDir,
-                        extra = ct.decompressPara
                     ).also { result ->
                         isSuccess = result.isSuccess
                         out.addAll(result.out)

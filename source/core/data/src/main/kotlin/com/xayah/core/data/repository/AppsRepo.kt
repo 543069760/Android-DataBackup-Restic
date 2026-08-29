@@ -486,9 +486,10 @@ class AppsRepo @Inject constructor(
             val iconMD5 = rootService.calculateMD5(archivePath) ?: ""
             if (loadedIconMD5 != iconMD5) {
                 Tar.decompress(
+                    cacheDir = context.cacheDir.path,
+                    callTar = { stdOut, stdErr, argv -> rootService.callTarCli(stdOut, stdErr, argv) },
                     src = archivePath,
                     dst = context.filesDir(),
-                    extra = CompressionType.TAR.decompressPara
                 )
                 PathUtil.setFilesDirSELinux(context)
                 context.saveLoadedIconMD5(iconMD5)
@@ -507,12 +508,17 @@ class AppsRepo @Inject constructor(
                     val iconMD5 = rootService.calculateMD5(path) ?: ""
                     if (loadedIconMD5 != iconMD5) {
                         Tar.decompress(
+                            cacheDir = context.cacheDir.path,
+                            callTar = { stdOut, stdErr, argv ->
+                                rootService.callTarCli(
+                                    stdOut,
+                                    stdErr,
+                                    argv
+                                )
+                            },
                             src = path,
                             dst = context.filesDir(),
-                            extra = CompressionType.TAR.decompressPara
                         )
-                        PathUtil.setFilesDirSELinux(context)
-                        context.saveLoadedIconMD5(iconMD5)
                     }
                 }
             }

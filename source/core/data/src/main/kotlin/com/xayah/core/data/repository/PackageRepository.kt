@@ -645,7 +645,12 @@ class PackageRepository @Inject constructor(
                                         val tmpApkPath = pathUtil.getTmpApkPath(packageName = packageName)
                                         rootService.deleteRecursively(tmpApkPath)
                                         rootService.mkdirs(tmpApkPath)
-                                        Tar.decompress(src = archivePath.pathString, dst = tmpApkPath, extra = type.decompressPara)
+                                        Tar.decompress(
+                                            cacheDir = context.cacheDir.path,
+                                            callTar = { stdOut, stdErr, argv -> rootService.callTarCli(stdOut, stdErr, argv) },
+                                            src = archivePath.pathString,
+                                            dst = tmpApkPath,
+                                        )
                                         rootService.listFilePaths(tmpApkPath).also { pathList ->
                                             if (pathList.isNotEmpty()) {
                                                 rootService.getPackageArchiveInfo(pathList.first())?.apply {
@@ -999,7 +1004,12 @@ class PackageRepository @Inject constructor(
                                                 rootService.mkdirs(tmpApkPath)
                                                 val tmpDir = pathUtil.getCloudTmpDir()
                                                 cloudRepository.download(client = client, src = archivePath.pathString, dstDir = tmpDir) { path ->
-                                                    Tar.decompress(src = path, dst = tmpApkPath, extra = type.decompressPara)
+                                                    Tar.decompress(
+                                                        cacheDir = context.cacheDir.path,
+                                                        callTar = { stdOut, stdErr, argv -> rootService.callTarCli(stdOut, stdErr, argv) },
+                                                        src = path,
+                                                        dst = tmpApkPath,
+                                                    )
                                                     rootService.listFilePaths(tmpApkPath).also { pathList ->
                                                         if (pathList.isNotEmpty()) {
                                                             rootService.getPackageArchiveInfo(pathList.first())?.apply {

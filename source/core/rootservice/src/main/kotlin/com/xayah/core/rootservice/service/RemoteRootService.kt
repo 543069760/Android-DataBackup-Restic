@@ -66,6 +66,7 @@ class RemoteRootService(private val context: Context) {
                 System.loadLibrary("nativelib")
                 System.loadLibrary("rustic")
                 System.loadLibrary("gojni")
+                System.loadLibrary("tar-wrapper")
                 Rustic.initLogger()
                 org.rclone.gomobile.Gomobile.rcloneInitialize()
             }
@@ -409,6 +410,9 @@ class RemoteRootService(private val context: Context) {
             options, includeGlob, callback
         )
     }.onFailure(onFailure)
+
+    suspend fun callTarCli(stdOut: String, stdErr: String, argv: Array<String>): Int =
+        runCatching { getService().callTarCli(stdOut, stdErr, argv) }.onFailure(onFailure).getOrElse { -1 }
 
     suspend fun checkRusticRepository(repositoryPath: String, password: String, options: Map<String, String> = emptyMap()) =
         runCatching { getService().checkRusticRepository(repositoryPath, password, options) }.onFailure(onFailure)

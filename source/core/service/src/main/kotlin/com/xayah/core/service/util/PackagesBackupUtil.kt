@@ -7,7 +7,6 @@ import com.xayah.core.common.util.toLineString
 import com.xayah.core.data.repository.CloudRepository
 import com.xayah.core.data.repository.PackageRepository
 import com.xayah.core.database.dao.TaskDao
-import com.xayah.core.datastore.readCompressionLevel
 import com.xayah.core.datastore.readFollowSymlinks
 import com.xayah.core.datastore.readSelectionType
 import com.xayah.core.model.CompressionType
@@ -16,13 +15,11 @@ import com.xayah.core.model.OperationState
 import com.xayah.core.model.SelectionType
 import com.xayah.core.model.database.PackageEntity
 import com.xayah.core.model.database.TaskDetailPackageEntity
-import com.xayah.core.model.util.getCompressPara
 import com.xayah.core.network.client.CloudClient
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.IconRelativeDir
 import com.xayah.core.util.LogUtil
 import com.xayah.core.util.PathUtil
-import com.xayah.core.util.SymbolUtil
 import com.xayah.core.util.command.Tar
 import com.xayah.core.util.filesDir
 import com.xayah.core.util.model.ShellResult
@@ -46,10 +43,37 @@ class PackagesBackupUtil @Inject constructor(
         private const val TAG = "PackagesBackupUtil"
     }
 
+    /**
+     * 准备 argv 的结果：
+     * - Ready：可流式打包，携带 tar 的 argv、源大小(用于进度/统计)、快照内逻辑归档名
+     * - Skip ：未选中 / 源不存在(非 USER) / 数据未变化，调用侧应跳过且不视为失败
+     * - Error：源缺失(USER 必备) 或 取路径失败，调用侧应记 ERROR
+     */
+    sealed interface ArgvResult {
+        data class Ready(
+            val argv: Array<String>,
+            val sizeBytes: Long,
+            val stdinFilename: String,
+        ) : ArgvResult
+
+        data object Skip : ArgvResult
+
+        data class Error(val out: List<String>) : ArgvResult
+    }
+
     private fun log(onMsg: () -> String): String = run {
         val msg = onMsg()
         LogUtil.log { TAG to msg }
         msg
+    }
+
+    // JNI tar 的公共 argv 前缀（xattr/selinux 往返一致，两端必须相同）
+    private val tarHeader =
+        arrayOf("tar", "--xattrs", "--xattrs-include=*", "--acls", "--selinux", "--totals")
+
+    /** callTar lambda：交给 root 进程执行 GNU tar */
+    private val callTar = Tar.CallTar { stdOut, stdErr, argv ->
+        rootService.callTarCli(stdOut, stdErr, argv)
     }
 
     private suspend fun PackageEntity.getDataSelected(dataType: DataType) =
@@ -66,17 +90,9 @@ class PackagesBackupUtil @Inject constructor(
                 }
             }
 
-            SelectionType.APK -> {
-                dataType == DataType.PACKAGE_APK
-            }
-
-            SelectionType.DATA -> {
-                dataType != DataType.PACKAGE_APK
-            }
-
-            SelectionType.BOTH -> {
-                true
-            }
+            SelectionType.APK -> dataType == DataType.PACKAGE_APK
+            SelectionType.DATA -> dataType != DataType.PACKAGE_APK
+            SelectionType.BOTH -> true
         }
 
     private fun PackageEntity.getDataBytes(dataType: DataType) = when (dataType) {
@@ -117,62 +133,20 @@ class PackagesBackupUtil @Inject constructor(
         log: String? = null,
         content: String? = null,
     ) = run {
-        when (dataType) {
-            DataType.PACKAGE_APK -> {
-                apkInfo.also {
-                    if (state != null) it.state = state
-                    if (bytes != null) it.bytes = bytes
-                    if (log != null) it.log = log
-                    if (content != null) it.content = content
-                }
-            }
-
-            DataType.PACKAGE_USER -> {
-                userInfo.also {
-                    if (state != null) it.state = state
-                    if (bytes != null) it.bytes = bytes
-                    if (log != null) it.log = log
-                    if (content != null) it.content = content
-                }
-            }
-
-            DataType.PACKAGE_USER_DE -> {
-                userDeInfo.also {
-                    if (state != null) it.state = state
-                    if (bytes != null) it.bytes = bytes
-                    if (log != null) it.log = log
-                    if (content != null) it.content = content
-                }
-            }
-
-            DataType.PACKAGE_DATA -> {
-                dataInfo.also {
-                    if (state != null) it.state = state
-                    if (bytes != null) it.bytes = bytes
-                    if (log != null) it.log = log
-                    if (content != null) it.content = content
-                }
-            }
-
-            DataType.PACKAGE_OBB -> {
-                obbInfo.also {
-                    if (state != null) it.state = state
-                    if (bytes != null) it.bytes = bytes
-                    if (log != null) it.log = log
-                    if (content != null) it.content = content
-                }
-            }
-
-            DataType.PACKAGE_MEDIA -> {
-                mediaInfo.also {
-                    if (state != null) it.state = state
-                    if (bytes != null) it.bytes = bytes
-                    if (log != null) it.log = log
-                    if (content != null) it.content = content
-                }
-            }
-
-            else -> {}
+        val info = when (dataType) {
+            DataType.PACKAGE_APK -> apkInfo
+            DataType.PACKAGE_USER -> userInfo
+            DataType.PACKAGE_USER_DE -> userDeInfo
+            DataType.PACKAGE_DATA -> dataInfo
+            DataType.PACKAGE_OBB -> obbInfo
+            DataType.PACKAGE_MEDIA -> mediaInfo
+            else -> null
+        }
+        info?.let {
+            if (state != null) it.state = state
+            if (bytes != null) it.bytes = bytes
+            if (log != null) it.log = log
+            if (content != null) it.content = content
         }
         taskDao.upsert(this)
     }
@@ -189,8 +163,130 @@ class PackagesBackupUtil @Inject constructor(
         else -> ""
     }
 
+    private suspend fun getPackageSourceDir(packageName: String, userId: Int) =
+        rootService.getPackageSourceDir(packageName, userId).let { list ->
+            if (list.isNotEmpty()) PathUtil.getParentPath(list[0]) else ""
+        }
+
+    // ===================== FIFO 流式（app backup 走这条链路） =====================
+
+    /**
+     * 生成 APK 的流式 argv（喂给 rustic 的 stdin）。
+     * JNI tar 无 shell，不能用通配符 glob，需先枚举真实文件名。
+     */
+    suspend fun prepareApkArgv(
+        p: PackageEntity,
+        r: PackageEntity?,
+        t: TaskDetailPackageEntity,
+    ): ArgvResult = run {
+        val dataType = DataType.PACKAGE_APK
+        if (p.getDataSelected(dataType).not()) {
+            t.updateInfo(dataType = dataType, state = OperationState.SKIP)
+            return@run ArgvResult.Skip
+        }
+
+        val srcDir = getPackageSourceDir(packageName = p.packageName, userId = p.userId)
+        if (srcDir.isEmpty()) {
+            val out = mutableListOf(log { "Failed to get apk src dir." })
+            return@run ArgvResult.Error(out)
+        }
+
+        val apkFiles = rootService.listFilePaths(srcDir, true, false)
+            .map { PathUtil.getFileName(it) }
+            .filter { it.endsWith(".apk") }
+        if (apkFiles.isEmpty()) {
+            val out = mutableListOf(log { "No apk found in $srcDir." })
+            return@run ArgvResult.Error(out)
+        }
+
+        val sizeBytes = rootService.calculateSize(srcDir)
+        t.updateInfo(dataType = dataType, state = OperationState.PROCESSING, bytes = sizeBytes)
+
+        val argv = mutableListOf(
+            "tar", "--xattrs", "--xattrs-include=*", "--acls", "--selinux",
+            "--totals", "-cpf", "-", "-C", srcDir, "--"
+        )
+        argv.addAll(apkFiles)
+
+        ArgvResult.Ready(
+            argv = argv.toTypedArray(),
+            sizeBytes = sizeBytes,
+            stdinFilename = "${dataType.type}.tar",
+        )
+    }
+
+    /**
+     * 生成 data（USER/USER_DE/DATA/OBB/MEDIA）的流式 argv。
+     * exclusion 不加 shell 引号（JNI tar 不经 shell）。
+     */
+    suspend fun prepareDataArgv(
+        p: PackageEntity,
+        r: PackageEntity?,
+        t: TaskDetailPackageEntity,
+        dataType: DataType,
+    ): ArgvResult {
+        log { "Preparing ${dataType.type} argv..." }
+        val packageName = p.packageName
+        val userId = p.userId
+        val out = mutableListOf<String>()
+
+        if (p.getDataSelected(dataType).not()) {
+            t.updateInfo(dataType = dataType, state = OperationState.SKIP)
+            return ArgvResult.Skip
+        }
+
+        val srcDir = packageRepository.getDataSrcDir(dataType, userId)
+        val src = packageRepository.getDataSrc(srcDir, packageName)
+        if (rootService.exists(src).not()) {
+            return if (dataType == DataType.PACKAGE_USER) {
+                out.add(log { "Not exist: $src" })
+                t.updateInfo(dataType = dataType, state = OperationState.ERROR, log = out.toLineString())
+                ArgvResult.Error(out)
+            } else {
+                out.add(log { "Not exist and skip: $src" })
+                t.updateInfo(dataType = dataType, state = OperationState.SKIP, log = out.toLineString())
+                ArgvResult.Skip
+            }
+        }
+
+        // 生成排除项（无 shell 引号）
+        val exclusionList = mutableListOf<String>()
+        when (dataType) {
+            DataType.PACKAGE_USER, DataType.PACKAGE_USER_DE -> {
+                val folders = listOf(".ota", "cache", "lib", "code_cache", "no_backup")
+                exclusionList.addAll(folders.map { "$packageName/$it" })
+            }
+
+            DataType.PACKAGE_DATA, DataType.PACKAGE_OBB, DataType.PACKAGE_MEDIA -> {
+                exclusionList.add("$packageName/cache")
+                exclusionList.add("Backup_*")
+            }
+
+            else -> {}
+        }
+        log { "ExclusionList: $exclusionList." }
+
+        val sizeBytes = rootService.calculateSize(src)
+        t.updateInfo(dataType = dataType, state = OperationState.PROCESSING, bytes = sizeBytes)
+
+        val argv = mutableListOf(*tarHeader)
+        exclusionList.forEach { argv.add("--exclude=$it") }
+        if (context.readFollowSymlinks().first()) argv.add("-h")
+        argv.addAll(listOf("-cpf", "-", "-C", srcDir, "--", packageName))
+
+        return ArgvResult.Ready(
+            argv = argv.toTypedArray(),
+            sizeBytes = sizeBytes,
+            stdinFilename = "${dataType.type}.tar",
+        )
+    }
+
+    // ===================== 落盘 .tar（云备份 BackupServiceCloudImpl 仍走这里） =====================
+
     private val tarCt = CompressionType.TAR
+
     fun getIconsDst(dstDir: String) = "${dstDir}/$IconRelativeDir.${tarCt.suffix}"
+
     suspend fun backupIcons(dstDir: String): ShellResult = run {
         log { "Backing up icons..." }
 
@@ -198,13 +294,14 @@ class PackagesBackupUtil @Inject constructor(
         var isSuccess: Boolean
         val out = mutableListOf<String>()
 
-        Tar.compress(
+        Tar.compressToFile(
+            cacheDir = context.cacheDir.path,
+            callTar = callTar,
             exclusionList = listOf(),
             h = "",
             srcDir = context.filesDir(),
             src = IconRelativeDir,
             dst = dst,
-            extra = tarCt.getCompressPara(context.readCompressionLevel().first())
         ).also { result ->
             isSuccess = result.isSuccess
             out.addAll(result.out)
@@ -216,11 +313,6 @@ class PackagesBackupUtil @Inject constructor(
 
         ShellResult(code = if (isSuccess) 0 else -1, input = listOf(), out = out)
     }
-
-    private suspend fun getPackageSourceDir(packageName: String, userId: Int) =
-        rootService.getPackageSourceDir(packageName, userId).let { list ->
-            if (list.isNotEmpty()) PathUtil.getParentPath(list[0]) else ""
-        }
 
     suspend fun backupApk(
         p: PackageEntity,
@@ -246,21 +338,22 @@ class PackagesBackupUtil @Inject constructor(
         } else {
             if (srcDir.isNotEmpty()) {
                 val sizeBytes = rootService.calculateSize(srcDir)
-                t.updateInfo(
-                    dataType = dataType,
-                    state = OperationState.PROCESSING,
-                    bytes = sizeBytes
-                )
+                t.updateInfo(dataType = dataType, state = OperationState.PROCESSING, bytes = sizeBytes)
                 if (rootService.exists(dst) && sizeBytes == r?.getDataBytes(dataType)) {
                     isSuccess = true
                     t.updateInfo(dataType = dataType, state = OperationState.SKIP)
                     out.add(log { "Data has not changed." })
                 } else {
-                    Tar.compressInCur(
-                        cur = srcDir,
-                        src = "./*.apk",
+                    // JNI tar 无 shell，枚举 *.apk 真实文件名后落盘
+                    val apkFiles = rootService.listFilePaths(srcDir, true, false)
+                        .map { PathUtil.getFileName(it) }
+                        .filter { it.endsWith(".apk") }
+                    Tar.compressFilesToFile(
+                        cacheDir = context.cacheDir.path,
+                        callTar = callTar,
+                        srcDir = srcDir,
+                        files = apkFiles,
                         dst = dst,
-                        extra = ct.getCompressPara(context.readCompressionLevel().first())
                     ).also { result ->
                         isSuccess = result.isSuccess
                         out.addAll(result.out)
@@ -320,39 +413,27 @@ class PackagesBackupUtil @Inject constructor(
                     if (dataType == DataType.PACKAGE_USER) {
                         isSuccess = false
                         out.add(log { "Not exist: $src" })
-                        t.updateInfo(
-                            dataType = dataType,
-                            state = OperationState.ERROR,
-                            log = out.toLineString()
-                        )
+                        t.updateInfo(dataType = dataType, state = OperationState.ERROR, log = out.toLineString())
                         return@run ShellResult(code = -1, input = listOf(), out = out)
                     } else {
                         out.add(log { "Not exist and skip: $src" })
-                        t.updateInfo(
-                            dataType = dataType,
-                            state = OperationState.SKIP,
-                            log = out.toLineString()
-                        )
+                        t.updateInfo(dataType = dataType, state = OperationState.SKIP, log = out.toLineString())
                         return@run ShellResult(code = -2, input = listOf(), out = out)
                     }
                 }
             }
 
-            // Generate exclusion items.
+            // Generate exclusion items（无 shell 引号）.
             val exclusionList = mutableListOf<String>()
             when (dataType) {
                 DataType.PACKAGE_USER, DataType.PACKAGE_USER_DE -> {
-                    // Exclude cache
                     val folders = listOf(".ota", "cache", "lib", "code_cache", "no_backup")
-                    exclusionList.addAll(folders.map { "${SymbolUtil.QUOTE}$packageName/$it${SymbolUtil.QUOTE}" })
+                    exclusionList.addAll(folders.map { "$packageName/$it" })
                 }
 
                 DataType.PACKAGE_DATA, DataType.PACKAGE_OBB, DataType.PACKAGE_MEDIA -> {
-                    // Exclude cache
-                    val folders = listOf("cache")
-                    exclusionList.addAll(folders.map { "${SymbolUtil.QUOTE}$packageName/$it${SymbolUtil.QUOTE}" })
-                    // Exclude Backup_*
-                    exclusionList.add("${SymbolUtil.QUOTE}Backup_${SymbolUtil.QUOTE}*")
+                    exclusionList.add("$packageName/cache")
+                    exclusionList.add("Backup_*")
                 }
 
                 else -> {}
@@ -367,13 +448,14 @@ class PackagesBackupUtil @Inject constructor(
                 out.add(log { "Data has not changed." })
             } else {
                 // Compress and test.
-                Tar.compress(
+                Tar.compressToFile(
+                    cacheDir = context.cacheDir.path,
+                    callTar = callTar,
                     exclusionList = exclusionList,
                     h = if (context.readFollowSymlinks().first()) "-h" else "",
                     srcDir = srcDir,
                     src = packageName,
                     dst = dst,
-                    extra = ct.getCompressPara(context.readCompressionLevel().first())
                 ).also { result ->
                     isSuccess = result.isSuccess
                     out.addAll(result.out)
@@ -412,11 +494,8 @@ class PackagesBackupUtil @Inject constructor(
         val packageName = p.packageName
         val userId = p.userId
 
-        val packageInfo =
-            rootService.getPackageInfoAsUser(packageName, PackageManager.GET_PERMISSIONS, userId)
-        packageInfo?.apply {
-            p.extraInfo.permissions = rootService.getPermissions(packageInfo = this)
-        }
+        val packageInfo = rootService.getPackageInfoAsUser(packageName, PackageManager.GET_PERMISSIONS, userId)
+        packageInfo?.apply { p.extraInfo.permissions = rootService.getPermissions(packageInfo = this) }
         val permissions = p.extraInfo.permissions
         log { "Permissions size: ${permissions.size}..." }
         permissions.forEach {
@@ -431,8 +510,7 @@ class PackagesBackupUtil @Inject constructor(
         val uid = p.extraInfo.uid
         val userId = p.userId
 
-        val ssaid =
-            rootService.getPackageSsaidAsUser(packageName = packageName, uid = uid, userId = userId)
+        val ssaid = rootService.getPackageSsaidAsUser(packageName = packageName, uid = uid, userId = userId)
         log { "Ssaid: $ssaid" }
         p.extraInfo.ssaid = ssaid
     }
@@ -444,7 +522,7 @@ class PackagesBackupUtil @Inject constructor(
         dataType: DataType,
         srcDir: String,
         dstDir: String,
-        isCanceled: (() -> Boolean)? = null  // 新增参数
+        isCanceled: (() -> Boolean)? = null
     ) = run {
         val ct = CompressionType.TAR
         val src = packageRepository.getArchiveDst(dstDir = srcDir, dataType = dataType, ct = ct)
@@ -459,7 +537,6 @@ class PackagesBackupUtil @Inject constructor(
         with(CoroutineScope(coroutineContext)) {
             launch {
                 while (flag) {
-                    // 在进度更新循环中也检查取消标志
                     if (isCanceled?.invoke() == true) {
                         log { "Upload progress monitoring canceled" }
                         flag = false
@@ -493,7 +570,7 @@ class PackagesBackupUtil @Inject constructor(
                     lastBytes = read
                 }
             },
-            isCanceled = isCanceled  // 传递取消检查
+            isCanceled = isCanceled
         ).apply {
             flag = false
             t.updateInfo(

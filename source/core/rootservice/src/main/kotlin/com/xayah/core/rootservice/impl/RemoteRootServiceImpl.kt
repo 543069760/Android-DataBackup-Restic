@@ -44,6 +44,7 @@ import com.xayah.core.util.PathUtil
 import com.xayah.core.util.command.BaseUtil.setAllPermissions
 import com.xayah.libnative.NativeLib
 import com.xayah.libnative.Rustic
+import com.xayah.libnative.TarWrapper
 import java.io.File
 import java.io.IOException
 import java.nio.file.FileVisitResult
@@ -567,7 +568,6 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
             throw IllegalStateException(e.message ?: "createRusticSnapshot failed")
         }
     }
-
     // 注意：绝不能用 synchronized(lock)。createRusticSnapshot 持锁整个备份时长，
     // 取消若也抢同一把锁会一直死等，取消永远无法生效。
     override fun cancelRusticBackup(cancelId: Long) {
@@ -622,5 +622,9 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
 
     override fun listRusticSnapshotsDb(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?, dbPath: String): Unit = synchronized(lock) {
         Rustic.listSnapshotsDb(repositoryPath, password, dbPath, options.toStringMap())
+    }
+
+    override fun callTarCli(stdOut: String, stdErr: String, argv: Array<String>): Int {
+        return TarWrapper.callCli(stdOut, stdErr, argv)
     }
 }
