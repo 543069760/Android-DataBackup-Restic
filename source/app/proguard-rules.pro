@@ -77,3 +77,15 @@
 # rustls-platform-verifier（HTTPS 证书校验的 Android 支持组件）
 -dontwarn org.rustls.platformverifier.**
 -keep,includedescriptorclasses class org.rustls.platformverifier.** { *; }
+
+# gomobile (rclone) JNI 绑定类：被 libgojni.so 通过 JNI 按类名/方法名反射回调，
+# 必须整体保留，禁止 R8 重命名/删除，否则 release 版 rcloneInitialize() 卡死
+-keep class org.rclone.** { *; }
+-keep class go.** { *; }
+-dontwarn org.rclone.**
+-dontwarn go.**
+
+# 兜底：保留所有含 native 方法的类及其成员（JNI 依赖）
+-keepclasseswithmembernames,includedescriptorclasses class * {
+    native <methods>;
+}
