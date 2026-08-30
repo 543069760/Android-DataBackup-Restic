@@ -10,6 +10,7 @@ import android.os.IBinder
 import android.os.Parcel
 import android.os.ParcelFileDescriptor
 import android.os.Process
+import android.util.Log
 import android.os.RemoteException
 import android.os.UserHandle
 import com.google.gson.reflect.TypeToken
@@ -63,23 +64,85 @@ class RemoteRootService(private val context: Context) {
     class RemoteRootService : RootService() {
         init {
             if (Process.myUid() == 0) {
-                System.loadLibrary("nativelib")
-                System.loadLibrary("rustic")
-                System.loadLibrary("gojni")
-                System.loadLibrary("tar-wrapper")
-                Rustic.initLogger()
-                org.rclone.gomobile.Gomobile.rcloneInitialize()
+                Log.d("LoadDiag", "[RootInit] init block start, uid=${Process.myUid()}")
+
+                Log.d("LoadDiag", "[RootInit] loading nativelib")
+                try {
+                    System.loadLibrary("nativelib")
+                    Log.d("LoadDiag", "[RootInit] nativelib loaded")
+                } catch (e: Throwable) {
+                    Log.e("LoadDiag", "[RootInit] loadLibrary nativelib failed", e)
+                    throw e
+                }
+
+                Log.d("LoadDiag", "[RootInit] loading rustic")
+                try {
+                    System.loadLibrary("rustic")
+                    Log.d("LoadDiag", "[RootInit] rustic loaded")
+                } catch (e: Throwable) {
+                    Log.e("LoadDiag", "[RootInit] loadLibrary rustic failed", e)
+                    throw e
+                }
+
+                Log.d("LoadDiag", "[RootInit] loading gojni")
+                try {
+                    System.loadLibrary("gojni")
+                    Log.d("LoadDiag", "[RootInit] gojni loaded")
+                } catch (e: Throwable) {
+                    Log.e("LoadDiag", "[RootInit] loadLibrary gojni failed", e)
+                    throw e
+                }
+
+                Log.d("LoadDiag", "[RootInit] loading tar-wrapper")
+                try {
+                    System.loadLibrary("tar-wrapper")
+                    Log.d("LoadDiag", "[RootInit] tar-wrapper loaded")
+                } catch (e: Throwable) {
+                    Log.e("LoadDiag", "[RootInit] loadLibrary tar-wrapper failed", e)
+                    throw e
+                }
+
+                Log.d("LoadDiag", "[RootInit] Rustic.initLogger() start")
+                try {
+                    Rustic.initLogger()
+                    Log.d("LoadDiag", "[RootInit] Rustic.initLogger() done")
+                } catch (e: Throwable) {
+                    Log.e("LoadDiag", "[RootInit] Rustic.initLogger() failed", e)
+                    throw e
+                }
+
+                Log.d("LoadDiag", "[RootInit] Gomobile.rcloneInitialize() start")
+                try {
+                    org.rclone.gomobile.Gomobile.rcloneInitialize()
+                    Log.d("LoadDiag", "[RootInit] Gomobile.rcloneInitialize() done")
+                } catch (e: Throwable) {
+                    Log.e("LoadDiag", "[RootInit] Gomobile.rcloneInitialize() failed", e)
+                    throw e
+                }
+
+                Log.d("LoadDiag", "[RootInit] init block done")
             }
         }
 
         override fun onCreate() {
             super.onCreate()
+            Log.d("LoadDiag", "[RootInit] onCreate uid=${Process.myUid()}")
             if (Process.myUid() == 0) {
-                Rustic.initPlatformVerifier(applicationContext)
+                Log.d("LoadDiag", "[RootInit] initPlatformVerifier start")
+                try {
+                    Rustic.initPlatformVerifier(applicationContext)
+                    Log.d("LoadDiag", "[RootInit] initPlatformVerifier done")
+                } catch (e: Throwable) {
+                    Log.e("LoadDiag", "[RootInit] initPlatformVerifier failed", e)
+                    throw e
+                }
             }
         }
 
-        override fun onBind(intent: Intent): IBinder = RemoteRootServiceImpl(applicationContext)
+        override fun onBind(intent: Intent): IBinder {
+            Log.d("LoadDiag", "[RootInit] onBind")
+            return RemoteRootServiceImpl(applicationContext)
+        }
     }
 
     private suspend fun bindService(): IRemoteRootService = run {

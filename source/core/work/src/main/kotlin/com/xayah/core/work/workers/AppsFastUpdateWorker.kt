@@ -1,5 +1,6 @@
 package com.xayah.core.work.workers
 
+import android.util.Log
 import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
@@ -41,20 +42,28 @@ internal class AppsFastUpdateWorker @AssistedInject constructor(
     }
 
     override suspend fun doWork(): Result = withContext(defaultDispatcher) {
-        appsRepo.fastUpdate { cur, max, content ->
-            mNotificationInfo = NotificationUtil.createForegroundInfo(
-                appContext,
-                mNotificationBuilder,
-                appContext.getString(R.string.updating_app_list),
-                content,
-                max,
-                cur
-            )
-            setForeground(
-                mNotificationInfo!!
-            )
+        Log.d("LoadDiag", "[Worker] AppsFastUpdateWorker start")
+        try {
+            appsRepo.fastUpdate { cur, max, content ->
+                Log.d("LoadDiag", "[Worker] AppsFastUpdateWorker progress $cur/$max: $content")
+                mNotificationInfo = NotificationUtil.createForegroundInfo(
+                    appContext,
+                    mNotificationBuilder,
+                    appContext.getString(R.string.updating_app_list),
+                    content,
+                    max,
+                    cur
+                )
+                setForeground(
+                    mNotificationInfo!!
+                )
+            }
+            Log.d("LoadDiag", "[Worker] AppsFastUpdateWorker done")
+            Result.success()
+        } catch (e: Throwable) {
+            Log.e("LoadDiag", "[Worker] AppsFastUpdateWorker failed", e)
+            Result.failure()
         }
-        Result.success()
     }
 
     companion object {
