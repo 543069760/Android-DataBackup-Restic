@@ -52,6 +52,24 @@ android {
     namespace = "com.xayah.libnative"
     ndkVersion = "25.2.9519653"
 
+    defaultConfig {
+        // 让 CMake 通过 ccache 做编译器缓存，加速 C/C++（tar/zstd/nativelib/rustic-jni 锚点）二次构建。
+        // 仅当 PATH 中存在 ccache 时才注入 launcher，避免本地无 ccache 环境构建失败。
+        val hasCcache = System.getenv("PATH")
+            ?.split(File.pathSeparator)
+            ?.any { File(it, if (isWindows) "ccache.exe" else "ccache").exists() } == true
+        if (hasCcache) {
+            externalNativeBuild {
+                cmake {
+                    arguments += listOf(
+                        "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
+                        "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+                    )
+                }
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

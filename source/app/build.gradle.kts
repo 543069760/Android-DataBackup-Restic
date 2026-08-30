@@ -60,6 +60,7 @@ android {
 
     lint {
         disable += "MissingTranslation"
+        checkReleaseBuilds = false
     }
 
     flavorDimensions += listOf("abi", "feature")

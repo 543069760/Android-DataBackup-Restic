@@ -45,7 +45,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch }}
           fetch-depth: 0            # 获取完整提交历史以统计 commit 数量
-          submodules: recursive     # 拉取 tar / zstd-jni / rustic_core 子模块
+          submodules: recursive     # 拉取 tar / zstd-jni / rustic_core / rclone 子模块
 
       - name: Validate gradle wrapper
         uses: gradle/wrapper-validation-action@v1
@@ -58,6 +58,29 @@ jobs:
 
       - name: Setup gradle
         uses: gradle/gradle-build-action@v3
+
+      # ── Gradle 缓存（跨 run 复用 R8/KSP/编译产物）──────────────────────
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches  
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('source/**/*.gradle.kts', 'source/gradle/libs.versions.toml', 'source/gradle.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-  
+
+      # ── ccache（加速 C/C++：tar / zstd / nativelib / tar-wrapper / rustic 锚点 .cpp）──
+      - name: Install ccache
+        run: sudo apt-get update && sudo apt-get install -y ccache
+
+      - name: ccache cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-${{ hashFiles('source/native/src/main/jni/**/*.c', 'source/native/src/main/jni/**/*.cpp', 'source/native/src/main/jni/**/CMakeLists.txt') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-  
 
       # ── Rust 工具链（编译 librustic.so 所需）──────────────────────────
       - name: Set up Rust toolchain
@@ -73,14 +96,39 @@ jobs:
 
       # ── Go + gomobile（:native:gomobileBindRclone 任务执行 gomobile bind 所需）──
       - name: Set up Go
+        id: setup-go
         uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
+          go-version: '1.26.7'   # 锁定与本地一致，避免 stable 漂移导致 gojni 运行时卡死
+          cache: false           # 缓存下方手动管理，指向 rclone 子模块 go.sum
+
+      - name: Resolve Go cache paths
+        id: go-paths
+        run: |
+          echo "build-cache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"  
+          echo "mod-cache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"  
+
+      - name: Go module cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.go-paths.outputs.mod-cache }}
+          key: go-mod-${{ runner.os }}-${{ hashFiles('source/native/src/main/jni/external/rclone/rclone/go.sum') }}
+          restore-keys: |
+            go-mod-${{ runner.os }}-  
+
+      - name: Go build cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.go-paths.outputs.build-cache }}
+          key: go-build-${{ runner.os }}-go${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('source/native/src/main/jni/external/rclone/rclone/go.sum') }}
+          restore-keys: |
+            go-build-${{ runner.os }}-go${{ steps.setup-go.outputs.go-version }}-  
+            go-build-${{ runner.os }}-  
 
       - name: Install gomobile
         run: |
-          go install golang.org/x/mobile/cmd/gobind@latest  
-          go install golang.org/x/mobile/cmd/gomobile@latest  
+          go install golang.org/x/mobile/cmd/gobind@v0.0.0-20260709172247-6129f5bee9d5  
+          go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260709172247-6129f5bee9d5  
           gomobile init  
           echo "$HOME/go/bin" >> "$GITHUB_PATH"  
 
@@ -171,6 +219,7 @@ jobs:
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          CCACHE_MAXSIZE: 2G
         run: |
           # 根据 release_type 决定构建变体后缀：release → Release，其它（pre-release）→ Debug  
           if [ "${RELEASE_TYPE}" = 'release' ]; then  
@@ -216,7 +265,10 @@ jobs:
           
           chmod +x gradlew  
           # 注入版本参数，对应 build.gradle.kts 中的 project.hasProperty 逻辑（单行避免续行空白参数）  
-          ./gradlew $TASKS -PversionCode=${{ steps.calc_version.outputs.code }} -PversionName="${{ steps.calc_version.outputs.name }}" --daemon --parallel
+          ./gradlew $TASKS -PversionCode=${{ steps.calc_version.outputs.code }} -PversionName="${{ steps.calc_version.outputs.name }}" --daemon --parallel --build-cache  
+          
+          # 打印 ccache 命中统计  
+          ccache -s || true
         working-directory: source
 
       - name: Move APKs to root
