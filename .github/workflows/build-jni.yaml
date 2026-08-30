@@ -39,6 +39,8 @@ jobs:
     permissions:
       contents: write
     timeout-minutes: 90
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/source/native/src/main/jni/external/rustic/rustic/target
     steps:
       - name: Checkout
         uses: actions/checkout@v4
