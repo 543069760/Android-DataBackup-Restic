@@ -13,6 +13,7 @@ import com.xayah.core.datastore.saveFtpResticRepoPath
 import com.xayah.core.model.CloudType
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.FTPExtra
+import com.xayah.core.network.util.getExtraEntity
 import com.xayah.core.restic.ResticNative
 import com.xayah.core.restic.ResticRepositoryFtp
 import com.xayah.core.rootservice.service.RemoteRootService
@@ -73,6 +74,27 @@ class FtpResticViewModel @Inject constructor(
                 val repoPath = context.readFtpResticRepoPath() ?: ""
                 _ftpInitializationState.value = FtpInitializationState.Success(repoPath)
             }
+        }
+    }
+
+    /**
+     * 从既有账户 CloudEntity 恢复 FTP restic 初始化状态。
+     * 导入配置时只写回 CloudEntity（含 extra 里的 resticPassword），
+     * 不会写全局 DataStore，故这里改从实体反查恢复，行为对齐 SFTP。
+     *
+     * 规则：解析出的 resticPassword 非空即视为"之前已初始化过"，
+     * 把密码回填 UI 状态，并把初始化状态置为 Success(remote)。
+     */
+    fun restoreStateFromEntity(cloudEntity: CloudEntity) {
+        if (cloudEntity.type != CloudType.FTP) return
+        if (_ftpInitializationState.value !is FtpInitializationState.Idle) return
+
+        val ftpExtra = cloudEntity.getExtraEntity<FTPExtra>() ?: return
+        val savedPassword = ftpExtra.resticPassword
+        if (savedPassword.isNotEmpty()) {
+            _ftpPasswordState.value = savedPassword
+            _ftpInitializationState.value = FtpInitializationState.Success(cloudEntity.remote)
+            Log.d(TAG, "已从账户恢复 FTP Restic 初始化状态: ${cloudEntity.remote}")
         }
     }
 

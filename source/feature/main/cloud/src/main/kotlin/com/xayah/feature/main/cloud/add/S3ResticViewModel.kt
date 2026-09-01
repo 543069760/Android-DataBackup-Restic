@@ -13,6 +13,9 @@ import com.xayah.core.datastore.saveS3ResticRepoPath
 import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.database.S3NetworkType
 import com.xayah.core.model.database.S3Protocol
+import com.xayah.core.model.CloudType
+import com.xayah.core.model.database.CloudEntity
+import com.xayah.core.network.util.getExtraEntity
 import com.xayah.core.restic.ResticNative
 import com.xayah.core.restic.ResticRepositoryCos
 import com.xayah.core.rootservice.service.RemoteRootService
@@ -72,6 +75,27 @@ class S3ResticViewModel @Inject constructor(
                 val repoPath = context.readS3ResticRepoPath() ?: ""
                 _s3InitializationState.value = S3InitializationState.Success(repoPath)
             }
+        }
+    }
+
+    /**
+     * 从既有账户 CloudEntity 恢复 S3 restic 初始化状态。
+     * 导入配置时只写回 CloudEntity（含 extra 里的 resticPassword），
+     * 不会写全局 DataStore，故这里改从实体反查恢复，行为对齐 SFTP。
+     *
+     * 规则：解析出的 resticPassword 非空即视为"之前已初始化过"，
+     * 把密码回填 UI 状态，并把初始化状态置为 Success(remote)。
+     */
+    fun restoreStateFromEntity(cloudEntity: CloudEntity) {
+        if (cloudEntity.type != CloudType.S3) return
+        if (_s3InitializationState.value !is S3InitializationState.Idle) return
+
+        val s3Extra = cloudEntity.getExtraEntity<S3Extra>() ?: return
+        val savedPassword = s3Extra.resticPassword
+        if (savedPassword.isNotEmpty()) {
+            _s3PasswordState.value = savedPassword
+            _s3InitializationState.value = S3InitializationState.Success(cloudEntity.remote)
+            Log.d(TAG, "已从账户恢复 S3 Restic 初始化状态: ${cloudEntity.remote}")
         }
     }
 

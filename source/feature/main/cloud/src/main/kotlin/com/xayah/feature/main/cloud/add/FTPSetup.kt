@@ -116,6 +116,13 @@ fun PageFTPSetup() {
         viewModel.emitIntentOnIO(IndexUiIntent.Initialize)
     }
 
+    // 编辑已有/导入的 FTP 账户时，从账户 CloudEntity 恢复 restic 初始化状态与密码回填
+    LaunchedEffect(uiState.cloudEntity) {
+        uiState.cloudEntity?.let { entity ->
+            ftpViewModel.restoreStateFromEntity(entity)
+        }
+    }
+
     AccountSetupScaffold(
         scrollBehavior = scrollBehavior,
         snackbarHostState = viewModel.snackbarHostState,

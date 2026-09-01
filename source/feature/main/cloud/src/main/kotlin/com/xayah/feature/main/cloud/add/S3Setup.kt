@@ -74,7 +74,7 @@ import com.xayah.feature.main.cloud.SetupTextField
 fun PageS3Setup() {
     val dialogState = LocalSlotScope.current!!.dialogSlot
     val context = LocalContext.current
-    val notSelectedText = stringResource(id = R.string.not_selected)   // 新增
+    val notSelectedText = stringResource(id = R.string.not_selected)
     val navController = LocalNavController.current!!
     val viewModel = hiltViewModel<IndexViewModel>()
     val s3ViewModel = hiltViewModel<S3ResticViewModel>()
@@ -159,6 +159,13 @@ fun PageS3Setup() {
 
     LaunchedEffect(null) {
         viewModel.emitIntentOnIO(IndexUiIntent.Initialize)
+    }
+
+    // 编辑已有/导入的 S3 账户时，从账户 CloudEntity 恢复 restic 初始化状态与密码回填
+    LaunchedEffect(uiState.cloudEntity) {
+        uiState.cloudEntity?.let { entity ->
+            s3ViewModel.restoreStateFromEntity(entity)
+        }
     }
 
     AccountSetupScaffold(
