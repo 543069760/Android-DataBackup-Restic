@@ -740,6 +740,84 @@ private suspend fun backupWithResticToWebdav(
         }
     }
 
+    private fun sanitizeTag(raw: String): String =
+        raw.replace(Regex("[^A-Za-z0-9]"), "_")
+
+    override suspend fun onIconsSaved(path: String, entity: ProcessingInfoEntity) {
+        val iconFile = File(path)
+        if (!iconFile.exists()) {
+            Log.d(mTAG, "SAVE_ICONS: icon.tar not found at $path, skip cloud icon snapshot")
+            return
+        }
+
+        val tag = "__icons__-${sanitizeTag(mCloudEntity.name)}-$mBackupTimestamp"
+        val tags = listOf(tag)
+        val unifiedRepoPath = mCloudEntity.remote
+        val cancelId = System.nanoTime()
+
+        try {
+            val result: Pair<Int, String> = when (mCloudEntity.type) {
+                CloudType.FTP -> {
+                    val ftpExtra = json.decodeFromString<FTPExtra>(mCloudEntity.extra)
+                    resticRepoFtp.backupFileToFtp(
+                        cloudEntity = mCloudEntity,
+                        remotePath = unifiedRepoPath,
+                        filePath = path,
+                        tags = tags,
+                        password = ftpExtra.resticPassword.ifEmpty { getResticPassword() },
+                        cancelId = cancelId
+                    )
+                }
+
+                CloudType.WEBDAV -> {
+                    val webdavExtra = json.decodeFromString<WebDAVExtra>(mCloudEntity.extra)
+                    resticRepoWebdav.backupFileToWebdav(
+                        cloudEntity = mCloudEntity,
+                        remotePath = unifiedRepoPath,
+                        filePath = path,
+                        tags = tags,
+                        password = webdavExtra.resticPassword.ifEmpty { getResticPassword() },
+                        cancelId = cancelId
+                    )
+                }
+
+                CloudType.SFTP -> {
+                    val sftpExtra = json.decodeFromString<SFTPExtra>(mCloudEntity.extra)
+                    resticRepoSftp.backupFileToSftp(
+                        cloudEntity = mCloudEntity,
+                        remotePath = unifiedRepoPath,
+                        filePath = path,
+                        tags = tags,
+                        password = sftpExtra.resticPassword.ifEmpty { getResticPassword() },
+                        cancelId = cancelId
+                    )
+                }
+
+                else -> {
+                    val s3Extra = json.decodeFromString<S3Extra>(mCloudEntity.extra)
+                    resticRepoCos.backupFileToCos(
+                        extra = s3Extra,
+                        remotePath = unifiedRepoPath,
+                        filePath = path,
+                        tags = tags,
+                        password = s3Extra.resticPassword.ifEmpty { mContext.readS3ResticPassword() ?: getResticPassword() },
+                        cancelId = cancelId
+                    )
+                }
+            }
+
+            if (result.first == 0) {
+                Log.d(mTAG, "SAVE_ICONS: cloud icon snapshot pushed, tag=$tag, type=${mCloudEntity.type}")
+            } else {
+                Log.i(mTAG, "SAVE_ICONS: cloud icon snapshot failed, code=${result.first}, msg=${result.second}")
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(mTAG, "SAVE_ICONS: cloud icon snapshot exception: ${e.message}", e)
+        }
+    }
+
     override suspend fun clear() {
         mRootService.deleteRecursively(mRootDir)
         mClient.disconnect()

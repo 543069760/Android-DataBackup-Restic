@@ -10,6 +10,7 @@ import com.xayah.core.model.OpType
 import com.xayah.core.model.OperationState
 import com.xayah.core.model.TaskType
 import com.xayah.core.model.database.PackageEntity
+import com.xayah.core.model.database.ProcessingInfoEntity
 import com.xayah.core.model.database.TaskDetailPackageEntity
 import com.xayah.core.model.database.TaskEntity
 import com.xayah.core.model.util.get
@@ -166,6 +167,40 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
         }
 
         cleanupStopFiles()
+    }
+
+    override suspend fun onIconsSaved(path: String, entity: ProcessingInfoEntity) {
+        val iconFile = File(path)
+        if (!iconFile.exists()) {
+            log { "SAVE_ICONS: icon.tar not found at $path, skip icon snapshot" }
+            return
+        }
+
+        try {
+            val repoPath = getResticRepoPath()
+            val password = getResticPassword()
+            // 专用标签，非 user_X-包名-时间戳-类型 四段式，避免被 parseAppsDb 当成应用
+            val tag = "__icons__-local-$mBackupTimestamp"
+
+            val result = resticRepo.backupWithResticToLocal(
+                repoPath = repoPath,
+                password = password,
+                filePath = path,
+                tags = listOf(tag),
+                cancelId = System.nanoTime()
+            )
+
+            if (result.first == 0) {
+                log { "SAVE_ICONS: icon snapshot pushed to local repo, tag=$tag" }
+            } else {
+                log { "SAVE_ICONS: icon snapshot failed, code=${result.first}, msg=${result.second}" }
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 图标失败不影响主备份流程
+            log { "SAVE_ICONS: icon snapshot exception: ${e.message}" }
+        }
     }
 
     override suspend fun clear() {
