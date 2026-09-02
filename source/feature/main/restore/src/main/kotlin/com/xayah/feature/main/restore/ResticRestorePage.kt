@@ -125,7 +125,8 @@ fun ResticRestorePage(
                                         // 3. 执行导航
                                         navController.navigateSingle(url)
                                     },
-                                    context = LocalContext.current
+                                    context = LocalContext.current,
+                                    accountId = "local"
                                 )
                             }
                         }
@@ -159,7 +160,8 @@ fun ResticRestorePage(
 fun ResticBackupGroupItem(
     group: ResticBackupGroup,
     onClick: () -> Unit,
-    context: Context
+    context: Context,
+    accountId: String? = null
 ) {
     val hasConfigSnapshot = group.backups.any { it.dataType == DataType.PACKAGE_CONFIG }
 
@@ -176,7 +178,7 @@ fun ResticBackupGroupItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level16)
         ) {
-            PackageIconImage(packageName = group.packageName, size = SizeTokens.Level32)
+            PackageIconImage(packageName = group.packageName, size = SizeTokens.Level32, accountId = accountId)
 
             Column(modifier = Modifier.weight(1f)) {
                 Row(

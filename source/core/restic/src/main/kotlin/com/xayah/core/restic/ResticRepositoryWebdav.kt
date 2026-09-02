@@ -235,6 +235,47 @@ class ResticRepositoryWebdav @Inject constructor(
         }
     }
 
+    // listSnapshotsFromWebdav —— 对应 listBackedUpAppsFromWebdavWithSqlJni，但用 parseSnapshotsDb（不按四段式过滤，保留 __icons__ 快照）
+    suspend fun listSnapshotsFromWebdav(
+        cloudEntity: CloudEntity,
+        password: String
+    ): List<ResticSnapshot> = withContext(Dispatchers.IO) {
+        try {
+            val repoPath = "opendal:webdav"
+            val options = buildWebdavBackendOptions(cloudEntity, cloudEntity.remote)
+
+            val sqlDir = File(shared.context.cacheDir, "sql")
+            if (!sqlDir.exists()) sqlDir.mkdirs()
+
+            val dbFile = File(sqlDir, "snapshots_webdav_${System.currentTimeMillis()}.db")
+
+            Log.d(ResticShared.TAG, "执行 JNI listSnapshotsDb (WebDAV/snapshots)，repo=$repoPath，输出=${dbFile.absolutePath}")
+
+            val result = shared.rootService.listRusticSnapshotsDb(
+                repositoryPath = repoPath,
+                password = password,
+                dbPath = dbFile.absolutePath,
+                options = options,
+            )
+            if (result.isFailure) {
+                Log.e(ResticShared.TAG, "listRusticSnapshotsDb (WebDAV/snapshots) 失败", result.exceptionOrNull())
+                return@withContext emptyList()
+            }
+            if (!dbFile.exists() || dbFile.length() == 0L) {
+                Log.e(ResticShared.TAG, "DB 文件未生成或为空 (WebDAV/snapshots)")
+                return@withContext emptyList()
+            }
+
+            val snapshots = shared.parseSnapshotsDb(dbFile)
+            dbFile.delete()
+            Log.d(ResticShared.TAG, "JNI 模式 (WebDAV) 成功提取 ${snapshots.size} 个快照")
+            snapshots
+        } catch (e: Exception) {
+            Log.e(ResticShared.TAG, "listSnapshotsFromWebdav 异常", e)
+            emptyList()
+        }
+    }
+
     /**
      * 把 CloudEntity(host/user/pass) 翻译成 opendal:webdav 后端 options map。
      * key 名对应 opendal 0.57.0 WebdavConfig 字段，原样透传给 opendal Operator::via_iter。

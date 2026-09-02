@@ -219,7 +219,11 @@ fun CloudBackupDetailPage(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level16)
             ) {
-                PackageIconImage(packageName = group.packageName, size = SizeTokens.Level64)
+                PackageIconImage(
+                    packageName = group.packageName,
+                    size = SizeTokens.Level64,
+                    accountId = accountName.replace(Regex("[^A-Za-z0-9]"), "_")
+                )
 
                 Column {
                     TitleLargeText(text = group.appLabel)

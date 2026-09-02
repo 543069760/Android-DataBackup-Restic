@@ -210,7 +210,11 @@ fun ResticBackupDetailPage(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level16)
             ) {
-                PackageIconImage(packageName = group.packageName, size = SizeTokens.Level64)
+                PackageIconImage(
+                    packageName = group.packageName,
+                    size = SizeTokens.Level64,
+                    accountId = "local"
+                )
 
                 Column {
                     TitleLargeText(text = group.appLabel)

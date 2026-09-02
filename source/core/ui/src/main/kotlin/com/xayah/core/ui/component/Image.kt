@@ -50,13 +50,13 @@ import kotlin.math.sqrt
 
 @ExperimentalFoundationApi
 @Composable
-fun PackageIconImage(icon: ImageVector? = null, packageName: String, shape: Shape? = null, inCircleShape: Boolean = false, size: Dp = SizeTokens.Level32) {
+fun PackageIconImage(icon: ImageVector? = null, packageName: String, shape: Shape? = null, inCircleShape: Boolean = false, size: Dp = SizeTokens.Level32, accountId: String? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var iconForeground by remember(packageName, icon) { mutableStateOf<Drawable?>(null) }
-    var iconBackground by remember(packageName, icon) { mutableStateOf<Drawable?>(null) }
+    var iconForeground by remember(packageName, icon, accountId) { mutableStateOf<Drawable?>(null) }
+    var iconBackground by remember(packageName, icon, accountId) { mutableStateOf<Drawable?>(null) }
     val sizeForeground by remember(size, inCircleShape) { mutableStateOf(if (inCircleShape) size.div(sqrt(2.2F)) else size) }
-    LaunchedEffect(packageName, icon) {
+    LaunchedEffect(packageName, icon, accountId) {
         if (icon == null) {
             scope.launch(Dispatchers.IO) {
                 val iconDrawable = runCatching { context.packageManager.getApplicationIcon(packageName) }.getOrNull()
@@ -72,11 +72,19 @@ fun PackageIconImage(icon: ImageVector? = null, packageName: String, shape: Shap
                         iconForeground = iconDrawable
                     }
                 } else {
-                    var localDrawable = BaseUtil.readIcon(context, PathUtil.getPackageIconPath(context, packageName, true))
+                    val adaptivePath = if (accountId != null)
+                        PathUtil.getPackageIconPath(context, packageName, true, accountId)
+                    else
+                        PathUtil.getPackageIconPath(context, packageName, true)
+                    var localDrawable = BaseUtil.readIcon(context, adaptivePath)
                     if (localDrawable != null) {
                         iconBackground = localDrawable
                     } else {
-                        localDrawable = BaseUtil.readIcon(context, PathUtil.getPackageIconPath(context, packageName, false))
+                        val normalPath = if (accountId != null)
+                            PathUtil.getPackageIconPath(context, packageName, false, accountId)
+                        else
+                            PathUtil.getPackageIconPath(context, packageName, false)
+                        localDrawable = BaseUtil.readIcon(context, normalPath)
                         iconForeground = localDrawable
                     }
                 }

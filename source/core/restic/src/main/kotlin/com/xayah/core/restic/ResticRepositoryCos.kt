@@ -109,6 +109,23 @@ class ResticRepositoryCos @Inject constructor(
         }
     }
 
+    // 列出全部快照（含 tags），用于筛选 __icons__ 图标快照
+    suspend fun listSnapshotsFromCos(
+        cloudEntity: CloudEntity, password: String
+    ): List<ResticSnapshot> = withContext(Dispatchers.IO) {
+        try {
+            val extra = ResticShared.json.decodeFromString<S3Extra>(cloudEntity.extra)
+            val options = buildS3BackendOptions(extra, cloudEntity.remote)
+            val sqlDir = File(shared.context.cacheDir, "sql"); if (!sqlDir.exists()) sqlDir.mkdirs()
+            val dbFile = File(sqlDir, "snapshots_icons_s3_${System.currentTimeMillis()}.db")
+            val result = shared.rootService.listRusticSnapshotsDb("opendal:cos", password, dbFile.absolutePath, options)
+            if (result.isFailure || !dbFile.exists() || dbFile.length() == 0L) { dbFile.delete(); return@withContext emptyList() }
+            val snapshots = shared.parseSnapshotsDb(dbFile); dbFile.delete(); snapshots
+        } catch (e: Exception) {
+            Log.e(ResticShared.TAG, "listSnapshotsFromCos 异常", e); emptyList()
+        }
+    }
+
     // restoreSnapshotFromCos —— 对应 restoreSnapshotFromS3
     suspend fun restoreSnapshotFromCos(
         cloudEntity: CloudEntity, password: String, snapshotId: String,

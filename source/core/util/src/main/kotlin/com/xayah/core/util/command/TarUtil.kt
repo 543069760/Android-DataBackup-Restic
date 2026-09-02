@@ -130,6 +130,22 @@ object Tar {
     suspend fun decompress(
         cacheDir: String,
         callTar: CallTar,
+        src: String,
+        dst: String,
+        stripComponents: Int,
+    ): ShellResult {
+        val argv = mutableListOf(
+            "tar", "--xattrs", "--xattrs-include=*", "--acls", "--selinux",
+            "--totals",
+        )
+        if (stripComponents > 0) argv.add("--strip-components=$stripComponents")
+        argv.addAll(listOf("-xmpf", src, "-C", dst))
+        return runToFiles(cacheDir, argv.toTypedArray(), callTar)
+    }
+
+    suspend fun decompress(
+        cacheDir: String,
+        callTar: CallTar,
         exclusionList: List<String>,
         clear: String,
         m: Boolean,

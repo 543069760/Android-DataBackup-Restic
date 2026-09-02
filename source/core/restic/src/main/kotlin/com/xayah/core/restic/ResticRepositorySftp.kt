@@ -288,6 +288,49 @@ class ResticRepositorySftp @Inject constructor(
         }
     }
 
+    // listSnapshotsFromSftp —— 对应 listBackedUpAppsFromSftpWithSqlJni，但用 parseSnapshotsDb（不按四段式过滤，保留 __icons__ 快照）
+    suspend fun listSnapshotsFromSftp(
+        cloudEntity: CloudEntity,
+        password: String
+    ): List<ResticSnapshot> = withContext(Dispatchers.IO) {
+        val session = startServe(cloudEntity, cloudEntity.remote)
+        try {
+            val repoPath = session.restUrl
+
+            val sqlDir = File(shared.context.cacheDir, "sql")
+            if (!sqlDir.exists()) sqlDir.mkdirs()
+
+            val dbFile = File(sqlDir, "snapshots_sftp_${System.currentTimeMillis()}.db")
+
+            Log.d(ResticShared.TAG, "执行 JNI listSnapshotsDb (SFTP/snapshots)，repo=$repoPath，输出=${dbFile.absolutePath}")
+
+            val result = shared.rootService.listRusticSnapshotsDb(
+                repositoryPath = repoPath,
+                password = password,
+                dbPath = dbFile.absolutePath,
+                options = emptyMap(),
+            )
+            if (result.isFailure) {
+                Log.e(ResticShared.TAG, "listRusticSnapshotsDb (SFTP/snapshots) 失败", result.exceptionOrNull())
+                return@withContext emptyList()
+            }
+            if (!dbFile.exists() || dbFile.length() == 0L) {
+                Log.e(ResticShared.TAG, "DB 文件未生成或为空 (SFTP/snapshots)")
+                return@withContext emptyList()
+            }
+
+            val snapshots = shared.parseSnapshotsDb(dbFile)
+            dbFile.delete()
+            Log.d(ResticShared.TAG, "JNI 模式 (SFTP) 成功提取 ${snapshots.size} 个快照")
+            snapshots
+        } catch (e: Exception) {
+            Log.e(ResticShared.TAG, "listSnapshotsFromSftp 异常", e)
+            emptyList()
+        } finally {
+            stopServe(session)
+        }
+    }
+
     /**
      * 起 librclone serve restic：把 SFTP 表单字段（host/port/user/pass + remotePath）交给
      * 接入层，由 rclone 在 serve 侧完成 SFTP + 密码认证，返回本地 rest: URL 与 serve id。

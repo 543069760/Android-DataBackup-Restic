@@ -31,6 +31,14 @@ import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.GsonUtil
 import com.xayah.core.util.decodeURL
 import com.xayah.core.util.localBackupSaveDir
+import com.xayah.core.datastore.readLoadedIconMD5
+import com.xayah.core.datastore.saveLoadedIconMD5
+import com.xayah.core.util.iconDir
+import com.xayah.core.util.PathUtil
+import com.xayah.core.util.IconRelativeDir
+import com.xayah.core.model.CompressionType
+import com.xayah.core.util.command.Tar
+import kotlinx.coroutines.flow.first
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -157,11 +165,96 @@ class CloudRestoreViewModel @Inject constructor(
                         )
                     }
                     .sortedByDescending { it.timestamp }
-
+                runCatching { loadCloudIconsFromRestic(cloudEntity, password) }
+                    .onFailure { Log.w("CloudRestore", "图标取回失败(忽略): ${it.message}") }
                 _uiState.value = CloudRestoreUiState.Success(groupedBackups)
             } catch (e: Exception) {
                 _uiState.value = CloudRestoreUiState.Error("加载失败: ${e.message}")
             }
+        }
+    }
+
+    private suspend fun loadCloudIconsFromRestic(cloudEntity: CloudEntity, password: String) = withContext(Dispatchers.IO) {
+        val accountId = cloudEntity.name.replace(Regex("[^A-Za-z0-9]"), "_")
+        Log.d("IconRestore", "cloud enter, accountId=$accountId, type=${cloudEntity.type}")
+
+        try {
+            // 1. 列快照，筛 __icons__-<accountId>- 前缀，取 time 最新
+            val snapshots = when (cloudEntity.type) {
+                CloudType.FTP    -> resticRepoFtp.listSnapshotsFromFtp(cloudEntity, password)
+                CloudType.WEBDAV -> resticRepoWebdav.listSnapshotsFromWebdav(cloudEntity, password)
+                CloudType.SFTP   -> resticRepoSftp.listSnapshotsFromSftp(cloudEntity, password)
+                else             -> resticRepoCos.listSnapshotsFromCos(cloudEntity, password)
+            }
+            Log.d("IconRestore", "cloud snapshots total=${snapshots.size}")
+
+            val matched = snapshots.filter { snap -> snap.tags.any { it.startsWith("__icons__-$accountId-") } }
+            Log.d("IconRestore", "cloud icon snapshots matched=${matched.size} for prefix=__icons__-$accountId-")
+
+            val iconSnapshot = matched.maxByOrNull { it.time }
+            if (iconSnapshot == null) {
+                Log.w("IconRestore", "cloud no icon snapshot found for accountId=$accountId")
+                return@withContext
+            }
+            val snapshotId = iconSnapshot.id
+            Log.d("IconRestore", "cloud selected snapshotId=$snapshotId, time=${iconSnapshot.time}, tags=${iconSnapshot.tags}")
+
+            // 2. 去重：snapshotId 未变则跳过
+            val loaded = context.readLoadedIconMD5(accountId)
+            val iconDirForCheck = context.iconDir(accountId)
+            val iconDirExists = File(iconDirForCheck).let { it.exists() && (it.listFiles()?.isNotEmpty() == true) }
+            Log.d("IconRestore", "cloud dedup check, loaded=$loaded, current=$snapshotId, dirExists=$iconDirExists")
+            if (loaded == snapshotId && iconDirExists) {
+                Log.d("IconRestore", "cloud skip decompress, snapshotId unchanged ($snapshotId) and dir non-empty")
+                return@withContext
+            }
+            if (loaded == snapshotId && !iconDirExists) {
+                Log.d("IconRestore", "cloud token matched but icon dir missing/empty, force re-decompress ($snapshotId)")
+            }
+
+            // 3. 整快照还原到临时目录
+            val tmpDir = File(context.cacheDir, "icon_restore_$accountId").apply { deleteRecursively(); mkdirs() }
+            Log.d("IconRestore", "cloud restoring snapshot to tmpDir=${tmpDir.absolutePath}")
+            val ok = when (cloudEntity.type) {
+                CloudType.FTP    -> resticRepoFtp.restoreSnapshotFromFtp(cloudEntity, password, snapshotId, tmpDir.absolutePath)
+                CloudType.WEBDAV -> resticRepoWebdav.restoreSnapshotFromWebdav(cloudEntity, password, snapshotId, tmpDir.absolutePath)
+                CloudType.SFTP   -> resticRepoSftp.restoreSnapshotFromSftp(cloudEntity, password, snapshotId, tmpDir.absolutePath)
+                else             -> resticRepoCos.restoreSnapshotFromCos(cloudEntity, password, snapshotId, tmpDir.absolutePath)
+            }
+            if (!ok) {
+                Log.w("IconRestore", "cloud restore snapshot failed accountId=$accountId, snapshotId=$snapshotId")
+                tmpDir.deleteRecursively()
+                return@withContext
+            }
+            Log.d("IconRestore", "cloud restore snapshot ok, snapshotId=$snapshotId")
+
+            // 4. 递归找 icon.tar
+            val iconTar = tmpDir.walkTopDown().firstOrNull {
+                it.isFile && it.name == "$IconRelativeDir.${CompressionType.TAR.suffix}"
+            }
+            if (iconTar == null) {
+                Log.w("IconRestore", "cloud icon.tar not found in tmpDir=${tmpDir.absolutePath}")
+                tmpDir.deleteRecursively()
+                return@withContext
+            }
+            Log.d("IconRestore", "cloud found icon.tar=${iconTar.absolutePath}, size=${iconTar.length()}")
+
+            // 5. 解压到按账号隔离的目录 + 修 SELinux + 记 snapshotId 去重 token
+            val iconDst = context.iconDir(accountId)
+            File(iconDst).mkdirs()
+            Tar.decompress(
+                cacheDir = context.cacheDir.path,
+                callTar = { o, e, argv -> rootService.callTarCli(o, e, argv) },
+                src = iconTar.absolutePath,
+                dst = iconDst,
+                stripComponents = 1,
+            )
+            PathUtil.setFilesDirSELinux(context)
+            context.saveLoadedIconMD5(accountId, snapshotId)
+            tmpDir.deleteRecursively()
+            Log.d("IconRestore", "cloud icons decompressed to $iconDst, snapshotId=$snapshotId")
+        } catch (e: Exception) {
+            Log.e("IconRestore", "cloud icon restore failed accountId=$accountId", e)
         }
     }
 

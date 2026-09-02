@@ -145,7 +145,8 @@ fun CloudRestorePage(
                                             Log.e("CloudRestorePage", "点击事件处理失败", e)
                                         }
                                     },
-                                    context = LocalContext.current
+                                    context = LocalContext.current,
+                                    accountId = accountName.replace(Regex("[^A-Za-z0-9]"), "_")
                                 )
                             }
                         }

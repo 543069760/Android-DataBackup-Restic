@@ -28,6 +28,7 @@ fun Context.logDir(): String = "${filesDir()}/$LogRelativeDir"
 fun Context.binDir(): String = "${filesDir()}/$BinRelativeDir"
 fun Context.binArchivePath(): String = "${filesDir()}/$BinArchiveName"
 fun Context.iconDir(): String = "${filesDir()}/$IconRelativeDir"
+fun Context.iconDir(accountId: String): String = "${filesDir()}/$IconRelativeDir/$accountId"
 fun Context.tmpApksDir(): String = "${filesDir()}/$TmpRelativeDir/$ApksRelativeDir"
 fun Context.localBackupSaveDir(): String = runBlocking { readBackupSavePath().first() }
 fun Context.cloudTmpAbsoluteDir(): String = "${filesDir()}/$CloudTmpRelativeDir"
@@ -83,6 +84,7 @@ class PathUtil @Inject constructor(
         fun getSsaidPath(userId: Int) = "/data/system/users/$userId/settings_ssaid.xml"
 
         fun getPackageIconPath(context: Context, packageName: String, adaptive: Boolean): String = "${context.iconDir()}/${if (adaptive) getPackageAdaptiveIconRelativePath(packageName) else getPackageIconRelativePath(packageName)}"
+        fun getPackageIconPath(context: Context, packageName: String, adaptive: Boolean, accountId: String): String = "${context.iconDir(accountId)}/${if (adaptive) getPackageAdaptiveIconRelativePath(packageName) else getPackageIconRelativePath(packageName)}"
     }
 
     fun getCloudTmpDir(): String = context.cloudTmpAbsoluteDir()

@@ -15,6 +15,7 @@ val KeyBackupSavePath = stringPreferencesKey("backup_save_path")
 val KeyAppVersionName = stringPreferencesKey("app_version_name")
 val KeyCloudActivatedAccountName = stringPreferencesKey("cloud_activated_account_name")
 val KeyLoadedIconMD5 = stringPreferencesKey("loaded_icon_md5")
+fun keyLoadedIconMD5(accountId: String) = stringPreferencesKey("loaded_icon_md5_$accountId")
 val KeySelectionType = stringPreferencesKey("selection_type")
 val KeyThemeType = stringPreferencesKey("theme_type")
 val KeyCustomSUFile = stringPreferencesKey("custom_su_file")
@@ -38,7 +39,7 @@ fun Context.readLanguage() = readStoreString(key = KeyLanguage, defValue = Const
 // .first() 后的 .takeIf { it.isNotEmpty() } 将 "" 转换回 null，从而实现 String? 的返回。
 suspend fun Context.readResticRepoPath(): String? = readStoreString(key = KeyResticRepoPath, defValue = "").first().takeIf { it.isNotEmpty() }
 suspend fun Context.readResticPassword(): String? = readStoreString(key = KeyResticPassword, defValue = "").first().takeIf { it.isNotEmpty() }
-
+suspend fun Context.readLoadedIconMD5(accountId: String): String = readStoreString(key = keyLoadedIconMD5(accountId), defValue = "").first()
 /**
  * The final path for saving the backup.
  */
@@ -52,6 +53,7 @@ suspend fun Context.saveCompressionType(value: CompressionType) = saveStoreStrin
 suspend fun Context.saveAppVersionName() = saveStoreString(key = KeyAppVersionName, value = getCurrentAppVersionName())
 suspend fun Context.saveCloudActivatedAccountName(value: String) = saveStoreString(key = KeyCloudActivatedAccountName, value = value.trim())
 suspend fun Context.saveLoadedIconMD5(value: String) = saveStoreString(key = KeyLoadedIconMD5, value = value.trim())
+suspend fun Context.saveLoadedIconMD5(accountId: String, value: String) = saveStoreString(key = keyLoadedIconMD5(accountId), value = value.trim())
 suspend fun Context.saveSelectionType(value: SelectionType) = saveStoreString(key = KeySelectionType, value = value.name.trim())
 suspend fun Context.saveThemeType(value: ThemeType) = saveStoreString(key = KeyThemeType, value = value.name.trim())
 suspend fun Context.saveBackupSavePath(value: String) = saveStoreString(key = KeyBackupSavePath, value = value.trim())

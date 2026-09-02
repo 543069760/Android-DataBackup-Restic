@@ -22,6 +22,15 @@ import com.xayah.core.database.dao.PackageDao
 import com.xayah.core.rootservice.service.RemoteRootService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import com.xayah.core.datastore.readLoadedIconMD5
+import com.xayah.core.datastore.saveLoadedIconMD5
+import com.xayah.core.util.iconDir
+import com.xayah.core.util.filesDir
+import com.xayah.core.util.PathUtil
+import com.xayah.core.util.IconRelativeDir
+import com.xayah.core.util.command.Tar
+import com.xayah.core.model.CompressionType
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -100,10 +109,104 @@ class ResticRestoreViewModel @Inject constructor(
                     }
                     .sortedByDescending { it.timestamp }
 
+                // 展示列表前先取回并解压本地账号的图标快照（失败不阻断列表）
+                try {
+                    loadLocalIconsFromRestic(repoPath, password)
+                } catch (e: Exception) {
+                    Log.e(TAG, "加载本地图标失败: ${e.message}", e)
+                }
+
                 _uiState.value = ResticRestoreUiState.Success(groupedBackups)
             } catch (e: Exception) {
                 _uiState.value = ResticRestoreUiState.Error(e.message ?: "Unknown error")
             }
+        }
+    }
+
+    private suspend fun loadLocalIconsFromRestic(repoPath: String, password: String) = withContext(Dispatchers.IO) {
+        val accountId = "local"
+        Log.d("IconRestore", "local restore enter, accountId=$accountId")
+        try {
+            // 1. 找到最新的图标快照
+            val snapshots = resticRepo.listSnapshots(repoPath, password)
+            Log.d("IconRestore", "local snapshots total=${snapshots.size}")
+            val iconSnapshots = snapshots.filter { it.tags.any { t -> t.startsWith("__icons__-$accountId-") } }
+            Log.d("IconRestore", "local icon snapshots matched=${iconSnapshots.size} for accountId=$accountId")
+            val iconSnapshot = iconSnapshots
+                .maxByOrNull { it.time }
+                ?: run {
+                    Log.w("IconRestore", "local no icon snapshot found for accountId=$accountId, skip")
+                    Log.d(TAG, "未找到本地图标快照，跳过")
+                    return@withContext
+                }
+            val snapshotId = iconSnapshot.id
+            Log.d("IconRestore", "local selected snapshotId=$snapshotId, tags=${iconSnapshot.tags}")
+
+            // 2. 去重：snapshotId 未变则跳过
+            // 去重判断：token 相等 且 目标目录存在且非空 才跳过；否则即使 token 命中也重新解压
+            val loaded = context.readLoadedIconMD5(accountId)
+            val iconDirForCheck = context.iconDir(accountId)
+            val iconDirExists = File(iconDirForCheck).let { it.exists() && (it.listFiles()?.isNotEmpty() == true) }
+            Log.d("IconRestore", "local dedup check, loaded=$loaded, current=$snapshotId, dirExists=$iconDirExists")
+            if (loaded == snapshotId && iconDirExists) {
+                Log.d("IconRestore", "local skip decompress, snapshotId unchanged ($snapshotId) and dir non-empty")
+                Log.d(TAG, "图标快照未变化 ($snapshotId) 且目录非空，跳过解压")
+                return@withContext
+            }
+            if (loaded == snapshotId && !iconDirExists) {
+                Log.d("IconRestore", "local token matched but icon dir missing/empty, force re-decompress ($snapshotId)")
+            }
+
+            // 3. 整快照还原到临时目录
+            val tmpDir = File(context.cacheDir, "icon_restore_$accountId").apply {
+                deleteRecursively()
+                mkdirs()
+            }
+            Log.d("IconRestore", "local restoring snapshot $snapshotId to ${tmpDir.absolutePath}")
+            val restored = resticRepo.restoreSnapshot(
+                repoPath = repoPath,
+                password = password,
+                snapshotId = snapshotId,
+                targetPath = tmpDir.absolutePath
+            )
+            if (!restored) {
+                Log.e("IconRestore", "local restore failed, snapshotId=$snapshotId")
+                Log.e(TAG, "图标快照还原失败: $snapshotId")
+                tmpDir.deleteRecursively()
+                return@withContext
+            }
+            Log.d("IconRestore", "local restore ok, snapshotId=$snapshotId")
+
+            // 4. 递归找到 icon.tar
+            val iconTarName = "$IconRelativeDir.${CompressionType.TAR.suffix}"
+            val iconTar = tmpDir.walkTopDown().firstOrNull { it.isFile && it.name == iconTarName }
+            if (iconTar == null) {
+                Log.e("IconRestore", "local $iconTarName not found in ${tmpDir.absolutePath}")
+                Log.e(TAG, "临时目录未找到 $iconTarName")
+                tmpDir.deleteRecursively()
+                return@withContext
+            }
+            Log.d("IconRestore", "local found icon tar: ${iconTar.absolutePath}")
+
+            // 5. 解压到账号维度目录
+            val iconDst = context.iconDir(accountId)
+            File(iconDst).mkdirs()
+            Tar.decompress(
+                cacheDir = context.cacheDir.path,
+                callTar = { o, e, argv -> rootService.callTarCli(o, e, argv) },
+                src = iconTar.absolutePath,
+                dst = iconDst,
+                stripComponents = 1,
+            )
+            PathUtil.setFilesDirSELinux(context)
+
+            // 6. 记录去重 token 并清理临时目录
+            context.saveLoadedIconMD5(accountId, snapshotId)
+            tmpDir.deleteRecursively()
+            Log.d("IconRestore", "local icons decompressed to $iconDst, snapshotId=$snapshotId")
+            Log.d(TAG, "本地图标已解压到 $iconDst, snapshotId=$snapshotId")
+        } catch (e: Exception) {
+            Log.e("IconRestore", "local icon restore failed", e)
         }
     }
 

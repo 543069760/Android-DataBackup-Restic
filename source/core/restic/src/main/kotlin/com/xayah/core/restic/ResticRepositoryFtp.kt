@@ -163,6 +163,21 @@ class ResticRepositoryFtp @Inject constructor(
         }
     }
 
+    suspend fun listSnapshotsFromFtp(
+        cloudEntity: CloudEntity, password: String
+    ): List<ResticSnapshot> = withContext(Dispatchers.IO) {
+        val session = startServe(cloudEntity, cloudEntity.remote)
+        try {
+            val sqlDir = File(shared.context.cacheDir, "sql"); if (!sqlDir.exists()) sqlDir.mkdirs()
+            val dbFile = File(sqlDir, "snapshots_icons_ftp_${System.currentTimeMillis()}.db")
+            val result = shared.rootService.listRusticSnapshotsDb(session.restUrl, password, dbFile.absolutePath, emptyMap())
+            if (result.isFailure || !dbFile.exists() || dbFile.length() == 0L) { dbFile.delete(); return@withContext emptyList() }
+            val snapshots = shared.parseSnapshotsDb(dbFile); dbFile.delete(); snapshots
+        } catch (e: Exception) {
+            Log.e(ResticShared.TAG, "listSnapshotsFromFtp 异常", e); emptyList()
+        } finally { stopServe(session) }
+    }
+
     // restoreSnapshotFromFtp —— 对应 restoreSnapshotFromSftp
     suspend fun restoreSnapshotFromFtp(
         cloudEntity: CloudEntity, password: String, snapshotId: String,
