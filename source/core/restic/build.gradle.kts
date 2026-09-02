@@ -21,5 +21,5 @@ dependencies {
 
     // Hilt
     implementation(libs.hilt.android)
-    kapt(libs.hilt.android.compiler)  // 修正：使用正确的引用
+    ksp(libs.hilt.android.compiler)
 }
