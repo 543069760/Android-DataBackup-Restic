@@ -273,48 +273,35 @@ class ResticRepositoryFtp @Inject constructor(
         }
     }
 
-    // listBackedUpAppsFromFtpWithSqlJni —— 对应 listBackedUpAppsFromSftpWithSqlJni
-    suspend fun listBackedUpAppsFromFtpWithSqlJni(
-        cloudEntity: CloudEntity,
-        password: String
+    // 只读缓存：直接读持久 db，不起 serve、不走 JNI（毫秒级）
+    fun readCachedApps(cloudEntity: CloudEntity): List<ResticBackupApp> =
+        shared.readCachedApps(cloudEntity.name)
+
+    // 重建：起 serve 拿 restUrl，走 JNI 重建持久 db 后解析返回
+    suspend fun refreshAndListApps(
+        cloudEntity: CloudEntity, password: String
     ): List<ResticBackupApp> = withContext(Dispatchers.IO) {
         val session = startServe(cloudEntity, cloudEntity.remote)
         try {
-            val repoPath = session.restUrl
-
-            val sqlDir = File(shared.context.cacheDir, "sql")
-            if (!sqlDir.exists()) sqlDir.mkdirs()
-
-            val dbFile = File(sqlDir, "snapshots_ftp_${System.currentTimeMillis()}.db")
-
-            Log.d(ResticShared.TAG, "执行 JNI listSnapshotsDb (FTP)，repo=$repoPath，输出=${dbFile.absolutePath}")
-
-            val result = shared.rootService.listRusticSnapshotsDb(
-                repositoryPath = repoPath,
+            Log.d(ResticShared.TAG, "refreshAndListApps (FTP) restUrl=${session.restUrl}")
+            shared.refreshAppsDb(
+                accountId = cloudEntity.name,
+                repoPath = session.restUrl,
                 password = password,
-                dbPath = dbFile.absolutePath,
                 options = emptyMap(),
             )
-            if (result.isFailure) {
-                Log.e(ResticShared.TAG, "listRusticSnapshotsDb (FTP) 失败", result.exceptionOrNull())
-                return@withContext emptyList()
-            }
-            if (!dbFile.exists() || dbFile.length() == 0L) {
-                Log.e(ResticShared.TAG, "DB 文件未生成或为空 (FTP)")
-                return@withContext emptyList()
-            }
-
-            val apps = shared.parseAppsDb(dbFile)
-            dbFile.delete()
-            Log.d(ResticShared.TAG, "JNI 模式 (FTP) 成功提取 ${apps.size} 个应用备份")
-            apps
         } catch (e: Exception) {
-            Log.e(ResticShared.TAG, "listBackedUpAppsFromFtpWithSqlJni 异常", e)
+            Log.e(ResticShared.TAG, "refreshAndListApps (FTP) 异常", e)
             emptyList()
         } finally {
             stopServe(session)
         }
     }
+
+    // 保留旧名作为别名，避免破坏既有调用点
+    suspend fun listBackedUpAppsFromFtpWithSqlJni(
+        cloudEntity: CloudEntity, password: String
+    ): List<ResticBackupApp> = refreshAndListApps(cloudEntity, password)
 
     /**
      * 起 librclone serve restic：把 FTP 表单字段（host/port/user/pass + remotePath）交给

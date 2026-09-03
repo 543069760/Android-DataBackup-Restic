@@ -68,6 +68,20 @@ fun CloudRestorePage(
         viewModel.setCloudEntity(accountName)
     }
 
+    val needsRefresh = navController.currentBackStackEntry
+        ?.savedStateHandle
+        ?.getStateFlow("cloud_needs_refresh", false)
+        ?.collectAsStateWithLifecycle()
+
+    LaunchedEffect(needsRefresh?.value) {
+        if (needsRefresh?.value == true) {
+            viewModel.forceReload()   // 若 forceReload 需 cloudEntity 参数，见下方说明
+            navController.currentBackStackEntry
+                ?.savedStateHandle
+                ?.set("cloud_needs_refresh", false)
+        }
+    }
+
     RestoreScaffold(
         scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState()),
         title = "云端Restic恢复"

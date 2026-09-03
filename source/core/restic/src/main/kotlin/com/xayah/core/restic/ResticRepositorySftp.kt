@@ -245,48 +245,32 @@ class ResticRepositorySftp @Inject constructor(
         }
     }
 
-    // listBackedUpAppsFromSftpWithSqlJni —— 对应 listBackedUpAppsFromFtpWithSqlJni
-    suspend fun listBackedUpAppsFromSftpWithSqlJni(
-        cloudEntity: CloudEntity,
-        password: String
+    fun readCachedApps(cloudEntity: CloudEntity): List<ResticBackupApp> =
+        shared.readCachedApps(cloudEntity.name)
+
+    suspend fun refreshAndListApps(
+        cloudEntity: CloudEntity, password: String
     ): List<ResticBackupApp> = withContext(Dispatchers.IO) {
         val session = startServe(cloudEntity, cloudEntity.remote)
         try {
-            val repoPath = session.restUrl
-
-            val sqlDir = File(shared.context.cacheDir, "sql")
-            if (!sqlDir.exists()) sqlDir.mkdirs()
-
-            val dbFile = File(sqlDir, "snapshots_sftp_${System.currentTimeMillis()}.db")
-
-            Log.d(ResticShared.TAG, "执行 JNI listSnapshotsDb (SFTP)，repo=$repoPath，输出=${dbFile.absolutePath}")
-
-            val result = shared.rootService.listRusticSnapshotsDb(
-                repositoryPath = repoPath,
+            Log.d(ResticShared.TAG, "refreshAndListApps (SFTP) restUrl=${session.restUrl}")
+            shared.refreshAppsDb(
+                accountId = cloudEntity.name,
+                repoPath = session.restUrl,
                 password = password,
-                dbPath = dbFile.absolutePath,
                 options = emptyMap(),
             )
-            if (result.isFailure) {
-                Log.e(ResticShared.TAG, "listRusticSnapshotsDb (SFTP) 失败", result.exceptionOrNull())
-                return@withContext emptyList()
-            }
-            if (!dbFile.exists() || dbFile.length() == 0L) {
-                Log.e(ResticShared.TAG, "DB 文件未生成或为空 (SFTP)")
-                return@withContext emptyList()
-            }
-
-            val apps = shared.parseAppsDb(dbFile)
-            dbFile.delete()
-            Log.d(ResticShared.TAG, "JNI 模式 (SFTP) 成功提取 ${apps.size} 个应用备份")
-            apps
         } catch (e: Exception) {
-            Log.e(ResticShared.TAG, "listBackedUpAppsFromSftpWithSqlJni 异常", e)
+            Log.e(ResticShared.TAG, "refreshAndListApps (SFTP) 异常", e)
             emptyList()
         } finally {
             stopServe(session)
         }
     }
+
+    suspend fun listBackedUpAppsFromSftpWithSqlJni(
+        cloudEntity: CloudEntity, password: String
+    ): List<ResticBackupApp> = refreshAndListApps(cloudEntity, password)
 
     // listSnapshotsFromSftp —— 对应 listBackedUpAppsFromSftpWithSqlJni，但用 parseSnapshotsDb（不按四段式过滤，保留 __icons__ 快照）
     suspend fun listSnapshotsFromSftp(

@@ -146,6 +146,9 @@ fun CloudBackupDetailPage(
                                     )) {
                                     val success = viewModel.deleteCloudSnapshots(group)
                                     if (success) {
+                                        navController.previousBackStackEntry
+                                            ?.savedStateHandle
+                                            ?.set("cloud_needs_refresh", true)
                                         navController.popBackStack()
                                     }
                                 }

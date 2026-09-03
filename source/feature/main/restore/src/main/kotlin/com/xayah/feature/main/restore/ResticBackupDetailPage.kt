@@ -145,6 +145,10 @@ fun ResticBackupDetailPage(
                                     )) {
                                     val success = viewModel.deleteLocalSnapshots(group)
                                     if (success) {
+                                        // 通知上一级列表页：需要强制刷新（绕过 hasLoaded 守卫）
+                                        navController.previousBackStackEntry
+                                            ?.savedStateHandle
+                                            ?.set("restic_needs_refresh", true)
                                         navController.popBackStack()
                                     }
                                 }

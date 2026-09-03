@@ -67,8 +67,7 @@ class CloudRestoreViewModel @Inject constructor(
 
     private var lastBytes = 0L
     private var lastTime = System.currentTimeMillis()
-    private var accountName: String = "" // 添加账户名存储
-
+    private var accountName: String = ""
     private val _uiState = MutableStateFlow<CloudRestoreUiState>(CloudRestoreUiState.Loading)
     val uiState: StateFlow<CloudRestoreUiState> = _uiState.asStateFlow()
 
@@ -117,62 +116,108 @@ class CloudRestoreViewModel @Inject constructor(
         }
     }
 
-    fun loadCloudBackedUpApps(cloudEntity: CloudEntity) {
-        Log.d("CloudRestore", "=== loadCloudBackedUpApps 开始 ===")
+    private var loadedAccountId: String? = null
+    fun loadCloudBackedUpApps(cloudEntity: CloudEntity, force: Boolean = false) {
+        // 守卫：非强制、账号未变、已是 Success，直接复用
+        if (!force
+            && loadedAccountId == cloudEntity.name
+            && _uiState.value is CloudRestoreUiState.Success) {
+            return
+        }
         viewModelScope.launch {
-            _uiState.value = CloudRestoreUiState.Loading
-            val password = resolveResticPassword(cloudEntity)            // 改：按类型解析
+            val password = resolveResticPassword(cloudEntity)
             if (password.isNullOrEmpty()) {
                 _uiState.value = CloudRestoreUiState.Error("Restic密码未配置")
                 return@launch
             }
-            try {
-                val apps: List<ResticBackupApp> = when (cloudEntity.type) {
-                    CloudType.FTP -> resticRepoFtp.listBackedUpAppsFromFtpWithSqlJni(cloudEntity, password)
-                    CloudType.WEBDAV -> resticRepoWebdav.listBackedUpAppsFromWebdavWithSqlJni(cloudEntity, password)
-                    CloudType.SFTP -> resticRepoSftp.listBackedUpAppsFromSftpWithSqlJni(cloudEntity, password)
-                    else -> resticRepoCos.listBackedUpAppsFromS3WithSqlJni(cloudEntity, password)
-                }
+            val accountId = cloudEntity.name.replace(Regex("[^A-Za-z0-9]"), "_")
 
-                val groupedBackups = apps
-                    .groupBy { "${it.userId}-${it.packageName}-${it.timestamp}" }
-                    .map { entry ->
-                        val backupsInGroup = entry.value
-                        val first = backupsInGroup.first()
-                        ResticBackupGroup(
-                            packageName = first.packageName,
-                            userId = first.userId,
-                            timestamp = first.timestamp,
-                            backups = backupsInGroup.sortedBy { backup ->
-                                when (backup.dataType) {
-                                    DataType.PACKAGE_APK -> 0
-                                    DataType.PACKAGE_USER -> 1
-                                    DataType.PACKAGE_USER_DE -> 2
-                                    DataType.PACKAGE_DATA -> 3
-                                    DataType.PACKAGE_OBB -> 4
-                                    DataType.PACKAGE_MEDIA -> 5
-                                    DataType.PACKAGE_CONFIG -> 6
-                                    else -> 7
-                                }
-                            },
-                            appLabel = try {
-                                val pm = context.packageManager
-                                val packageInfo = pm.getPackageInfo(first.packageName, 0)
-                                packageInfo.applicationInfo?.loadLabel(pm)?.toString() ?: first.packageName
-                            } catch (e: Exception) {
-                                first.packageName
-                            }
-                        )
-                    }
-                    .sortedByDescending { it.timestamp }
+            // ---- 阶段一：读持久缓存（纯本地 SQLite 读，零网络），命中则秒开 ----
+            val cachedApps: List<ResticBackupApp> = runCatching {
+                when (cloudEntity.type) {
+                    CloudType.FTP    -> resticRepoFtp.readCachedApps(cloudEntity)
+                    CloudType.WEBDAV -> resticRepoWebdav.readCachedApps(cloudEntity)
+                    CloudType.SFTP   -> resticRepoSftp.readCachedApps(cloudEntity)
+                    else             -> resticRepoCos.readCachedApps(cloudEntity)
+                }
+            }.getOrElse { emptyList() }
+
+            if (cachedApps.isNotEmpty()) {
+                val labelMap = readLabelsMap(accountId)
+                _uiState.value = CloudRestoreUiState.Success(buildGroupedBackups(cachedApps, labelMap))
+                loadedAccountId = cloudEntity.name
+                Log.d("CloudRestore", "缓存命中，秒开 ${cachedApps.size} 条 (accountId=$accountId)")
+            } else {
+                // 只有真正无缓存时才转圈
+                _uiState.value = CloudRestoreUiState.Loading
+            }
+
+            // ---- 阶段二：后台重建（走 JNI open_repository + get_all_snapshots），完成后静默替换 ----
+            try {
+                val freshApps: List<ResticBackupApp> = when (cloudEntity.type) {
+                    CloudType.FTP    -> resticRepoFtp.refreshAndListApps(cloudEntity, password)
+                    CloudType.WEBDAV -> resticRepoWebdav.refreshAndListApps(cloudEntity, password)
+                    CloudType.SFTP   -> resticRepoSftp.refreshAndListApps(cloudEntity, password)
+                    else             -> resticRepoCos.refreshAndListApps(cloudEntity, password)
+                }
+                // 图标/labels 取回仍在重建后调用（保持原顺序）
                 runCatching { loadCloudIconsFromRestic(cloudEntity, password) }
                     .onFailure { Log.w("CloudRestore", "图标取回失败(忽略): ${it.message}") }
-                _uiState.value = CloudRestoreUiState.Success(groupedBackups)
+
+                val labelMap = readLabelsMap(accountId)
+                _uiState.value = CloudRestoreUiState.Success(buildGroupedBackups(freshApps, labelMap))
+                loadedAccountId = cloudEntity.name
+                Log.d("CloudRestore", "后台刷新完成，静默替换 ${freshApps.size} 条")
             } catch (e: Exception) {
-                _uiState.value = CloudRestoreUiState.Error("加载失败: ${e.message}")
+                // 缓存已展示则保留缓存、只记日志；无缓存才报错
+                if (cachedApps.isEmpty()) {
+                    _uiState.value = CloudRestoreUiState.Error("加载失败: ${e.message}")
+                } else {
+                    Log.w("CloudRestore", "后台刷新失败，保留缓存列表: ${e.message}")
+                }
             }
         }
     }
+
+    fun forceReload() {
+        val name = accountName ?: return
+        viewModelScope.launch {
+            val cloudEntity = cloudRepo.queryByName(name) ?: return@launch
+            loadCloudBackedUpApps(cloudEntity, force = true)
+        }
+    }
+
+    /** 把 ResticBackupApp 列表按 (userId, packageName, timestamp) 分组为 UI 列表 */
+    private fun buildGroupedBackups(
+        apps: List<ResticBackupApp>,
+        labelMap: Map<String, String>
+    ): List<ResticBackupGroup> =
+        apps.groupBy { "${it.userId}-${it.packageName}-${it.timestamp}" }
+            .map { entry ->
+                val backupsInGroup = entry.value
+                val first = backupsInGroup.first()
+                val label = resolveAppLabel(labelMap, first.userId, first.packageName)
+                Log.d("CloudRestore", "label映射 ${first.userId}-${first.packageName} -> $label")
+                ResticBackupGroup(
+                    packageName = first.packageName,
+                    userId = first.userId,
+                    timestamp = first.timestamp,
+                    backups = backupsInGroup.sortedBy { backup ->
+                        when (backup.dataType) {
+                            DataType.PACKAGE_APK      -> 0
+                            DataType.PACKAGE_USER     -> 1
+                            DataType.PACKAGE_USER_DE  -> 2
+                            DataType.PACKAGE_DATA     -> 3
+                            DataType.PACKAGE_OBB      -> 4
+                            DataType.PACKAGE_MEDIA    -> 5
+                            DataType.PACKAGE_CONFIG   -> 6
+                            else                      -> 7
+                        }
+                    },
+                    appLabel = label
+                )
+            }
+            .sortedByDescending { it.timestamp }
 
     private suspend fun loadCloudIconsFromRestic(cloudEntity: CloudEntity, password: String) = withContext(Dispatchers.IO) {
         val accountId = cloudEntity.name.replace(Regex("[^A-Za-z0-9]"), "_")
@@ -255,6 +300,37 @@ class CloudRestoreViewModel @Inject constructor(
             Log.d("IconRestore", "cloud icons decompressed to $iconDst, snapshotId=$snapshotId")
         } catch (e: Exception) {
             Log.e("IconRestore", "cloud icon restore failed accountId=$accountId", e)
+        }
+    }
+
+    /** 读取 filesDir/icon/<accountId>/labels.json -> Map<"<userId>-<packageName>", label> */
+    private fun readLabelsMap(accountId: String): Map<String, String> {
+        return try {
+            val labelsFile = File(context.iconDir(accountId), "labels.json")
+            if (!labelsFile.exists()) {
+                Log.d("IconRestore", "$accountId labels.json not found at ${labelsFile.absolutePath}")
+                emptyMap()
+            } else {
+                val text = labelsFile.readText()
+                val map = json.decodeFromString<Map<String, String>>(text)
+                Log.d("IconRestore", "$accountId labels.json loaded, ${map.size} entries")
+                map
+            }
+        } catch (e: Exception) {
+            Log.e("IconRestore", "$accountId labels.json parse failed", e)
+            emptyMap()
+        }
+    }
+
+    /** 优先用 labels.json 的名称，其次 PackageManager，最后包名 */
+    private fun resolveAppLabel(labelMap: Map<String, String>, userId: Int, packageName: String): String {
+        labelMap["${userId}-${packageName}"]?.takeIf { it.isNotEmpty() }?.let { return it }
+        return try {
+            val pm = context.packageManager
+            val packageInfo = pm.getPackageInfo(packageName, 0)
+            packageInfo.applicationInfo?.loadLabel(pm)?.toString() ?: packageName
+        } catch (e: Exception) {
+            packageName
         }
     }
 

@@ -67,7 +67,22 @@ fun ResticRestorePage(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
-        viewModel.loadBackedUpApps()
+        viewModel.loadBackedUpApps()      // 首次/正常进入：守卫生效，秒开
+    }
+
+// 删除返回时的强制刷新信号
+    val needsRefresh = navController.currentBackStackEntry
+        ?.savedStateHandle
+        ?.getStateFlow("restic_needs_refresh", false)
+        ?.collectAsStateWithLifecycle()
+
+    LaunchedEffect(needsRefresh?.value) {
+        if (needsRefresh?.value == true) {
+            viewModel.forceReload()       // 绕过守卫，重列 + 重建缓存
+            navController.currentBackStackEntry
+                ?.savedStateHandle
+                ?.set("restic_needs_refresh", false)  // 复位，避免重复触发
+        }
     }
 
     RestoreScaffold(

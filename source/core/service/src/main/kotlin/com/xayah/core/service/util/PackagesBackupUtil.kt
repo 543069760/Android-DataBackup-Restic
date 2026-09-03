@@ -23,13 +23,17 @@ import com.xayah.core.util.PathUtil
 import com.xayah.core.util.command.Tar
 import com.xayah.core.util.filesDir
 import com.xayah.core.util.model.ShellResult
+import com.xayah.core.model.OpType
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlin.coroutines.coroutineContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-import kotlin.coroutines.coroutineContext
+import java.io.File
 
 class PackagesBackupUtil @Inject constructor(
     @ApplicationContext val context: Context,
@@ -41,6 +45,7 @@ class PackagesBackupUtil @Inject constructor(
 ) {
     companion object {
         private const val TAG = "PackagesBackupUtil"
+        private val json = Json { ignoreUnknownKeys = true; prettyPrint = false }
     }
 
     /**
@@ -285,12 +290,35 @@ class PackagesBackupUtil @Inject constructor(
 
     private val tarCt = CompressionType.TAR
 
-    fun getIconsDst(dstDir: String) = "${dstDir}/$IconRelativeDir.${tarCt.suffix}"
+    fun getIconsAndLabelsDst(dstDir: String) = "${dstDir}/$IconRelativeDir.${tarCt.suffix}"
 
-    suspend fun backupIcons(dstDir: String): ShellResult = run {
-        log { "Backing up icons..." }
+    /**
+     * 备份应用图标与名称:先把本次已激活备份应用的 label 映射写成 labels.json
+     * 放进 icon 目录(与 png 同级),再连同图标一起压进 icon.tar。
+     * labels.json 的 key = "<userId>-<packageName>",value = 应用名(label)。
+     * stripComponents=1 解压后落在 filesDir/icon/<accountId>/labels.json。
+     */
+    suspend fun backupIconsAndLabels(dstDir: String): ShellResult = run {
+        log { "Backing up icons and labels..." }
 
-        val dst = getIconsDst(dstDir = dstDir)
+        // 1) 生成 labels.json 到 icon 目录(与 png 同级),使其被打进 icon.tar
+        runCatching {
+            val iconDir = "${context.filesDir()}/$IconRelativeDir"
+            File(iconDir).mkdirs()
+            val activated = packageRepository.queryActivated(OpType.BACKUP)
+            val labelMap: Map<String, String> = activated.associate { pkg ->
+                "${pkg.userId}-${pkg.packageName}" to pkg.packageInfo.label
+            }
+            val labelsFile = File(iconDir, "labels.json")
+            labelsFile.writeText(json.encodeToString(labelMap))
+            log { "labels.json written: ${labelMap.size} entries -> ${labelsFile.absolutePath}" }
+        }.onFailure {
+            // 失败不阻断图标备份,仅记录
+            log { "Failed to write labels.json: ${it.message}" }
+        }
+
+        // 2) 压缩 icon 目录(此时已含 labels.json)为 icon.tar
+        val dst = getIconsAndLabelsDst(dstDir = dstDir)
         var isSuccess: Boolean
         val out = mutableListOf<String>()
 

@@ -198,6 +198,55 @@ class ResticShared @Inject constructor(
         }
     }
 
+    /** sanitize 规则与图标账号目录一致 */
+    fun sanitizeAccountId(raw: String): String = raw.replace(Regex("[^A-Za-z0-9]"), "_")
+
+    /** 持久化 db 缓存目录：filesDir/db_cache（不会被系统低存储时清理，cacheDir 会） */
+    private fun dbCacheDir(): File = File(context.filesDir, "db_cache").apply { if (!exists()) mkdirs() }
+
+    /** 按账号命名的持久 apps 缓存 db */
+    fun appsDbFile(accountId: String): File = File(dbCacheDir(), "apps_${sanitizeAccountId(accountId)}.db")
+
+    /** 只读：持久 db 存在且非空则直接解析返回；否则 emptyList。绝不触发任何 JNI/网络重建。 */
+    fun readCachedApps(accountId: String): List<ResticBackupApp> {
+        val f = appsDbFile(accountId)
+        if (!f.exists() || f.length() == 0L) return emptyList()
+        return try {
+            parseAppsDb(f)
+        } catch (e: Exception) {
+            Log.e(TAG, "readCachedApps 解析失败 accountId=$accountId", e)
+            emptyList()
+        }
+    }
+
+    /**
+     * 重建：JNI listRusticSnapshotsDb 先写临时文件，成功后原子 rename 覆盖持久 db，再解析返回。
+     * 失败不破坏既有缓存，回退返回既有缓存内容（不再 delete 持久 db）。
+     */
+    suspend fun refreshAppsDb(
+        accountId: String, repoPath: String, password: String, options: Map<String, String>
+    ): List<ResticBackupApp> = withContext(Dispatchers.IO) {
+        val target = appsDbFile(accountId)
+        val tmp = File(target.parentFile, "${target.name}.tmp_${System.currentTimeMillis()}")
+        try {
+            val result = rootService.listRusticSnapshotsDb(repoPath, password, tmp.absolutePath, options)
+            if (result.isFailure || !tmp.exists() || tmp.length() == 0L) {
+                Log.e(TAG, "refreshAppsDb 重建失败 accountId=$accountId，回退旧缓存")
+                tmp.delete()
+                return@withContext readCachedApps(accountId)
+            }
+            if (target.exists()) target.delete()
+            if (!tmp.renameTo(target)) {
+                tmp.copyTo(target, overwrite = true); tmp.delete()
+            }
+            parseAppsDb(target)
+        } catch (e: Exception) {
+            Log.e(TAG, "refreshAppsDb 异常 accountId=$accountId", e)
+            tmp.delete()
+            readCachedApps(accountId)
+        }
+    }
+
     /** 从 .db 解析快照信息 */
     fun parseSnapshotsDb(dbFile: File): List<ResticSnapshot> {
         val db = android.database.sqlite.SQLiteDatabase.openDatabase(

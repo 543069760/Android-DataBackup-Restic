@@ -11,6 +11,7 @@ import com.xayah.core.model.DataType
 import com.xayah.core.model.ResticProgressState
 import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.restic.ResticRepository
+import com.xayah.core.restic.ResticShared
 import com.xayah.core.util.DateUtil
 import com.xayah.feature.main.restore.ResticBackupGroup
 import com.xayah.core.datastore.readBackupDirectory
@@ -36,6 +37,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.decodeFromString
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import javax.inject.Inject
@@ -45,6 +48,7 @@ import java.io.File
 class ResticRestoreViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val resticRepo: ResticRepository,
+    private val shared: ResticShared,
     private val appsRepo: AppsRepo,
     private val rootService: RemoteRootService,  // 添加
     private val appsDao: PackageDao
@@ -57,7 +61,7 @@ class ResticRestoreViewModel @Inject constructor(
     // 速度跟踪变量 - 添加到这里
     private var lastBytes = 0L
     private var lastTime = System.currentTimeMillis()
-
+    private var hasLoaded = false
     private val _uiState = MutableStateFlow<ResticRestoreUiState>(ResticRestoreUiState.Loading)
     val uiState: StateFlow<ResticRestoreUiState> = _uiState.asStateFlow()
 
@@ -67,61 +71,75 @@ class ResticRestoreViewModel @Inject constructor(
 
     private val startTime = System.currentTimeMillis()
 
-    fun loadBackedUpApps() {
+    fun loadBackedUpApps(force: Boolean = false) {
+        // 守卫：非强制且已加载且当前已是 Success，直接复用，不重跑（连后台刷新都省掉）
+        if (!force && hasLoaded && _uiState.value is ResticRestoreUiState.Success) {
+            return
+        }
         viewModelScope.launch {
-            _uiState.value = ResticRestoreUiState.Loading
-
             val repoPath = context.readResticRepoPath()
             val password = context.readResticPassword()
-            // 添加调试日志
             Log.d("ResticRestore", "读取到的 repoPath: $repoPath")
-            Log.d("ResticRestore", "读取到的 password: ${if (password.isNullOrEmpty()) "空" else "已设置"}")
-
+            Log.d("ResticRestore", "password: ${if (password.isNullOrEmpty()) "空" else "已设置"}")
             if (repoPath.isNullOrEmpty() || password.isNullOrEmpty()) {
                 _uiState.value = ResticRestoreUiState.Error("Restic not configured")
                 return@launch
             }
 
-            try {
-                val apps = resticRepo.listBackedUpApps(repoPath, password)
-                // 按 (userId, packageName, timestamp) 分组
-                val groupedBackups = apps
-                    .groupBy { "${it.userId}-${it.packageName}-${it.timestamp}" }
-                    .values
-                    .map { backups ->
-                        val first = backups.first()
-                        ResticBackupGroup(
-                            packageName = first.packageName,
-                            userId = first.userId,
-                            timestamp = first.timestamp,
-                            backups = backups.sortedBy { it.dataType.type },
-                            appLabel = backups.firstOrNull()?.let { backup ->
-                                // 通过 PackageManager 获取应用标签
-                                try {
-                                    val pm = context.packageManager
-                                    val packageInfo = pm.getPackageInfo(backup.packageName, 0)
-                                    packageInfo.applicationInfo?.loadLabel(pm)?.toString() ?: backup.packageName
-                                } catch (e: Exception) {
-                                    backup.packageName
-                                }
-                            } ?: first.packageName
-                        )
-                    }
-                    .sortedByDescending { it.timestamp }
+            // ---- 阶段一：读持久缓存，命中秒开 ----
+            val cachedApps = runCatching { readCachedApps() }.getOrElse { emptyList() }
+            if (cachedApps.isNotEmpty()) {
+                val labelMap = readLabelsMap("local")
+                _uiState.value = ResticRestoreUiState.Success(buildGroupedBackups(cachedApps, labelMap))
+                hasLoaded = true
+                Log.d("ResticRestore", "缓存命中，秒开 ${cachedApps.size} 条")
+            } else {
+                _uiState.value = ResticRestoreUiState.Loading
+            }
 
-                // 展示列表前先取回并解压本地账号的图标快照（失败不阻断列表）
+            // ---- 阶段二：后台重建，完成后静默替换 ----
+            try {
+                val freshApps = refreshAndListApps(repoPath, password)
                 try {
                     loadLocalIconsFromRestic(repoPath, password)
                 } catch (e: Exception) {
                     Log.e(TAG, "加载本地图标失败: ${e.message}", e)
                 }
-
-                _uiState.value = ResticRestoreUiState.Success(groupedBackups)
+                val labelMap = readLabelsMap("local")
+                _uiState.value = ResticRestoreUiState.Success(buildGroupedBackups(freshApps, labelMap))
+                hasLoaded = true
+                Log.d("ResticRestore", "后台刷新完成，静默替换 ${freshApps.size} 条")
             } catch (e: Exception) {
-                _uiState.value = ResticRestoreUiState.Error(e.message ?: "Unknown error")
+                if (cachedApps.isEmpty()) {
+                    _uiState.value = ResticRestoreUiState.Error(e.message ?: "Unknown error")
+                } else {
+                    Log.w("ResticRestore", "后台刷新失败，保留缓存: ${e.message}")
+                }
             }
         }
     }
+
+    fun forceReload() = loadBackedUpApps(force = true)
+
+    private fun buildGroupedBackups(
+        apps: List<ResticBackupApp>,
+        labelMap: Map<String, String>
+    ): List<ResticBackupGroup> =
+        apps.groupBy { "${it.userId}-${it.packageName}-${it.timestamp}" }
+            .values
+            .map { backups ->
+                val first = backups.first()
+                val label = resolveAppLabel(labelMap, first.userId, first.packageName)
+                Log.d("ResticRestore", "label映射 ${first.userId}-${first.packageName} -> $label")
+                ResticBackupGroup(
+                    packageName = first.packageName,
+                    userId = first.userId,
+                    timestamp = first.timestamp,
+                    backups = backups.sortedBy { it.dataType.type },
+                    appLabel = label
+                )
+            }
+            .sortedByDescending { it.timestamp }
 
     private suspend fun loadLocalIconsFromRestic(repoPath: String, password: String) = withContext(Dispatchers.IO) {
         val accountId = "local"
@@ -207,6 +225,50 @@ class ResticRestoreViewModel @Inject constructor(
             Log.d(TAG, "本地图标已解压到 $iconDst, snapshotId=$snapshotId")
         } catch (e: Exception) {
             Log.e("IconRestore", "local icon restore failed", e)
+        }
+    }
+
+    /** 只读持久缓存，不触发任何 JNI/网络；无缓存返回 emptyList */
+    suspend fun readCachedApps(): List<ResticBackupApp> =
+        shared.readCachedApps("local")
+
+    /** 后台重建：走 JNI 写持久 db（原子覆盖），成功后解析返回 */
+    suspend fun refreshAndListApps(repoPath: String, password: String): List<ResticBackupApp> =
+        shared.refreshAppsDb(
+            accountId = "local",
+            repoPath = repoPath,
+            password = password,
+            options = emptyMap()
+        )
+
+    /** 读取 filesDir/icon/<accountId>/labels.json -> Map<"<userId>-<packageName>", label> */
+    private fun readLabelsMap(accountId: String): Map<String, String> {
+        return try {
+            val labelsFile = File(context.iconDir(accountId), "labels.json")
+            if (!labelsFile.exists()) {
+                Log.d("IconRestore", "$accountId labels.json not found at ${labelsFile.absolutePath}")
+                emptyMap()
+            } else {
+                val text = labelsFile.readText()
+                val map = Json.decodeFromString<Map<String, String>>(text)
+                Log.d("IconRestore", "$accountId labels.json loaded, ${map.size} entries")
+                map
+            }
+        } catch (e: Exception) {
+            Log.e("IconRestore", "$accountId labels.json parse failed", e)
+            emptyMap()
+        }
+    }
+
+    /** 优先用 labels.json 的名称，其次 PackageManager，最后包名 */
+    private fun resolveAppLabel(labelMap: Map<String, String>, userId: Int, packageName: String): String {
+        labelMap["${userId}-${packageName}"]?.takeIf { it.isNotEmpty() }?.let { return it }
+        return try {
+            val pm = context.packageManager
+            val packageInfo = pm.getPackageInfo(packageName, 0)
+            packageInfo.applicationInfo?.loadLabel(pm)?.toString() ?: packageName
+        } catch (e: Exception) {
+            packageName
         }
     }
 

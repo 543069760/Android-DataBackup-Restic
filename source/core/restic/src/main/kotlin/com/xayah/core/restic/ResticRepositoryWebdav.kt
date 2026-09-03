@@ -193,47 +193,30 @@ class ResticRepositoryWebdav @Inject constructor(
         } catch (e: Exception) { emptyList() }
     }
 
-    // listBackedUpAppsFromWebdavWithSqlJni —— 对应 listBackedUpAppsFromFtpWithSqlJni
-    suspend fun listBackedUpAppsFromWebdavWithSqlJni(
-        cloudEntity: CloudEntity,
-        password: String
+    fun readCachedApps(cloudEntity: CloudEntity): List<ResticBackupApp> =
+        shared.readCachedApps(cloudEntity.name)
+
+    suspend fun refreshAndListApps(
+        cloudEntity: CloudEntity, password: String
     ): List<ResticBackupApp> = withContext(Dispatchers.IO) {
         try {
-            val repoPath = "opendal:webdav"
             val options = buildWebdavBackendOptions(cloudEntity, cloudEntity.remote)
-
-            val sqlDir = File(shared.context.cacheDir, "sql")
-            if (!sqlDir.exists()) sqlDir.mkdirs()
-
-            val dbFile = File(sqlDir, "snapshots_webdav_${System.currentTimeMillis()}.db")
-
-            Log.d(ResticShared.TAG, "执行 JNI listSnapshotsDb (WebDAV)，repo=$repoPath，输出=${dbFile.absolutePath}")
-            Log.d(ResticShared.TAG, "options keys=${options.keys.joinToString(",")}")
-
-            val result = shared.rootService.listRusticSnapshotsDb(
-                repositoryPath = repoPath,
+            Log.d(ResticShared.TAG, "refreshAndListApps (WebDAV) root=${options["root"]}")
+            shared.refreshAppsDb(
+                accountId = cloudEntity.name,
+                repoPath = "opendal:webdav",
                 password = password,
-                dbPath = dbFile.absolutePath,
                 options = options,
             )
-            if (result.isFailure) {
-                Log.e(ResticShared.TAG, "listRusticSnapshotsDb (WebDAV) 失败", result.exceptionOrNull())
-                return@withContext emptyList()
-            }
-            if (!dbFile.exists() || dbFile.length() == 0L) {
-                Log.e(ResticShared.TAG, "DB 文件未生成或为空 (WebDAV)")
-                return@withContext emptyList()
-            }
-
-            val apps = shared.parseAppsDb(dbFile)
-            dbFile.delete()
-            Log.d(ResticShared.TAG, "JNI 模式 (WebDAV) 成功提取 ${apps.size} 个应用备份")
-            apps
         } catch (e: Exception) {
-            Log.e(ResticShared.TAG, "listBackedUpAppsFromWebdavWithSqlJni 异常", e)
+            Log.e(ResticShared.TAG, "refreshAndListApps (WebDAV) 异常", e)
             emptyList()
         }
     }
+
+    suspend fun listBackedUpAppsFromWebdavWithSqlJni(
+        cloudEntity: CloudEntity, password: String
+    ): List<ResticBackupApp> = refreshAndListApps(cloudEntity, password)
 
     // listSnapshotsFromWebdav —— 对应 listBackedUpAppsFromWebdavWithSqlJni，但用 parseSnapshotsDb（不按四段式过滤，保留 __icons__ 快照）
     suspend fun listSnapshotsFromWebdav(

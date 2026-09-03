@@ -606,10 +606,10 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                     mContext.getString(R.string.backing_up),
                     mContext.getString(R.string.save_icons)
                 )
-                mPackagesBackupUtil.backupIcons(dstDir = mConfigsDir).apply {
+                mPackagesBackupUtil.backupIconsAndLabels(dstDir = mConfigsDir).apply {
                     entity.set(state = if (isSuccess) OperationState.DONE else OperationState.ERROR, log = outString)
                     if (isSuccess) {
-                        onIconsSaved(path = mPackagesBackupUtil.getIconsDst(mConfigsDir), entity = entity)
+                        onIconsSaved(path = mPackagesBackupUtil.getIconsAndLabelsDst(mConfigsDir), entity = entity)
                     }
                 }
                 entity.update(progress = 1f)

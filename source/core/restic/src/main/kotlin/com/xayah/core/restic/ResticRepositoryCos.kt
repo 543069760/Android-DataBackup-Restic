@@ -206,50 +206,28 @@ class ResticRepositoryCos @Inject constructor(
      * 【JNI 版】从 S3/COS 获取应用备份列表。
      * 与 ResticRepository.listBackedUpAppsFromS3WithSql（二进制路径，已随二进制移除）功能等价。
      */
-    suspend fun listBackedUpAppsFromS3WithSqlJni(
-        cloudEntity: CloudEntity,
-        password: String
+    /** 只读缓存：不触发网络/JNI，供进列表时秒开渲染 */
+    suspend fun readCachedApps(cloudEntity: CloudEntity): List<ResticBackupApp> =
+        withContext(Dispatchers.IO) { shared.readCachedApps(cloudEntity.name) }
+
+    /** 重建：走 JNI 拉取并原子写入持久 db，供后台静默刷新 */
+    suspend fun refreshAndListApps(
+        cloudEntity: CloudEntity, password: String
     ): List<ResticBackupApp> = withContext(Dispatchers.IO) {
         try {
             val extra = ResticShared.json.decodeFromString<S3Extra>(cloudEntity.extra)
-
-            val repoPath = "opendal:cos" // opendal COS service scheme
             val options = buildS3BackendOptions(extra, cloudEntity.remote)
-
-            val sqlDir = File(shared.context.cacheDir, "sql")
-            if (!sqlDir.exists()) sqlDir.mkdirs()
-
-            // .db（二进制 SQLite），由 librustic 直接写入（与本地 listSnapshots 一致）
-            val dbFile = File(sqlDir, "snapshots_s3_${System.currentTimeMillis()}.db")
-
-            Log.d(ResticShared.TAG, "执行 JNI listSnapshotsDb (COS)，repo=$repoPath，输出=${dbFile.absolutePath}")
-            Log.d(ResticShared.TAG, "options keys=${options.keys.joinToString(",")}")
-
-            val result = shared.rootService.listRusticSnapshotsDb(
-                repositoryPath = repoPath,
-                password = password,
-                dbPath = dbFile.absolutePath,
-                options = options,
-            )
-            if (result.isFailure) {
-                Log.e(ResticShared.TAG, "listRusticSnapshotsDb (COS) 失败", result.exceptionOrNull())
-                return@withContext emptyList()
-            }
-
-            if (!dbFile.exists() || dbFile.length() == 0L) {
-                Log.e(ResticShared.TAG, "DB 文件未生成或为空 (COS)")
-                return@withContext emptyList()
-            }
-
-            val apps = shared.parseAppsDb(dbFile)
-            dbFile.delete()
-            Log.d(ResticShared.TAG, "JNI 模式 (COS) 成功提取 ${apps.size} 个应用备份")
-            apps
+            shared.refreshAppsDb(cloudEntity.name, "opendal:cos", password, options)
         } catch (e: Exception) {
-            Log.e(ResticShared.TAG, "listBackedUpAppsFromS3WithSqlJni 异常", e)
-            emptyList()
+            Log.e(ResticShared.TAG, "refreshAndListApps (COS) 异常", e)
+            shared.readCachedApps(cloudEntity.name)
         }
     }
+
+    /** 兼容旧调用点：语义为重建 */
+    suspend fun listBackedUpAppsFromS3WithSqlJni(
+        cloudEntity: CloudEntity, password: String
+    ): List<ResticBackupApp> = refreshAndListApps(cloudEntity, password)
 
     /**
      * 把 S3Extra 翻译成 opendal:cos 后端所需的 options map。
