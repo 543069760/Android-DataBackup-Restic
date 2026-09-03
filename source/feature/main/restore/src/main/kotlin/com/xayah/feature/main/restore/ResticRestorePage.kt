@@ -65,6 +65,7 @@ fun ResticRestorePage(
     viewModel: ResticRestoreViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val iconVersion by viewModel.iconVersion.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
         viewModel.loadBackedUpApps()      // 首次/正常进入：守卫生效，秒开
@@ -131,7 +132,6 @@ fun ResticRestorePage(
                                         Log.d("ResticRestorePage", "Navigating with groupJson: $groupJson")
 
                                         // 2. URL 编码，并构造完整的路由
-                                        // 使用 getRoute 函数简化构造
                                         val encodedJson = URLEncoder.encode(groupJson, "UTF-8")
                                         val url = MainRoutes.ResticBackupDetail.getRoute(groupJsonEncoded = encodedJson)
 
@@ -141,7 +141,8 @@ fun ResticRestorePage(
                                         navController.navigateSingle(url)
                                     },
                                     context = LocalContext.current,
-                                    accountId = "local"
+                                    accountId = "local",
+                                    iconVersion = iconVersion            // 新增：透传图标版本
                                 )
                             }
                         }
@@ -176,7 +177,8 @@ fun ResticBackupGroupItem(
     group: ResticBackupGroup,
     onClick: () -> Unit,
     context: Context,
-    accountId: String? = null
+    accountId: String? = null,
+    iconVersion: Int = 0                 // 新增：默认 0，兼容其它调用点
 ) {
     val hasConfigSnapshot = group.backups.any { it.dataType == DataType.PACKAGE_CONFIG }
 
@@ -193,7 +195,12 @@ fun ResticBackupGroupItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level16)
         ) {
-            PackageIconImage(packageName = group.packageName, size = SizeTokens.Level32, accountId = accountId)
+            PackageIconImage(
+                packageName = group.packageName,
+                size = SizeTokens.Level32,
+                accountId = accountId,
+                iconVersion = iconVersion         // 新增：透传，触发解压后重新取图
+            )
 
             Column(modifier = Modifier.weight(1f)) {
                 Row(

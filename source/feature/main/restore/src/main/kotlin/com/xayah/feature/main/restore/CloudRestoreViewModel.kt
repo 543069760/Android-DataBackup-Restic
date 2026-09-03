@@ -71,6 +71,10 @@ class CloudRestoreViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<CloudRestoreUiState>(CloudRestoreUiState.Loading)
     val uiState: StateFlow<CloudRestoreUiState> = _uiState.asStateFlow()
 
+    // 图标版本信号：图标解压完成后自增，触发列表项 PackageIconImage 重新取图
+    private val _iconVersion = MutableStateFlow(0)
+    val iconVersion: StateFlow<Int> = _iconVersion.asStateFlow()
+
     private val _resticProgress = MutableStateFlow(ResticProgressState())
     val resticProgress: StateFlow<ResticProgressState> = _resticProgress.asStateFlow()
 
@@ -162,6 +166,7 @@ class CloudRestoreViewModel @Inject constructor(
                 }
                 // 图标/labels 取回仍在重建后调用（保持原顺序）
                 runCatching { loadCloudIconsFromRestic(cloudEntity, password) }
+                    .onSuccess { _iconVersion.value++ }   // 图标已解压，触发列表重取图
                     .onFailure { Log.w("CloudRestore", "图标取回失败(忽略): ${it.message}") }
 
                 val labelMap = readLabelsMap(accountId)

@@ -63,6 +63,10 @@ fun CloudRestorePage(
     viewModel: CloudRestoreViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val iconVersion by viewModel.iconVersion.collectAsStateWithLifecycle()
+    // accountName 在整个 Composable 内是常量，去前缀 + sanitize 只算一次，
+    // 与 CloudRestoreViewModel 的 accountId 算法逐字一致（都得 "COS"）
+    val accountId = accountName.replace("accountName=", "").replace(Regex("[^A-Za-z0-9]"), "_")
 
     LaunchedEffect(accountName) {
         viewModel.setCloudEntity(accountName)
@@ -160,14 +164,15 @@ fun CloudRestorePage(
                                         }
                                     },
                                     context = LocalContext.current,
-                                    accountId = accountName.replace(Regex("[^A-Za-z0-9]"), "_")
+                                    accountId = accountId,
+                                    iconVersion = iconVersion
                                 )
                             }
                         }
                     }
-                }  // <- 这里添加了缺失的闭合括号
+                }
 
-                is CloudRestoreUiState.Error -> {  // <- 现在正确地与 other cases 在同一级别
+                is CloudRestoreUiState.Error -> {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center

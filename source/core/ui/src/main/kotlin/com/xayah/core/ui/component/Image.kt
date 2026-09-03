@@ -1,5 +1,6 @@
 package com.xayah.core.ui.component
 
+import android.util.Log
 import android.graphics.Bitmap
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.Drawable
@@ -20,7 +21,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,22 +45,31 @@ import com.xayah.core.ui.token.SizeTokens
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.command.BaseUtil
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.sqrt
 
 @ExperimentalFoundationApi
 @Composable
-fun PackageIconImage(icon: ImageVector? = null, packageName: String, shape: Shape? = null, inCircleShape: Boolean = false, size: Dp = SizeTokens.Level32, accountId: String? = null) {
+fun PackageIconImage(
+    icon: ImageVector? = null,
+    packageName: String,
+    shape: Shape? = null,
+    inCircleShape: Boolean = false,
+    size: Dp = SizeTokens.Level32,
+    accountId: String? = null,
+    iconVersion: Int = 0
+) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var iconForeground by remember(packageName, icon, accountId) { mutableStateOf<Drawable?>(null) }
-    var iconBackground by remember(packageName, icon, accountId) { mutableStateOf<Drawable?>(null) }
+    var iconForeground by remember(packageName, icon, accountId, iconVersion) { mutableStateOf<Drawable?>(null) }
+    var iconBackground by remember(packageName, icon, accountId, iconVersion) { mutableStateOf<Drawable?>(null) }
     val sizeForeground by remember(size, inCircleShape) { mutableStateOf(if (inCircleShape) size.div(sqrt(2.2F)) else size) }
-    LaunchedEffect(packageName, icon, accountId) {
+    LaunchedEffect(packageName, icon, accountId, iconVersion) {
         if (icon == null) {
-            scope.launch(Dispatchers.IO) {
+            withContext(Dispatchers.IO) {
                 val iconDrawable = runCatching { context.packageManager.getApplicationIcon(packageName) }.getOrNull()
                 if (iconDrawable != null) {
+                    Log.d("" +
+                            "", "pm hit pkg=$packageName accountId=$accountId ver=$iconVersion")
                     if (inCircleShape) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && iconDrawable is AdaptiveIconDrawable) {
                             iconBackground = LayerDrawable(arrayOf(iconDrawable.background, iconDrawable.foreground))
@@ -77,6 +86,7 @@ fun PackageIconImage(icon: ImageVector? = null, packageName: String, shape: Shap
                     else
                         PathUtil.getPackageIconPath(context, packageName, true)
                     var localDrawable = BaseUtil.readIcon(context, adaptivePath)
+                    Log.d("IconRead", "adaptive path=$adaptivePath -> ${localDrawable != null} pkg=$packageName ver=$iconVersion")
                     if (localDrawable != null) {
                         iconBackground = localDrawable
                     } else {
@@ -85,10 +95,12 @@ fun PackageIconImage(icon: ImageVector? = null, packageName: String, shape: Shap
                         else
                             PathUtil.getPackageIconPath(context, packageName, false)
                         localDrawable = BaseUtil.readIcon(context, normalPath)
+                        Log.d("IconRead", "normal path=$normalPath -> ${localDrawable != null} pkg=$packageName ver=$iconVersion")
                         iconForeground = localDrawable
                     }
                 }
                 if (iconForeground == null && iconBackground == null) {
+                    Log.d("IconRead", "fallback placeholder pkg=$packageName accountId=$accountId ver=$iconVersion")
                     iconForeground = AppCompatResources.getDrawable(context, android.R.drawable.sym_def_app_icon)
                 }
             }

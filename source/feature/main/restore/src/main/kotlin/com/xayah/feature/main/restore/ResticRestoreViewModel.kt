@@ -65,6 +65,10 @@ class ResticRestoreViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<ResticRestoreUiState>(ResticRestoreUiState.Loading)
     val uiState: StateFlow<ResticRestoreUiState> = _uiState.asStateFlow()
 
+    // 图标版本信号：图标解压完成后自增，触发列表项 PackageIconImage 重新取图
+    private val _iconVersion = MutableStateFlow(0)
+    val iconVersion: StateFlow<Int> = _iconVersion.asStateFlow()
+
     // 添加进度状态跟踪
     private val _resticProgress = MutableStateFlow<ResticProgressState>(ResticProgressState())
     val resticProgress: StateFlow<ResticProgressState> = _resticProgress.asStateFlow()
@@ -102,6 +106,8 @@ class ResticRestoreViewModel @Inject constructor(
                 val freshApps = refreshAndListApps(repoPath, password)
                 try {
                     loadLocalIconsFromRestic(repoPath, password)
+                    // 图标已解压到 filesDir/icon/local/，自增版本触发列表图标重取
+                    _iconVersion.value++
                 } catch (e: Exception) {
                     Log.e(TAG, "加载本地图标失败: ${e.message}", e)
                 }

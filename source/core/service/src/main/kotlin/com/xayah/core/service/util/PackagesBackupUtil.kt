@@ -301,23 +301,54 @@ class PackagesBackupUtil @Inject constructor(
     suspend fun backupIconsAndLabels(dstDir: String): ShellResult = run {
         log { "Backing up icons and labels..." }
 
-        // 1) 生成 labels.json 到 icon 目录(与 png 同级),使其被打进 icon.tar
+        // 独立暂存目录：与恢复落地点 filesDir/icon/ 彻底解耦，根除套娃
+        val stagingRoot = File(context.cacheDir, "icon_backup_staging")
+        val stagingIconDir = File(stagingRoot, IconRelativeDir)   // .../icon_backup_staging/icon
+        val liveIconDir = File("${context.filesDir()}/$IconRelativeDir")
+
         runCatching {
-            val iconDir = "${context.filesDir()}/$IconRelativeDir"
-            File(iconDir).mkdirs()
+            // 每次先清空暂存，保证干净
+            stagingRoot.deleteRecursively()
+            stagingIconDir.mkdirs()
+
+            // 1) 只拷贝顶层扁平图标文件（<pkg>.png / adaptive@<pkg>.png），
+            //    排除历史 <accountId>/ 子目录（套娃来源），也排除旧 labels.json
+            liveIconDir.listFiles()?.forEach { f ->
+                if (f.isFile && f.name.endsWith(".png")) {
+                    f.copyTo(File(stagingIconDir, f.name), overwrite = true)
+                }
+            }
+
+            // 2) labels.json：累积合并 + 全量映射（沿用你本地逻辑）
             val activated = packageRepository.queryActivated(OpType.BACKUP)
             val labelMap: Map<String, String> = activated.associate { pkg ->
                 "${pkg.userId}-${pkg.packageName}" to pkg.packageInfo.label
             }
-            val labelsFile = File(iconDir, "labels.json")
-            labelsFile.writeText(json.encodeToString(labelMap))
-            log { "labels.json written: ${labelMap.size} entries -> ${labelsFile.absolutePath}" }
+            val installedMap: Map<String, String> =
+                packageRepository.queryPackages(OpType.BACKUP, blocked = false)
+                    .associate { pkg -> "${pkg.userId}-${pkg.packageName}" to pkg.packageInfo.label }
+                    .filterValues { it.isNotEmpty() }
+            // 读旧累积 labels.json（仍从持久的 live 目录读，保留跨次累积）
+            val oldMap: Map<String, String> = File(liveIconDir, "labels.json").let { lf ->
+                if (lf.exists())
+                    runCatching { json.decodeFromString<Map<String, String>>(lf.readText()) }
+                        .getOrElse { emptyMap() }
+                else emptyMap()
+            }
+            val mergedMap = oldMap + installedMap + labelMap
+
+            // 持久保存到 live 目录（作为下次备份的累积源），并写一份进暂存目录用于本次打包
+            liveIconDir.mkdirs()
+            File(liveIconDir, "labels.json").writeText(json.encodeToString(mergedMap))
+            File(stagingIconDir, "labels.json").writeText(json.encodeToString(mergedMap))
+            log { "labels.json written: ${mergedMap.size} entries (old=${oldMap.size}, installed=${installedMap.size}, activated=${labelMap.size}) -> staging=${stagingIconDir.absolutePath}" }
         }.onFailure {
-            // 失败不阻断图标备份,仅记录
-            log { "Failed to write labels.json: ${it.message}" }
+            // 失败不阻断图标备份，仅记录
+            log { "Failed to prepare icon staging: ${it.message}" }
         }
 
-        // 2) 压缩 icon 目录(此时已含 labels.json)为 icon.tar
+        // 3) 只压缩暂存里的 icon 子目录（结构：icon/<pkg>.png + icon/labels.json），
+        //    stripComponents=1 恢复后干净落到 filesDir/icon/<accountId>/，不再套娃
         val dst = getIconsAndLabelsDst(dstDir = dstDir)
         var isSuccess: Boolean
         val out = mutableListOf<String>()
@@ -327,8 +358,8 @@ class PackagesBackupUtil @Inject constructor(
             callTar = callTar,
             exclusionList = listOf(),
             h = "",
-            srcDir = context.filesDir(),
-            src = IconRelativeDir,
+            srcDir = stagingRoot.absolutePath,   // 改：从暂存根目录
+            src = IconRelativeDir,               // icon 子目录
             dst = dst,
         ).also { result ->
             isSuccess = result.isSuccess
@@ -338,6 +369,9 @@ class PackagesBackupUtil @Inject constructor(
             isSuccess = isSuccess && result.isSuccess
             out.addAll(result.out)
         }
+
+        // 4) 清理暂存，避免残留占用 cacheDir
+        runCatching { stagingRoot.deleteRecursively() }
 
         ShellResult(code = if (isSuccess) 0 else -1, input = listOf(), out = out)
     }
