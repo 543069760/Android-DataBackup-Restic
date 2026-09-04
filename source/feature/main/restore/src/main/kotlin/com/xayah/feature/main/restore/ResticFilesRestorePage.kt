@@ -24,6 +24,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -50,6 +51,7 @@ import com.xayah.core.ui.route.MainRoutes
 import com.xayah.core.util.navigateSingle
 import com.xayah.feature.main.restore.ResticFilesRestoreUiState
 import com.xayah.feature.main.restore.ResticFileBackupGroup
+import com.xayah.feature.main.restore.R
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
 import java.net.URLEncoder
@@ -104,7 +106,7 @@ fun ResticFileBackupGroupItem(
                             border = BorderStroke(0.5.dp, borderColor)
                         ) {
                             Text(
-                                text = "备份不完整",
+                                text = stringResource(R.string.restore_backup_incomplete),
                                 color = contentColor,
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
@@ -129,7 +131,7 @@ fun ResticFileBackupGroupItem(
                 )
 
                 Text(
-                    text = "共计 ${group.snapshotCount} 个快照",
+                    text = stringResource(R.string.restore_snapshot_count, group.snapshotCount),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -152,7 +154,7 @@ fun ResticFilesRestorePage(
 
     RestoreScaffold(
         scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState()),
-        title = "从 Restic 备份恢复文件"
+        title = stringResource(R.string.restore_restic_file_restore_title)
     ) {
         Column(
             modifier = Modifier
@@ -178,7 +180,7 @@ fun ResticFilesRestorePage(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
-                            TitleLargeText(text = "没有找到文件备份")
+                            TitleLargeText(text = stringResource(R.string.restore_no_file_backup))
                         }
                     } else {
                         LazyColumn(
@@ -213,10 +215,10 @@ fun ResticFilesRestorePage(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(SizeTokens.Level16)
                         ) {
-                            TitleLargeText(text = "加载失败")
+                            TitleLargeText(text = stringResource(R.string.restore_load_failed))
                             BodyMediumText(text = currentState.message)
                             Button(onClick = { viewModel.loadBackedUpFiles() }) {
-                                Text("重试")
+                                Text(stringResource(R.string.restore_retry))
                             }
                         }
                     }

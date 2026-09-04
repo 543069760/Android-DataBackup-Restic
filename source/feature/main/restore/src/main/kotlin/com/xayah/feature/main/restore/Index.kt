@@ -157,7 +157,7 @@ fun PageRestore() {
             val appsInteractionSource = remember { MutableInteractionSource() }
             Clickable(
                 title = stringResource(id = R.string.apps),
-                value = "从 Restic 块存储中查询已备份的应用",
+                value = stringResource(id = R.string.restore_query_apps_desc),
                 leadingIcon = ImageVector.vectorResource(id = R.drawable.ic_rounded_apps),
                 interactionSource = appsInteractionSource,
             ) {
@@ -167,7 +167,7 @@ fun PageRestore() {
             val filesInteractionSource = remember { MutableInteractionSource() }
             Clickable(
                 title = stringResource(id = R.string.files),
-                value = "从 Restic 块存储中查询已备份的文件",
+                value = stringResource(id = R.string.restore_query_files_desc),
                 leadingIcon = ImageVector.vectorResource(id = R.drawable.ic_rounded_folder_open),
                 interactionSource = filesInteractionSource,
             ) {

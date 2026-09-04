@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
@@ -50,6 +51,7 @@ import com.xayah.core.util.DateUtil
 import com.xayah.core.model.DataType
 import com.xayah.core.datastore.readBackupDirectory
 import com.xayah.core.model.ResticProgressState
+import com.xayah.feature.main.restore.R
 import kotlinx.coroutines.launch
 import java.net.URLEncoder
 
@@ -64,6 +66,7 @@ fun ResticFilesBackupDetailPage(
     val dialogState = LocalSlotScope.current!!.dialogSlot  // 新增
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+    val noticeText = stringResource(R.string.restore_dialog_notice)
     val hasConfigSnapshot = group.backups.any { it.dataType == DataType.PACKAGE_CONFIG }
 
     // 新增删除状态变量
@@ -115,7 +118,7 @@ fun ResticFilesBackupDetailPage(
         scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
             rememberTopAppBarState()
         ),
-        title = "文件备份详情",
+        title = stringResource(R.string.restore_file_backup_detail_title),
         actions = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -133,19 +136,19 @@ fun ResticFilesBackupDetailPage(
                     text = if (isDeleting) {
                         if (currentStep <= totalSnapshots) {
                             val currentDataType = getCurrentDataTypeName(group, currentIndex)
-                            "正在删除${currentDataType}快照 ($currentStep/$totalSteps)"
+                            stringResource(R.string.restore_deleting_snapshot, currentDataType, currentStep, totalSteps)
                         } else {
-                            "正在清理存储空间 ($totalSteps/$totalSteps)"
+                            stringResource(R.string.restore_cleaning_storage, totalSteps, totalSteps)
                         }
                     } else {
-                        "删除本地文件快照"
+                        stringResource(R.string.restore_delete_local_file_snapshot)
                     },
                     onClick = {
                         if (!isDeleting) {
                             coroutineScope.launch {
                                 if (dialogState.confirm(
-                                        title = "提示",
-                                        text = "确认删除该文件的所有本地快照?\n共计 ${group.backups.size} 个快照"
+                                        title = noticeText,
+                                        text = context.getString(R.string.restore_confirm_delete_local_file, group.backups.size)
                                     )) {
                                     val success = viewModel.deleteLocalFileSnapshots(group)
                                     if (success) {
@@ -167,16 +170,16 @@ fun ResticFilesBackupDetailPage(
                     progressSize = progressSize,
                     enabled = restoreButtonEnabled && hasConfigSnapshot,  // 修改这里
                     text = when {
-                        !hasConfigSnapshot -> "备份不完整,无法恢复"
+                        !hasConfigSnapshot -> stringResource(R.string.restore_incomplete_cannot_restore)
                         isRestoring -> {
                             val currentDataType = getCurrentDataTypeName(group, currentIndex)
-                            "正在恢复${currentDataType}快照"
+                            stringResource(R.string.restore_restoring_snapshot, currentDataType)
                         }
                         isCompleted -> {
-                            "文件恢复已完成"
+                            stringResource(R.string.restore_file_restore_completed)
                         }
                         else -> {
-                            "恢复文件备份"
+                            stringResource(R.string.restore_restore_file_backup)
                         }
                     },
                     onClick = {
@@ -217,7 +220,7 @@ fun ResticFilesBackupDetailPage(
             }
         }
     ) {
-    Column(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(SizeTokens.Level16)
@@ -255,7 +258,7 @@ fun ResticFilesBackupDetailPage(
             Spacer(modifier = Modifier.height(SizeTokens.Level24))
 
             // 备份类型详情
-            Title(title = "备份类型详情") {
+            Title(title = stringResource(R.string.restore_backup_type_details)) {
                 val sortedBackups = group.backups.sortedBy { backup ->
                     when (backup.dataType) {
                         DataType.PACKAGE_MEDIA -> 0
@@ -275,19 +278,19 @@ fun ResticFilesBackupDetailPage(
                             Column {
                                 Text(
                                     text = when (backup.dataType) {
-                                        DataType.PACKAGE_MEDIA -> "媒体文件"
-                                        DataType.PACKAGE_CONFIG -> "配置文件"
+                                        DataType.PACKAGE_MEDIA -> stringResource(R.string.restore_media_file)
+                                        DataType.PACKAGE_CONFIG -> stringResource(R.string.restore_config_file)
                                         else -> backup.dataType.type.uppercase()
                                     },
                                     style = MaterialTheme.typography.titleMedium
                                 )
                                 Text(
-                                    text = "快照ID: ${backup.snapshotId}",
+                                    text = stringResource(R.string.restore_snapshot_id, backup.snapshotId),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = "快照大小: ${backup.totalBytesProcessed.formatSize()}",
+                                    text = stringResource(R.string.restore_snapshot_size, backup.totalBytesProcessed.formatSize()),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

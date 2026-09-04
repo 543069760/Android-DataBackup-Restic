@@ -2,7 +2,7 @@ package com.xayah.feature.main.restore
 
 import android.util.Log
 import androidx.compose.animation.ExperimentalAnimationApi
-import androidx.compose.foundation.ExperimentalFoundationApi  // 新增
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll  // 新增
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,6 +31,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import androidx.compose.ui.res.stringResource
+import com.xayah.feature.main.restore.R
 import com.xayah.core.datastore.readBackupDirectory
 import com.xayah.core.model.DataType
 import com.xayah.core.ui.component.confirm
@@ -50,7 +52,7 @@ import com.xayah.core.util.navigateSingle
 import kotlinx.coroutines.launch
 import java.net.URLEncoder
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class, ExperimentalFoundationApi::class)  // 修改: 添加 ExperimentalFoundationApi
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun CloudBackupDetailPage(
     navController: NavController,
@@ -59,9 +61,12 @@ fun CloudBackupDetailPage(
     viewModel: CloudRestoreViewModel = hiltViewModel()
 ) {
     val resticProgress by viewModel.resticProgress.collectAsStateWithLifecycle()
-    val dialogState = LocalSlotScope.current!!.dialogSlot  // 修改: 从 LocalSlotScope 获取
+    val dialogState = LocalSlotScope.current!!.dialogSlot
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    // 对话框标题（非 Composable lambda 内无法调用 stringResource，先在此取好）
+    val noticeText = stringResource(R.string.restore_dialog_notice)
 
     LaunchedEffect(accountName) {
         viewModel.setCloudEntity(accountName)
@@ -70,7 +75,7 @@ fun CloudBackupDetailPage(
     val isDeleting = resticProgress.isDeleting
     val isRestoring = resticProgress.totalDataTypes > 0 &&
             resticProgress.currentDataTypeIndex < resticProgress.totalDataTypes &&
-            !isDeleting  // 排除删除状态
+            !isDeleting
 
     val isCompleted = resticProgress.isCompleted && !isDeleting
     val deleteButtonEnabled = !isRestoring && !isCompleted && !isDeleting
@@ -112,7 +117,7 @@ fun CloudBackupDetailPage(
     }
     RestoreScaffold(
         scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState()),
-        title = "云端备份详情",
+        stringResource(R.string.restore_cloud_backup_detail_title),
         actions = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -130,19 +135,22 @@ fun CloudBackupDetailPage(
                     text = if (isDeleting) {
                         if (currentStep <= totalSnapshots) {
                             val currentDataType = getCurrentDataTypeName(group, currentIndex)
-                            "正在删除${currentDataType}快照 ($currentStep/$totalSteps)"
+                            stringResource(R.string.restore_deleting_snapshot, currentDataType, currentStep, totalSteps)
                         } else {
-                            "正在清理存储空间 ($totalSteps/$totalSteps)"
+                            stringResource(R.string.restore_cleaning_storage, totalSteps, totalSteps)
                         }
                     } else {
-                        "删除云端快照"
+                        stringResource(R.string.restore_delete_cloud_snapshot)
                     },
                     onClick = {
                         if (!isDeleting) {
                             coroutineScope.launch {
                                 if (dialogState.confirm(
-                                        title = "提示",
-                                        text = "确认删除该应用的所有云端快照?\n共计 ${group.backups.size} 个快照"
+                                        title = noticeText,
+                                        text = context.getString(
+                                            R.string.restore_confirm_delete_cloud_app,
+                                            group.backups.size
+                                        )
                                     )) {
                                     val success = viewModel.deleteCloudSnapshots(group)
                                     if (success) {
@@ -167,13 +175,13 @@ fun CloudBackupDetailPage(
                     progressSize = progressSize,
                     enabled = restoreButtonEnabled && hasConfigSnapshot,
                     text = when {
-                        !hasConfigSnapshot -> "备份不完整,无法恢复"
+                        !hasConfigSnapshot -> stringResource(R.string.restore_backup_incomplete)
                         isRestoring -> {
                             val currentDataType = getCurrentDataTypeName(group, currentIndex)
-                            "正在恢复${currentDataType}快照"
+                            stringResource(R.string.restore_restoring_snapshot, currentDataType)
                         }
-                        isCompleted -> "云端恢复已完成"
-                        else -> "恢复云端快照"
+                        isCompleted -> stringResource(R.string.restore_cloud_restore_completed)
+                        else -> stringResource(R.string.restore_restore_cloud_snapshot)
                     },
                     onClick = {
                         if (!isRestoring && !isCompleted && !isDeleting) {
@@ -211,7 +219,7 @@ fun CloudBackupDetailPage(
             }
         }
     ) {
-    Column(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(SizeTokens.Level16)
@@ -235,7 +243,7 @@ fun CloudBackupDetailPage(
                         color = ThemedColorSchemeKeyTokens.Outline.value
                     )
                     BodyMediumText(
-                        text = "云端账户: $accountName",
+                        text = stringResource(R.string.restore_cloud_account, accountName),
                         color = ThemedColorSchemeKeyTokens.Outline.value
                     )
                     BodyMediumText(
@@ -247,7 +255,7 @@ fun CloudBackupDetailPage(
 
             Spacer(modifier = Modifier.height(SizeTokens.Level24))
 
-            Title(title = "备份类型详情") {
+            Title(title = stringResource(R.string.restore_backup_type_details)) {
                 group.backups.forEach { backup ->
                     Column(modifier = Modifier.padding(vertical = SizeTokens.Level8)) {
                         Row(
@@ -261,12 +269,12 @@ fun CloudBackupDetailPage(
                                     style = MaterialTheme.typography.titleMedium
                                 )
                                 Text(
-                                    text = "快照ID: ${backup.snapshotId}",
+                                    text = stringResource(R.string.restore_snapshot_id, backup.snapshotId),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = "快照大小: ${backup.totalBytesProcessed.formatSize()}",
+                                    text = stringResource(R.string.restore_snapshot_size, backup.totalBytesProcessed.formatSize()),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

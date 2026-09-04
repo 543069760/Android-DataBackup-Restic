@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
@@ -42,6 +43,7 @@ import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
 import com.xayah.core.ui.theme.value  // 添加这个导入
 import com.xayah.feature.main.restore.ResticBackupGroup
+import com.xayah.feature.main.restore.R
 import android.content.Context
 import androidx.compose.runtime.remember
 import com.xayah.core.ui.component.BodyMediumText
@@ -88,7 +90,7 @@ fun ResticRestorePage(
 
     RestoreScaffold(
         scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState()),
-        title = "从 Restic 备份恢复"
+        title = stringResource(R.string.restore_restic_restore_title)
     ) {
         Column(
             modifier = Modifier
@@ -113,7 +115,7 @@ fun ResticRestorePage(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
-                            TitleLargeText(text = "没有找到备份")
+                            TitleLargeText(text = stringResource(R.string.restore_no_backup))
                         }
                     } else {
                         LazyColumn(
@@ -158,10 +160,10 @@ fun ResticRestorePage(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(SizeTokens.Level16)
                         ) {
-                            TitleLargeText(text = "加载失败")
+                            TitleLargeText(text = stringResource(R.string.restore_load_failed))
                             BodyMediumText(text = currentState.message)
                             Button(onClick = { viewModel.loadBackedUpApps() }) {
-                                Text("重试")
+                                Text(stringResource(R.string.restore_retry))
                             }
                         }
                     }
@@ -220,7 +222,7 @@ fun ResticBackupGroupItem(
                             border = BorderStroke(0.5.dp, borderColor) // 添加边框
                         ) {
                             Text(
-                                text = "备份不完整",
+                                text = stringResource(R.string.restore_backup_incomplete),
                                 color = contentColor,
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
@@ -245,7 +247,7 @@ fun ResticBackupGroupItem(
                 )
 
                 Text(
-                    text = "共计 ${group.snapshotCount} 个快照",
+                    text = stringResource(R.string.restore_snapshot_count, group.snapshotCount),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

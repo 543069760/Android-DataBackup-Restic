@@ -18,6 +18,7 @@ import com.xayah.core.model.database.MediaEntity
 import com.xayah.core.model.OpType
 import com.xayah.core.model.DataType
 import com.xayah.core.rootservice.service.RemoteRootService
+import com.xayah.feature.main.restore.R
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -392,7 +393,7 @@ class ResticFilesRestoreViewModel @Inject constructor(
 
                 if (repoPath.isNullOrEmpty() || password.isNullOrEmpty()) {
                     Log.e("ResticFilesRestore", "Restic配置不完整")
-                    _uiState.value = ResticFilesRestoreUiState.Error("Restic not configured")
+                    _uiState.value = ResticFilesRestoreUiState.Error(context.getString(R.string.restore_error_restic_not_configured))
                     return@launch
                 }
                 Log.d("ResticFilesRestore", "Restic配置读取成功")
@@ -441,7 +442,7 @@ class ResticFilesRestoreViewModel @Inject constructor(
 
             } catch (e: Exception) {
                 Log.e("ResticFilesRestore", "加载本地文件备份时发生异常", e)
-                _uiState.value = ResticFilesRestoreUiState.Error("加载失败: ${e.message}")
+                _uiState.value = ResticFilesRestoreUiState.Error(context.getString(R.string.restore_load_failed_reason, e.message ?: ""))
             }
         }
         Log.d("ResticFilesRestore", "=== loadBackedUpFiles 结束 ===")

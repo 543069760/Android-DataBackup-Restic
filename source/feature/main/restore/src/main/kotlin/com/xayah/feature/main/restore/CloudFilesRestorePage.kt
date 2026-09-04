@@ -23,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.ExperimentalAnimationApi
@@ -48,7 +49,6 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import com.xayah.core.model.DataType
 import com.xayah.feature.main.restore.RestoreScaffold
 import com.xayah.core.ui.component.BodyMediumText
@@ -60,6 +60,7 @@ import com.xayah.core.ui.route.MainRoutes
 import com.xayah.core.ui.token.SizeTokens
 import com.xayah.core.util.DateUtil
 import com.xayah.core.util.navigateSingle
+import com.xayah.feature.main.restore.R
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.net.URLEncoder
@@ -114,7 +115,7 @@ fun CloudFileBackupGroupItem(
                             border = BorderStroke(0.5.dp, borderColor)
                         ) {
                             Text(
-                                text = "备份不完整",
+                                text = stringResource(R.string.restore_backup_incomplete),
                                 color = contentColor,
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
@@ -139,7 +140,7 @@ fun CloudFileBackupGroupItem(
                 )
 
                 Text(
-                    text = "共计 ${group.snapshotCount} 个快照",
+                    text = stringResource(R.string.restore_snapshot_count, group.snapshotCount),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -165,7 +166,7 @@ fun CloudFilesRestorePage(
 
     RestoreScaffold(
         scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState()),
-        title = "云端文件恢复"
+        title = stringResource(R.string.restore_cloud_file_restore_title)
     ) {
         Column(
             modifier = Modifier
@@ -185,7 +186,7 @@ fun CloudFilesRestorePage(
 
                     if (currentState.groups.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            TitleLargeText(text = "没有找到云端文件备份")
+                            TitleLargeText(text = stringResource(R.string.restore_no_cloud_file_backup))
                         }
                     } else {
                         LazyColumn(
@@ -228,10 +229,10 @@ fun CloudFilesRestorePage(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(SizeTokens.Level16)
                         ) {
-                            TitleLargeText(text = "加载失败")
+                            TitleLargeText(text = stringResource(R.string.restore_load_failed))
                             BodyMediumText(text = currentState.message)
                             Button(onClick = { viewModel.setCloudEntity(accountName) }) {
-                                Text("重试")
+                                Text(stringResource(R.string.restore_retry))
                             }
                         }
                     }

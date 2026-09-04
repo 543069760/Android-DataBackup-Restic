@@ -86,7 +86,7 @@ class ResticRestoreViewModel @Inject constructor(
             Log.d("ResticRestore", "读取到的 repoPath: $repoPath")
             Log.d("ResticRestore", "password: ${if (password.isNullOrEmpty()) "空" else "已设置"}")
             if (repoPath.isNullOrEmpty() || password.isNullOrEmpty()) {
-                _uiState.value = ResticRestoreUiState.Error("Restic not configured")
+                _uiState.value = ResticRestoreUiState.Error(context.getString(R.string.restore_error_restic_not_configured))
                 return@launch
             }
 
@@ -117,7 +117,7 @@ class ResticRestoreViewModel @Inject constructor(
                 Log.d("ResticRestore", "后台刷新完成，静默替换 ${freshApps.size} 条")
             } catch (e: Exception) {
                 if (cachedApps.isEmpty()) {
-                    _uiState.value = ResticRestoreUiState.Error(e.message ?: "Unknown error")
+                    _uiState.value = ResticRestoreUiState.Error(e.message ?: context.getString(R.string.restore_error_unknown))
                 } else {
                     Log.w("ResticRestore", "后台刷新失败，保留缓存: ${e.message}")
                 }
@@ -598,7 +598,7 @@ class ResticRestoreViewModel @Inject constructor(
         Log.d("ResticRestore", "从 DataStore 读取备份目录配置")
         val backupDir = context.localBackupSaveDir()
         Log.d("ResticRestore", "读取到的备份目录: $backupDir")
-        return backupDir ?: throw Exception("备份目录未配置")
+        return backupDir ?: throw Exception(context.getString(R.string.restore_error_backup_dir_not_configured))
     }
 
     private fun Long.formatSpeed(): String {

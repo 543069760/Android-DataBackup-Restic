@@ -38,6 +38,7 @@ import com.xayah.core.util.PathUtil
 import com.xayah.core.util.IconRelativeDir
 import com.xayah.core.model.CompressionType
 import com.xayah.core.util.command.Tar
+import com.xayah.feature.main.restore.R
 import kotlinx.coroutines.flow.first
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -115,7 +116,7 @@ class CloudRestoreViewModel @Inject constructor(
                 loadCloudBackedUpApps(cloudEntity)
             } else {
                 Log.e("CloudRestore", "云端账户查询失败: $cleanAccountName")
-                _uiState.value = CloudRestoreUiState.Error("账户不存在: $cleanAccountName")
+                _uiState.value = CloudRestoreUiState.Error(context.getString(R.string.restore_account_not_found, cleanAccountName))
             }
         }
     }
@@ -131,7 +132,7 @@ class CloudRestoreViewModel @Inject constructor(
         viewModelScope.launch {
             val password = resolveResticPassword(cloudEntity)
             if (password.isNullOrEmpty()) {
-                _uiState.value = CloudRestoreUiState.Error("Restic密码未配置")
+                _uiState.value = CloudRestoreUiState.Error(context.getString(R.string.restore_password_not_configured))
                 return@launch
             }
             val accountId = cloudEntity.name.replace(Regex("[^A-Za-z0-9]"), "_")
@@ -176,7 +177,7 @@ class CloudRestoreViewModel @Inject constructor(
             } catch (e: Exception) {
                 // 缓存已展示则保留缓存、只记日志；无缓存才报错
                 if (cachedApps.isEmpty()) {
-                    _uiState.value = CloudRestoreUiState.Error("加载失败: ${e.message}")
+                    _uiState.value = CloudRestoreUiState.Error(context.getString(R.string.restore_load_failed_reason, e.message ?: ""))
                 } else {
                     Log.w("CloudRestore", "后台刷新失败，保留缓存列表: ${e.message}")
                 }

@@ -114,7 +114,7 @@ fun ResticRepoPathScreen() {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "提示：点击图标可直接浏览包括 Root 目录（如 /data/adb）在内的路径；也可手动输入。保存后程序将自动尝试修复路径权限。",
+                    text = stringResource(id = R.string.restic_repo_path_root_hint),
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(12.dp),
                     color = MaterialTheme.colorScheme.onSecondaryContainer

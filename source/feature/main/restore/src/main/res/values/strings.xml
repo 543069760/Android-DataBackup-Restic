@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 通用 -->
+    <string name="restore_error_restic_not_configured">Restic not configured</string>
+    <string name="restore_error_unknown">Unknown error</string>
+    <string name="restore_error_backup_dir_not_configured">Backup directory not configured</string>
+    <string name="restore_account_not_found">Account not found: %1$s</string>
+    <string name="restore_query_account_failed">Failed to query account: %1$s</string>
+    <string name="restore_password_not_configured">Restic password not configured</string>
+    <string name="restore_load_failed_reason">Load failed: %1$s</string>
+    <string name="restore_backup_incomplete">Incomplete backup</string>
+    <string name="restore_incomplete_cannot_restore">Backup incomplete, cannot restore</string>
+    <string name="restore_snapshot_count">%1$d snapshots in total</string>
+    <string name="restore_load_failed">Loading failed</string>
+    <string name="restore_retry">Retry</string>
+    <string name="restore_backup_type_details">Backup Type Details</string>
+    <string name="restore_snapshot_id">Snapshot ID: %1$s</string>
+    <string name="restore_snapshot_size">Snapshot size: %1$s</string>
+    <string name="restore_cloud_account">Cloud account: %1$s</string>
+    <string name="restore_dialog_notice">Notice</string>
+    <string name="restore_deleting_snapshot">Deleting %1$s snapshot (%2$d/%3$d)</string>
+    <string name="restore_cleaning_storage">Cleaning up storage (%1$d/%2$d)</string>
+    <string name="restore_restoring_snapshot">Restoring %1$s snapshot</string>
+    <!-- 标题 -->
+    <string name="restore_restic_restore_title">Restore from Restic Backup</string>
+    <string name="restore_restic_file_restore_title">Restore Files from Restic Backup</string>
+    <string name="restore_cloud_restic_restore_title">Cloud Restic Restore</string>
+    <string name="restore_cloud_file_restore_title">Cloud File Restore</string>
+    <string name="restore_backup_detail_title">Backup Details</string>
+    <string name="restore_file_backup_detail_title">File Backup Details</string>
+    <string name="restore_cloud_backup_detail_title">Cloud Backup Details</string>
+    <string name="restore_cloud_file_backup_detail_title">Cloud File Backup Details</string>
+    <string name="restore_query_apps_desc">Browse apps backed up in the Restic repository</string>
+    <string name="restore_query_files_desc">Browse files backed up in the Restic repository</string>
+    <!-- 空列表 -->
+    <string name="restore_no_backup">No backups found</string>
+    <string name="restore_no_file_backup">No file backups found</string>
+    <string name="restore_no_cloud_backup">No cloud backups found</string>
+    <string name="restore_no_cloud_file_backup">No cloud file backups found</string>
+    <!-- 删除按钮 -->
+    <string name="restore_delete_local_snapshot">Delete Local Snapshot</string>
+    <string name="restore_delete_local_file_snapshot">Delete Local File Snapshot</string>
+    <string name="restore_delete_cloud_snapshot">Delete Cloud Snapshot</string>
+    <string name="restore_delete_cloud_file_snapshot">Delete Cloud File Snapshot</string>
+    <!-- 恢复按钮 -->
+    <string name="restore_restore_snapshot_backup">Restore Snapshot</string>
+    <string name="restore_restore_file_backup">Restore File Backup</string>
+    <string name="restore_restore_cloud_snapshot">Restore Cloud Snapshot</string>
+    <string name="restore_restore_cloud_file_snapshot">Restore Cloud File Snapshot</string>
+    <!-- 完成态 -->
+    <string name="restore_snapshot_restore_completed">Snapshot restore completed</string>
+    <string name="restore_file_restore_completed">File restore completed</string>
+    <string name="restore_cloud_restore_completed">Cloud restore completed</string>
+    <string name="restore_cloud_file_restore_completed">Cloud file restore completed</string>
+    <!-- 删除确认对话框 -->
+    <string name="restore_confirm_delete_local_app">Delete all local snapshots for this app?\n%1$d snapshots in total</string>
+    <string name="restore_confirm_delete_local_file">Delete all local snapshots for this file?\n%1$d snapshots in total</string>
+    <string name="restore_confirm_delete_cloud_app">Delete all cloud snapshots for this app?\n%1$d snapshots in total</string>
+    <string name="restore_confirm_delete_cloud_file">Delete all cloud snapshots for this file?\n%1$d snapshots in total</string>
+    <!-- 文件类型（ResticFilesBackupDetailPage） -->
+    <string name="restore_media_file">Media Files</string>
+    <string name="restore_config_file">Config Files</string>
+</resources>

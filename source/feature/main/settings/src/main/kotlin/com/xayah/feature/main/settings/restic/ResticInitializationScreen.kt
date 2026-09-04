@@ -110,8 +110,8 @@ private fun InitializedView(
                 .padding(paddingValues)
                 .padding(16.dp)
         ) {
-            Text("Restic 已初始化")
-            Text("仓库路径: $repoPath")
+            Text(stringResource(R.string.restic_initialized))
+            Text(stringResource(R.string.repository_path, repoPath))
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -119,7 +119,7 @@ private fun InitializedView(
                 onClick = onReinitialize,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("重新初始化")
+                Text(stringResource(R.string.reinitialize))
             }
         }
     }

@@ -18,6 +18,9 @@
     <string name="restic_repo_path_default">/storage/emulated/0/Android/data/com.xayah.databackup.s3/restic</string>
 
     <!-- Restic 初始化功能字符串 -->
+    <string name="restic_initialized">Restic 已初始化</string>
+    <string name="repository_path">仓库路径: %1$s</string>
+    <string name="reinitialize">重新初始化</string>
     <string name="restic_version">Restic版本</string>
     <string name="restic_initialization_status">Restic初始化状态（仅指本地）</string>
     <string name="restic_initialized_at">初始化位置（仅指本地）：%s</string>
@@ -42,6 +45,7 @@
     <string name="restic_not_detected">没有检测到Restic</string>
     <string name="restic_compression_level">Restic压缩等级</string>
     <string name="restic_compression_level_desc">等级数值越大压缩率越高，但相应耗时越长、占用性能越多，请根据手机性能选择合适的压缩等级。此设置仅在初始化仓库时生效，仓库创建后修改不会改变已有仓库的压缩等级。</string>
+    <string name="restic_repo_path_root_hint">提示：点击图标可直接浏览包括 Root 目录（如 /data/adb）在内的路径；也可手动输入。保存后程序将自动尝试修复路径权限。</string>
     <!-- 云端 Restic 初始化字符串 -->
     <string name="s3_restic_initialization">云端 Restic 初始化</string>
     <string name="s3_restic_password">云端 Restic 密码</string>

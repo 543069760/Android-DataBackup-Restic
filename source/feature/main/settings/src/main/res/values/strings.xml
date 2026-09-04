@@ -18,6 +18,9 @@
     <string name="restic_repo_path_default">/storage/emulated/0/Android/data/com.xayah.databackup.s3/restic</string>
 
     <!-- Restic 初始化功能字符串 -->
+    <string name="restic_initialized">Restic initialized</string>
+    <string name="repository_path">Repository path: %1$s</string>
+    <string name="reinitialize">Reinitialize</string>
     <string name="restic_version">Restic Version</string>
     <string name="restic_initialization_status">Restic Initialization Status(Local only)</string>
     <string name="restic_initialized_at">Initialized at(Local only): %s</string>
@@ -29,6 +32,7 @@
     <string name="initialize_restic_desc">Set up Restic repository for backup(Local only)s</string>
     <string name="select_restic_repo_path">Select Restic Repository Path(Local only)</string>
     <string name="restic_repo_will_be_created_at">Repository will be created at: %s(Local only)</string>
+    <string name="restic_repo_path_root_hint">Tip: Tap the icon to browse any path including root directories (e.g. /data/adb), or enter the path manually. Path permissions will be fixed automatically after saving.</string>
     <string name="initialize">Initialize</string>
     <!-- Restic 初始化功能字符串 - 补充 -->
     <string name="select_directory">Select Directory(Local only)</string>

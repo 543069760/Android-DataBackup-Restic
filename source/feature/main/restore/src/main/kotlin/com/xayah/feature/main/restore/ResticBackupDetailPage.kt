@@ -21,6 +21,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
@@ -45,6 +47,7 @@ import com.xayah.core.ui.theme.value
 import com.xayah.core.ui.token.SizeTokens
 import com.xayah.core.util.DateUtil
 import com.xayah.core.model.DataType
+import com.xayah.feature.main.restore.R
 import com.xayah.feature.main.restore.ResticBackupGroup
 import kotlinx.coroutines.launch
 import java.net.URLEncoder
@@ -59,6 +62,8 @@ fun ResticBackupDetailPage(
     val resticProgress by viewModel.resticProgress.collectAsStateWithLifecycle()
     val dialogState = LocalSlotScope.current!!.dialogSlot  // 新增
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current  // 新增：对话框在非 Composable 的 launch lambda 内需要它
+    val noticeText = stringResource(R.string.restore_dialog_notice)  // 新增：提前 hoist 出对话框标题
     val hasConfigSnapshot = group.backups.any { it.dataType == DataType.PACKAGE_CONFIG }
     // 新增删除状态变量
     val isDeleting = resticProgress.isDeleting
@@ -111,7 +116,7 @@ fun ResticBackupDetailPage(
         scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
             rememberTopAppBarState()
         ),
-        title = "备份详情",
+        title = stringResource(R.string.restore_backup_detail_title),
         actions = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -129,19 +134,19 @@ fun ResticBackupDetailPage(
                     text = if (isDeleting) {
                         if (currentStep <= totalSnapshots) {
                             val currentDataType = getCurrentDataTypeName(group, currentIndex)
-                            "正在删除${currentDataType}快照 ($currentStep/$totalSteps)"
+                            stringResource(R.string.restore_deleting_snapshot, currentDataType, currentStep, totalSteps)
                         } else {
-                            "正在清理存储空间 ($totalSteps/$totalSteps)"
+                            stringResource(R.string.restore_cleaning_storage, totalSteps, totalSteps)
                         }
                     } else {
-                        "删除本地快照"
+                        stringResource(R.string.restore_delete_local_snapshot)
                     },
                     onClick = {
                         if (!isDeleting) {
                             coroutineScope.launch {
                                 if (dialogState.confirm(
-                                        title = "提示",
-                                        text = "确认删除该应用的所有本地快照?\n共计 ${group.backups.size} 个快照"
+                                        title = noticeText,
+                                        text = context.getString(R.string.restore_confirm_delete_local_app, group.backups.size)
                                     )) {
                                     val success = viewModel.deleteLocalSnapshots(group)
                                     if (success) {
@@ -167,13 +172,13 @@ fun ResticBackupDetailPage(
                     progressSize = progressSize,
                     enabled = restoreButtonEnabled && hasConfigSnapshot,  // 修改这里
                     text = when {
-                        !hasConfigSnapshot -> "备份不完整,无法恢复"  // 新增,放在最前面
+                        !hasConfigSnapshot -> stringResource(R.string.restore_incomplete_cannot_restore)  // 新增,放在最前面
                         isRestoring -> {
                             val currentDataType = getCurrentDataTypeName(group, currentIndex)
-                            "正在恢复${currentDataType}快照"
+                            stringResource(R.string.restore_restoring_snapshot, currentDataType)
                         }
-                        isCompleted -> "快照恢复已完成"
-                        else -> "恢复快照备份"
+                        isCompleted -> stringResource(R.string.restore_snapshot_restore_completed)
+                        else -> stringResource(R.string.restore_restore_snapshot_backup)
                     },
                     onClick = {
                         if (!isRestoring && !isCompleted && !isDeleting && hasConfigSnapshot) {  // 添加 hasConfigSnapshot 检查
@@ -202,7 +207,7 @@ fun ResticBackupDetailPage(
             }
         }
     ) {
-    Column(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(SizeTokens.Level16)
@@ -239,7 +244,7 @@ fun ResticBackupDetailPage(
             Spacer(modifier = Modifier.height(SizeTokens.Level24))
 
             // 备份类型详情
-            Title(title = "备份类型详情") {
+            Title(title = stringResource(R.string.restore_backup_type_details)) {
                 group.backups.forEach { backup ->
                     Column(
                         modifier = Modifier.padding(vertical = SizeTokens.Level8)
@@ -255,12 +260,12 @@ fun ResticBackupDetailPage(
                                     style = MaterialTheme.typography.titleMedium
                                 )
                                 Text(
-                                    text = "快照ID: ${backup.snapshotId}",
+                                    text = stringResource(R.string.restore_snapshot_id, backup.snapshotId),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = "快照大小: ${backup.totalBytesProcessed.formatSize()}",
+                                    text = stringResource(R.string.restore_snapshot_size, backup.totalBytesProcessed.formatSize()),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

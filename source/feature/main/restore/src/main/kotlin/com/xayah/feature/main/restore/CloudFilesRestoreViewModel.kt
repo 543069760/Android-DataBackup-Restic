@@ -30,6 +30,7 @@ import com.xayah.core.model.database.SFTPExtra
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.localBackupSaveDir
 import com.xayah.core.util.decodeURL
+import com.xayah.feature.main.restore.R
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -111,11 +112,11 @@ class CloudFilesRestoreViewModel @Inject constructor(
                     loadCloudBackedUpFiles(cloudEntity)
                 } else {
                     Log.e(TAG, "云端账户查询失败: $cleanAccountName")
-                    _uiState.value = CloudFilesRestoreUiState.Error("账户不存在: $cleanAccountName")
+                    _uiState.value = CloudFilesRestoreUiState.Error(context.getString(R.string.restore_account_not_found, cleanAccountName))
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "查询云端账户时发生异常: $cleanAccountName", e)
-                _uiState.value = CloudFilesRestoreUiState.Error("查询账户失败: ${e.message}")
+                _uiState.value = CloudFilesRestoreUiState.Error(context.getString(R.string.restore_query_account_failed, e.message ?: ""))
             }
         }
         Log.d(TAG, "=== setCloudEntity 结束 ===")
@@ -135,7 +136,7 @@ class CloudFilesRestoreViewModel @Inject constructor(
                 val password = resolveResticPassword(cloudEntity)
                 if (password.isNullOrEmpty()) {
                     Log.e(TAG, "Restic密码未配置或为空")
-                    _uiState.value = CloudFilesRestoreUiState.Error("Restic密码未配置")
+                    _uiState.value = CloudFilesRestoreUiState.Error(context.getString(R.string.restore_password_not_configured))
                     return@launch
                 }
                 Log.d(TAG, "Restic密码配置已读取 (长度: ${password.length})")
@@ -191,7 +192,7 @@ class CloudFilesRestoreViewModel @Inject constructor(
 
             } catch (e: Exception) {
                 Log.e(TAG, "加载云端文件备份时发生异常", e)
-                _uiState.value = CloudFilesRestoreUiState.Error("加载失败: ${e.message}")
+                _uiState.value = CloudFilesRestoreUiState.Error(context.getString(R.string.restore_load_failed_reason, e.message ?: ""))
             }
         }
         Log.d(TAG, "=== loadCloudBackedUpFiles 结束 ===")

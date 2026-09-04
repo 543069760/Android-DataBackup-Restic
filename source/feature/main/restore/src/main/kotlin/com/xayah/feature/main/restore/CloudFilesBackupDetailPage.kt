@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
@@ -50,6 +51,7 @@ import com.xayah.core.ui.token.SizeTokens
 import com.xayah.core.util.DateUtil
 import com.xayah.core.model.DataType
 import com.xayah.core.model.ResticProgressState
+import com.xayah.feature.main.restore.R
 import kotlinx.coroutines.launch
 import java.net.URLEncoder
 
@@ -65,6 +67,9 @@ fun CloudFilesBackupDetailPage(
     val dialogState = LocalSlotScope.current!!.dialogSlot
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    // 对话框标题在非 Composable 的 lambda 中使用，需提前 hoist
+    val noticeText = stringResource(R.string.restore_dialog_notice)
 
     LaunchedEffect(accountName) {
         viewModel.setCloudEntity(accountName)
@@ -114,7 +119,7 @@ fun CloudFilesBackupDetailPage(
 
     RestoreScaffold(
         scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState()),
-        title = "云端文件备份详情",
+        title = stringResource(R.string.restore_cloud_file_backup_detail_title),
         actions = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -132,19 +137,19 @@ fun CloudFilesBackupDetailPage(
                     text = if (isDeleting) {
                         if (currentStep <= totalSnapshots) {
                             val currentDataType = getCurrentDataTypeName(group, currentIndex)
-                            "正在删除${currentDataType}快照 ($currentStep/$totalSteps)"
+                            stringResource(R.string.restore_deleting_snapshot, currentDataType, currentStep, totalSteps)
                         } else {
-                            "正在清理存储空间 ($totalSteps/$totalSteps)"
+                            stringResource(R.string.restore_cleaning_storage, totalSteps, totalSteps)
                         }
                     } else {
-                        "删除云端文件快照"
+                        stringResource(R.string.restore_delete_cloud_file_snapshot)
                     },
                     onClick = {
                         if (!isDeleting) {
                             coroutineScope.launch {
                                 if (dialogState.confirm(
-                                        title = "提示",
-                                        text = "确认删除该文件的所有云端快照?\n共计 ${group.backups.size} 个快照"
+                                        title = noticeText,
+                                        text = context.getString(R.string.restore_confirm_delete_cloud_file, group.backups.size)
                                     )) {
                                     val success = viewModel.deleteCloudFileSnapshots(group)
                                     if (success) {
@@ -166,13 +171,13 @@ fun CloudFilesBackupDetailPage(
                     progressSize = progressSize,
                     enabled = restoreButtonEnabled && hasConfigSnapshot,
                     text = when {
-                        !hasConfigSnapshot -> "备份不完整,无法恢复"
+                        !hasConfigSnapshot -> stringResource(R.string.restore_incomplete_cannot_restore)
                         isRestoring -> {
                             val currentDataType = getCurrentDataTypeName(group, currentIndex)
-                            "正在恢复${currentDataType}快照"
+                            stringResource(R.string.restore_restoring_snapshot, currentDataType)
                         }
-                        isCompleted -> "云端文件恢复已完成"
-                        else -> "恢复云端文件快照"
+                        isCompleted -> stringResource(R.string.restore_cloud_file_restore_completed)
+                        else -> stringResource(R.string.restore_restore_cloud_file_snapshot)
                     },
                     onClick = {
                         if (!isRestoring && !isCompleted && !isDeleting) {
@@ -236,7 +241,7 @@ fun CloudFilesBackupDetailPage(
                         maxLines = 2
                     )
                     BodyMediumText(
-                        text = "云端账户: $accountName",
+                        text = stringResource(R.string.restore_cloud_account, accountName),
                         color = ThemedColorSchemeKeyTokens.Outline.value
                     )
                     BodyMediumText(
@@ -252,7 +257,7 @@ fun CloudFilesBackupDetailPage(
             Spacer(modifier = Modifier.height(SizeTokens.Level24))
 
             // 备份类型详情
-            Title(title = "备份类型详情") {
+            Title(title = stringResource(R.string.restore_backup_type_details)) {
                 val sortedBackups = group.backups.sortedBy { backup ->
                     when (backup.dataType) {
                         DataType.PACKAGE_MEDIA -> 0
@@ -275,12 +280,12 @@ fun CloudFilesBackupDetailPage(
                                     style = MaterialTheme.typography.titleMedium
                                 )
                                 Text(
-                                    text = "快照ID: ${backup.snapshotId}",
+                                    text = stringResource(R.string.restore_snapshot_id, backup.snapshotId),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    text = "快照大小: ${backup.totalBytesProcessed.formatSize()}",
+                                    text = stringResource(R.string.restore_snapshot_size, backup.totalBytesProcessed.formatSize()),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
