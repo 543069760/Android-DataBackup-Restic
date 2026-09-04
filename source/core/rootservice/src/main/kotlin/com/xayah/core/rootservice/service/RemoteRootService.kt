@@ -483,8 +483,8 @@ class RemoteRootService(private val context: Context) {
     suspend fun forgetRusticSnapshot(repositoryPath: String, password: String, snapshotId: String, options: Map<String, String> = emptyMap()) =
         runCatching { getService().forgetRusticSnapshot(repositoryPath, password, options, snapshotId) }.onFailure(onFailure)
 
-    suspend fun pruneRusticRepository(repositoryPath: String, password: String, maxUnused: String, options: Map<String, String> = emptyMap()) =
-        runCatching { getService().pruneRusticRepository(repositoryPath, password, options, maxUnused) }.onFailure(onFailure)
+    suspend fun pruneRusticRepository(repositoryPath: String, password: String, maxUnused: String, options: Map<String, String> = emptyMap(), instantDelete: Boolean = false) =
+        runCatching { getService().pruneRusticRepository(repositoryPath, password, options, maxUnused, instantDelete) }.onFailure(onFailure)
 
     suspend fun listRusticSnapshotsDb(repositoryPath: String, password: String, dbPath: String, options: Map<String, String> = emptyMap()) =
         runCatching { getService().listRusticSnapshotsDb(repositoryPath, password, options, dbPath) }.onFailure(onFailure)

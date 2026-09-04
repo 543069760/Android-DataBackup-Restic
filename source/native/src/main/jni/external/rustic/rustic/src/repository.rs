@@ -302,13 +302,16 @@ pub fn prune_repository(
     password: &str,
     options: &HashMap<String, String>,
     max_unused: &str,
+    instant_delete: bool,
 ) -> Result<()> {
     let repo = open_repository(repository_path, password, options)?;
 
     let limit: LimitOption = max_unused
         .parse()
         .map_err(|e| format!("invalid max_unused: {e}"))?;
-    let prune_options = PruneOptions::default().max_unused(limit);
+    let prune_options = PruneOptions::default()
+        .max_unused(limit)
+        .instant_delete(instant_delete);
 
     let prune_plan = repo.prune_plan(&prune_options)?;
     repo.prune(&prune_options, prune_plan)?;

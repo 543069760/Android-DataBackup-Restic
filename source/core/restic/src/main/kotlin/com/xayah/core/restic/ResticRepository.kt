@@ -410,8 +410,8 @@ class ResticRepository @Inject constructor(
         password: String
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            // 本地仓库沿用 --max-unused 10%
-            val result = rootService.pruneRusticRepository(repoPath, password, "10%")
+            // 本地仓库沿用 --max-unused 10%，本地单进程独占访问，安全启用即时删除
+            val result = rootService.pruneRusticRepository(repoPath, password, "10%", instantDelete = true)
             Log.d(TAG, "Prune 结果: ${result.isSuccess}")
             result.isSuccess
         } catch (e: Exception) {

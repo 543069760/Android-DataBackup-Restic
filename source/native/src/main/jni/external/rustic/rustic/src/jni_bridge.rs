@@ -301,6 +301,7 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativePruneRepository<'lo
     option_keys: JObjectArray<'local, JString<'local>>,
     option_values: JObjectArray<'local, JString<'local>>,
     max_unused: JString<'local>,
+    instant_delete: jboolean,
 ) {
     unowned_env
         .with_env(|env| -> Result<(), NativeError> {
@@ -310,6 +311,7 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativePruneRepository<'lo
                 &password.to_string(),
                 &options,
                 &max_unused.to_string(),
+                instant_delete,
             )
             .map_err(NativeError::from)
         })

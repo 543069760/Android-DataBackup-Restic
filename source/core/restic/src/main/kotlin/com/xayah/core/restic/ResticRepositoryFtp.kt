@@ -244,7 +244,7 @@ class ResticRepositoryFtp @Inject constructor(
         val session = startServe(cloudEntity, cloudEntity.remote)
         try {
             Log.i("ResticFtpRoot", "pruneFtp restUrl=${session.restUrl}")
-            shared.rootService.pruneRusticRepository(session.restUrl, password, "unlimited", emptyMap()).isSuccess
+            shared.rootService.pruneRusticRepository(session.restUrl, password, "unlimited", emptyMap(), instantDelete = true).isSuccess
         } catch (e: Exception) {
             Log.e(ResticShared.TAG, "pruneFtpRepository 异常", e)
             false

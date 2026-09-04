@@ -62,7 +62,7 @@ interface IRemoteRootService {
     void restoreRusticSnapshot(String repositoryPath, String password, String snapshotId, String destinationPath, in Map options, String includeGlob, ICallback callback);
     void checkRusticRepository(String repositoryPath, String password, in Map options);
     void forgetRusticSnapshot(String repositoryPath, String password, in Map options, String snapshotId);
-    void pruneRusticRepository(String repositoryPath, String password, in Map options, String maxUnused);
+    void pruneRusticRepository(String repositoryPath, String password, in Map options, String maxUnused, boolean instantDelete);
     void listRusticSnapshotsDb(String repositoryPath, String password, in Map options, String dbPath);
     // rclone (librclone gomobile) —— 通用 RPC 透传，status!=200 时在 impl 抛异常
     String rcloneRpc(String method, String input);

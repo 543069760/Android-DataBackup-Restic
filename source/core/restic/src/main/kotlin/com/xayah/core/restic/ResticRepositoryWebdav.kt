@@ -175,7 +175,7 @@ class ResticRepositoryWebdav @Inject constructor(
     ): Boolean = withContext(Dispatchers.IO) {
         try {
             val options = buildWebdavBackendOptions(cloudEntity, cloudEntity.remote)
-            shared.rootService.pruneRusticRepository("opendal:webdav", password, "unlimited", options).isSuccess
+            shared.rootService.pruneRusticRepository("opendal:webdav", password, "unlimited", options, instantDelete = true).isSuccess
         } catch (e: Exception) { false }
     }
 

@@ -223,7 +223,7 @@ class ResticRepositorySftp @Inject constructor(
     ): Boolean = withContext(Dispatchers.IO) {
         val session = startServe(cloudEntity, cloudEntity.remote)
         try {
-            shared.rootService.pruneRusticRepository(session.restUrl, password, "unlimited", emptyMap()).isSuccess
+            shared.rootService.pruneRusticRepository(session.restUrl, password, "unlimited", emptyMap(), instantDelete = true).isSuccess
         } catch (e: Exception) { false } finally {
             stopServe(session)
         }

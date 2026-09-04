@@ -616,8 +616,8 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         Rustic.forgetSnapshot(repositoryPath, password, snapshotId, options.toStringMap())
     }
 
-    override fun pruneRusticRepository(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?, maxUnused: String): Unit = synchronized(lock) {
-        Rustic.pruneRepository(repositoryPath, password, maxUnused, options.toStringMap())
+    override fun pruneRusticRepository(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?, maxUnused: String, instantDelete: Boolean): Unit = synchronized(lock) {
+        Rustic.pruneRepository(repositoryPath, password, maxUnused, options.toStringMap(), instantDelete)
     }
 
     override fun listRusticSnapshotsDb(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?, dbPath: String): Unit = synchronized(lock) {

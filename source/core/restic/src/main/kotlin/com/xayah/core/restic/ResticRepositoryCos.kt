@@ -183,7 +183,7 @@ class ResticRepositoryCos @Inject constructor(
         try {
             val extra = ResticShared.json.decodeFromString<S3Extra>(cloudEntity.extra)
             val options = buildS3BackendOptions(extra, cloudEntity.remote)
-            shared.rootService.pruneRusticRepository("opendal:cos", password, "unlimited", options).isSuccess
+            shared.rootService.pruneRusticRepository("opendal:cos", password, "unlimited", options, instantDelete = true).isSuccess
         } catch (e: Exception) { false }
     }
 

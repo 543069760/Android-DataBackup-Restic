@@ -8,6 +8,7 @@ import com.xayah.core.database.dao.PackageDao
 import com.xayah.core.datastore.ConstantUtil
 import com.xayah.core.datastore.ConstantUtil.DEFAULT_PATH_PARENT
 import com.xayah.core.datastore.readBackupSavePath
+import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.datastore.saveBackupSavePath
 import com.xayah.core.model.StorageType
 import com.xayah.core.model.database.DirectoryEntity
@@ -28,6 +29,20 @@ class DirectoryRepository @Inject constructor(
     private val rootService: RemoteRootService,
 ) {
     fun queryActiveDirectoriesFlow(storageType: StorageType) = directoryDao.queryActiveDirectoriesFlow(storageType).distinctUntilChanged()
+
+    /**
+     * 解析用于"备份已使用"统计的 rustic 仓库目录。
+     * 优先读取已保存的仓库路径 [readResticRepoPath]；未设置时回退到默认独立仓库目录
+     * [ConstantUtil.DEFAULT_RUSTIC_REPO_ROOT] 下的 restic_repo 子目录。
+     */
+    private suspend fun resolveResticRepoDir(): String =
+        context.readResticRepoPath() ?: "${ConstantUtil.DEFAULT_RUSTIC_REPO_ROOT}/restic_repo"
+
+    /**
+     * 统计 rustic 仓库目录的物理大小（du）。目录不存在或出错时返回 0，避免刷新崩溃。
+     */
+    private suspend fun calculateResticRepoSize(): Long =
+        runCatching { rootService.calculateSize(resolveResticRepoDir()) }.getOrDefault(0L)
 
     private suspend fun resetDir() = selectDir(
         path = ConstantUtil.DEFAULT_PATH,
@@ -126,12 +141,15 @@ class DirectoryRepository @Inject constructor(
             // Activate backup/restore directories except external directories
             directoryDao.updateActive(excludeType = StorageType.EXTERNAL, active = true)
 
+            // rustic 仓库大小（"备份已使用"的数据来源），所有 active 目录共用同一统计
+            val resticRepoUsedBytes = calculateResticRepoSize()
+
             // Read statFs of each storage
             directoryDao.queryActiveDirectories().forEach { entity ->
                 val parent = entity.parent
                 entity.error = ""
                 val statFs = rootService.readStatFs(parent)
-                entity.childUsedBytes = rootService.calculateSize(entity.path)
+                entity.childUsedBytes = resticRepoUsedBytes
                 entity.availableBytes = statFs.availableBytes
                 entity.totalBytes = statFs.totalBytes
                 if (entity.storageType == StorageType.EXTERNAL) {
@@ -167,7 +185,7 @@ class DirectoryRepository @Inject constructor(
         withIOContext {
             directoryDao.querySelectedByDirectoryType()?.apply {
                 val statFs = rootService.readStatFs(parent)
-                childUsedBytes = rootService.calculateSize(path)
+                childUsedBytes = calculateResticRepoSize()
                 availableBytes = statFs.availableBytes
                 totalBytes = statFs.totalBytes
                 directoryDao.upsert(this)

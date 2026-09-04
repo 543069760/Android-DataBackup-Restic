@@ -106,9 +106,10 @@ object Rustic {
         password: String,
         maxUnused: String,
         options: Map<String, String> = emptyMap(),
+        instantDelete: Boolean = false,
     ) {
         val (optionKeys, optionValues) = options.toKeyValueArrays()
-        nativePruneRepository(repositoryPath, password, optionKeys, optionValues, maxUnused)
+        nativePruneRepository(repositoryPath, password, optionKeys, optionValues, maxUnused, instantDelete)
     }
 
     fun listSnapshotsDb(
@@ -201,6 +202,7 @@ object Rustic {
         optionKeys: Array<String>,
         optionValues: Array<String>,
         maxUnused: String,
+        instantDelete: Boolean,
     )
 
     private external fun nativeListSnapshotsDb(

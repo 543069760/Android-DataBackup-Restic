@@ -1,3 +1,15 @@
+## ⚠️ 重要提示
+
+* **下载说明**：**目前属于快速迭代期，如果旧版出现 bug，请先[下载最新版本](https://github.com/543069760/Android-DataBackup-Restic/releases)再次测试，避免影响使用。如依然有 bug，请[提交 Issue](https://github.com/543069760/Android-DataBackup-Restic/issues)，说明当前版本号、Android 版本号以及 bug（最好有复现过程）。**
+
+---
+
+## ⚠️ Important Notice
+
+* **Download Instructions**: **We are currently in a rapid iteration phase. If bugs appear in the old version, please first [download the latest version](https://github.com/543069760/Android-DataBackup-Restic/releases) and test again to avoid impact on usage. If bugs still exist, please [submit an Issue](https://github.com/543069760/Android-DataBackup-Restic/issues), specifying the current version number, Android version, and the bug (preferably with a reproduction process).**
+
+---
+
 # 🎉 重大版本更新 — DataBackup Revived 3.0.1-Rustic-JNI
 
 本版本完成了备份引擎的**核心迁移**：从旧版的 `tar + zstd` 整包压缩，全面切换到基于 **Rust `rustic_core`（兼容 restic 仓库格式）** 的现代备份引擎，带来**原生增量备份**、块级去重与端到端加密。由于**包名变更**，这是一个独立的应用，需要**重新安装**。
@@ -87,3 +99,5 @@ Pick the APK that matches your device architecture:
 ## 🙏 Acknowledgements
 
 This project is forked from [XayahSuSuSu/Android-DataBackup](https://github.com/XayahSuSuSu/Android-DataBackup). Many thanks to the original author for their outstanding work.
+
+---
