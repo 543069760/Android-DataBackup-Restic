@@ -250,7 +250,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
             Log.i("RusticCancel", "backupWithResticToS3 enter, package=$packageName, tag=$tag, cancelId=$cancelId")
 
             val unifiedRepoPath = mCloudEntity.remote
-
+            val backupStartAt = System.currentTimeMillis()
             val result = resticRepoCos.backupFileToCos(
                 extra = s3Extra,
                 remotePath = unifiedRepoPath,
@@ -271,7 +271,9 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                         bytesTotal: Long, filesDone: Long, filesTotal: Long,
                         speed: Long
                     ) {
-                        val speedText = if (speed > 0) speed.formatToStorageSizePerSecond() else ""
+                        val elapsedMs = (System.currentTimeMillis() - backupStartAt).coerceAtLeast(1L)
+                        val avgSpeed = if (bytesDone > 0) bytesDone * 1000L / elapsedMs else 0L
+                        val speedText = if (avgSpeed > 0) avgSpeed.formatToStorageSizePerSecond() else ""
                         val bytesText = bytesDone.toDouble().formatSize()
                         val content = if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
                         Log.d(mTAG, "Restic S3 backup progress: $content")
