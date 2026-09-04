@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -84,6 +86,7 @@ fun CloudScaffold(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @ExperimentalAnimationApi
 @ExperimentalMaterial3Api
 @Composable
@@ -142,12 +145,13 @@ fun AccountSetupScaffold(
             }
 
             Divider()
-            Row(
+            FlowRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(SizeTokens.Level16)
                     .onSizeChanged { bottomBarSize = it },
                 horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level12, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(SizeTokens.Level8),
             ) {
                 actions()
             }

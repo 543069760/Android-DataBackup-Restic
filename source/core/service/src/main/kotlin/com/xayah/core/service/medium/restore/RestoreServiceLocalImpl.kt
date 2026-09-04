@@ -113,6 +113,20 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
         t.update(processingIndex = t.processingIndex + 1)
     }
 
+    override suspend fun clear() {
+        if (mTaskEntity.failureCount != 0) {
+            Log.d(mTAG, "存在失败项(failureCount=${mTaskEntity.failureCount})，保留中转目录用于排查/重试，跳过清理")
+            return
+        }
+        val restoreFilesDir = "${mRootDir}/restore/files"
+        if (File(restoreFilesDir).exists()) {
+            Log.d(mTAG, "清理临时恢复目录: $restoreFilesDir")
+            mRootService.deleteRecursively(restoreFilesDir)
+        } else {
+            Log.d(mTAG, "临时恢复目录不存在，跳过清理: $restoreFilesDir")
+        }
+    }
+
     @Inject
     override lateinit var mMediaDao: MediaDao
 

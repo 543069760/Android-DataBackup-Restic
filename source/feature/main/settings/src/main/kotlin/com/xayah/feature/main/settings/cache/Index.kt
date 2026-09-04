@@ -22,21 +22,27 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberTopAppBarState
+import com.xayah.core.ui.component.BodyMediumText
+import com.xayah.core.ui.component.Card as ThemedCard
+import com.xayah.core.ui.material3.CardDefaults as ThemedCardDefaults
+import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
+import com.xayah.core.ui.theme.value
+import com.xayah.core.ui.token.SizeTokens
 import com.xayah.feature.main.settings.R
 import com.xayah.feature.main.settings.SettingsScaffold
 
+@androidx.compose.foundation.ExperimentalFoundationApi
 @ExperimentalLayoutApi
 @ExperimentalAnimationApi
 @ExperimentalMaterial3Api
@@ -44,7 +50,6 @@ import com.xayah.feature.main.settings.SettingsScaffold
 fun PageCacheManagement() {
     val viewModel: CacheManagementViewModel = hiltViewModel()
     val cacheInfo by viewModel.cacheInfo.collectAsStateWithLifecycle()
-    val context = LocalContext.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
 
     // 进入页面时自动刷新
@@ -61,21 +66,17 @@ fun PageCacheManagement() {
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-            // APP 缓存信息
+            // 恢复缓存信息
             CacheInfoCard(
-                title = stringResource(id = R.string.app_cache),
-                size = cacheInfo.appCacheSize,
-                onClear = { viewModel.clearAppCache() }
+                title = stringResource(id = R.string.restore_cache),
+                size = cacheInfo.restoreCacheSize,
+                onClear = { viewModel.clearRestoreCache() }
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // 文件缓存信息
-            CacheInfoCard(
-                title = stringResource(id = R.string.file_cache),
-                size = cacheInfo.fileCacheSize,
-                onClear = { viewModel.clearFileCache() }
-            )
+            // 恢复缓存说明卡片
+            CacheDescCard(desc = stringResource(id = R.string.restore_cache_desc))
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -100,9 +101,9 @@ fun PageCacheManagement() {
                     }
                 }
 
-                // 清除所有缓存按钮
+                // 清除恢复缓存按钮
                 Button(
-                    onClick = { viewModel.clearAllCache() },
+                    onClick = { viewModel.clearRestoreCache() },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.error
@@ -150,6 +151,24 @@ fun CacheInfoCard(
                 )
             }
         }
+    }
+}
+
+@androidx.compose.foundation.ExperimentalFoundationApi
+@androidx.compose.material3.ExperimentalMaterial3Api
+@Composable
+fun CacheDescCard(desc: String) {
+    ThemedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = ThemedCardDefaults.cardColors(
+            containerColor = ThemedColorSchemeKeyTokens.BluePrimaryContainer.value
+        ),
+    ) {
+        BodyMediumText(
+            modifier = Modifier.padding(SizeTokens.Level16),
+            text = desc,
+            color = ThemedColorSchemeKeyTokens.BlueOnPrimaryContainer.value
+        )
     }
 }
 
