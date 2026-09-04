@@ -43,7 +43,6 @@ import com.xayah.feature.main.processing.medium.restore.MediumRestoreProcessingG
 import com.xayah.feature.main.processing.packages.backup.PackagesBackupProcessingGraph
 import com.xayah.feature.main.processing.packages.restore.PackagesRestoreProcessingGraph
 import com.xayah.feature.main.restore.PageRestore
-import com.xayah.feature.main.restore.reload.PageReload
 import com.xayah.feature.main.settings.PageSettings
 import com.xayah.feature.main.settings.about.PageAboutSettings
 import com.xayah.feature.main.settings.about.PageTranslatorsSettings
@@ -356,10 +355,6 @@ class MainActivity : AppCompatActivity() {
                         ) { backStackEntry ->
                             val accountName = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME)?.decodeURL() ?: ""
                             CloudFilesRestorePage(navController = navController, accountName = accountName)
-                        }
-
-                        composable(MainRoutes.Reload.route) {
-                            PageReload()
                         }
                         composable(MainRoutes.BackupSettings.route) {
                             PageBackupSettings()

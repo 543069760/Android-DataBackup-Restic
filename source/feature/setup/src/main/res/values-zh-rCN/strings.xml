@@ -40,4 +40,13 @@
     <string name="load_system_apps">加载系统应用</string>
     <string name="set_them_later_in_settings">您稍后可以在设置中进行更改。</string>
     <string name="custom_su_file">自定义 SU 文件</string>
+    <string name="restic_repository">Restic 仓库</string>
+    <string name="initializing">正在初始化…</string>
+    <string name="error">错误</string>
+    <string name="restic_password">Restic 仓库密码（本地）</string>
+    <string name="restic_password_warning">请牢记仓库密码，否则无法恢复仓库备份。如不设置，建议保持默认初始密码即可。</string>
+    <string name="initialize">初始化</string>
+    <string name="restic_compression_level">Restic压缩等级</string>
+    <string name="restic_compression_level_desc">等级数值越大压缩率越高，但相应耗时越长、占用性能越多，请根据手机性能选择合适的压缩等级。此设置仅在初始化仓库时生效，仓库创建后修改不会改变已有仓库的压缩等级。</string>
+    <string name="args_current_level">当前等级：%1$s</string>
 </resources>

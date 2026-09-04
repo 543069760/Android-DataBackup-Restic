@@ -48,7 +48,6 @@ sealed class IndexUiIntent : UiIntent {
     data class SetCloudEntity(val name: String) : IndexUiIntent()
     data class ToAppList(val navController: NavHostController) : IndexUiIntent()
     data class ToFileList(val navController: NavHostController) : IndexUiIntent()
-    data class ToReload(val navController: NavHostController) : IndexUiIntent()
 }
 
 @ExperimentalMaterial3Api
@@ -158,27 +157,6 @@ class IndexViewModel @Inject constructor(
                                         opType = OpType.RESTORE,
                                         cloudName = state.cloudEntity.name.encodeURL(),
                                         backupDir = state.cloudEntity.remote.encodeURL()
-                                    )
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            is IndexUiIntent.ToReload -> {
-                withMainContext {
-                    when (state.storageType) {
-                        StorageMode.Local -> {
-                            intent.navController.navigateSingle(MainRoutes.Reload.getRoute(encodedURLWithSpace, context.localBackupSaveDir().encodeURL()))
-                        }
-
-                        StorageMode.Cloud -> {
-                            if (state.cloudEntity != null) {
-                                intent.navController.navigateSingle(
-                                    MainRoutes.Reload.getRoute(
-                                        state.cloudEntity.name.encodeURL(),
-                                        state.cloudEntity.remote.encodeURL()
                                     )
                                 )
                             }

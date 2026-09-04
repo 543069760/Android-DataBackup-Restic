@@ -181,16 +181,6 @@ fun PageRestore() {
                 }
                 navController.navigateSingle(route)
             }
-
-            Title(title = stringResource(id = R.string.advanced)) {
-                Clickable(
-                    title = stringResource(id = R.string.reload),
-                    value = stringResource(id = R.string.reload_desc),
-                    leadingIcon = Icons.Rounded.ManageSearch,
-                ) {
-                    viewModel.emitIntentOnIO(IndexUiIntent.ToReload(navController))
-                }
-            }
         }
     }
 }

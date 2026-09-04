@@ -16,6 +16,8 @@ dependencies {
     implementation(project(":core:datastore"))
     implementation(project(":core:data"))
     implementation(project(":core:work"))
+    implementation(project(":core:restic"))
+    implementation(project(":core:rootservice"))
     implementation(project(":feature:main:directory"))
     implementation(project(":feature:main:configurations"))
 

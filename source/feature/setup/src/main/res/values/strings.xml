@@ -40,4 +40,13 @@
     <string name="load_system_apps">Load System Apps</string>
     <string name="set_them_later_in_settings">You can set these later in settings.</string>
     <string name="custom_su_file">Custom SU File</string>
+    <string name="restic_repository">Restic Repository</string>
+    <string name="initializing">Initializing…</string>
+    <string name="error">Error</string>
+    <string name="restic_password">Restic Repository Password（local only）</string>
+    <string name="restic_password_warning">Please remember your repository password. Without it you cannot restore backups from this repository. If you don\'t want to set one, keeping the default password is recommended.</string>
+    <string name="initialize">Initialize</string>
+    <string name="restic_compression_level">Restic compression level</string>
+    <string name="restic_compression_level_desc">A higher level means a higher compression ratio but slower speed and more resource usage. Choose a level that suits your device. This setting only takes effect when initializing the repository; changing it afterwards will not affect an existing repository.</string>
+    <string name="args_current_level">Current level: %1$s</string>
 </resources>
