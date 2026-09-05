@@ -40,7 +40,10 @@ class IndexViewModel @Inject constructor(
     override suspend fun onEvent(state: IndexUiState, intent: IndexUiIntent) {
         when (intent) {
             is IndexUiIntent.Update -> {
-                directoryRepo.updateSelected()
+                // 全量刷新：update() 末尾对"无选中目录"会调用 resetDir() 选中 DEFAULT_PATH，
+                // 使 querySelectedByDirectoryTypeFlow() 返回非空，directoryState 非空后存储卡片即显示，
+                // childUsedBytes 填为 rustic 仓库目录大小
+                directoryRepo.update()
                 runCatching {
                     // 0 = 正式版通道, 1 = 测试版通道
                     val channel = context.readUpdateChannel().first()

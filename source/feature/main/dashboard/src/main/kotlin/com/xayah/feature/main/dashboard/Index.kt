@@ -24,8 +24,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -63,7 +61,8 @@ fun PageDashboard() {
     val navController = LocalNavController.current!!
     val lastBackupTime by viewModel.lastBackupTimeState.collectAsStateWithLifecycle()
     val directoryState by viewModel.directoryState.collectAsStateWithLifecycle()
-    val nullBackupDir by remember(directoryState) { mutableStateOf(directoryState == null) }
+    // 引导第二步已完成 restic 仓库初始化，首页不再校验目录初始化状态，恒为已就绪
+    val nullBackupDir = false
     val dialogState = LocalSlotScope.current!!.dialogSlot
     val scope = rememberCoroutineScope()
     val updateAvailableText = stringResource(id = R.string.update_available)
