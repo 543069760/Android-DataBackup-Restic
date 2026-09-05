@@ -67,6 +67,8 @@ fun CloudBackupDetailPage(
 
     // 对话框标题（非 Composable lambda 内无法调用 stringResource，先在此取好）
     val noticeText = stringResource(R.string.restore_dialog_notice)
+    // 删除确认文案同样 hoist（lambda 内不能调用 stringResource）
+    val confirmDeleteText = stringResource(R.string.restore_confirm_delete_cloud_app, group.backups.size)
 
     LaunchedEffect(accountName) {
         viewModel.setCloudEntity(accountName)
@@ -147,10 +149,7 @@ fun CloudBackupDetailPage(
                             coroutineScope.launch {
                                 if (dialogState.confirm(
                                         title = noticeText,
-                                        text = context.getString(
-                                            R.string.restore_confirm_delete_cloud_app,
-                                            group.backups.size
-                                        )
+                                        text = confirmDeleteText
                                     )) {
                                     val success = viewModel.deleteCloudSnapshots(group)
                                     if (success) {

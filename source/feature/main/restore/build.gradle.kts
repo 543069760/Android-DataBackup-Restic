@@ -7,6 +7,9 @@ plugins {
 
 android {
     namespace = "com.xayah.feature.main.restore"
+    lint {
+        disable += "MissingTranslation"
+    }
 }
 
 dependencies {

@@ -21,7 +21,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -62,8 +61,8 @@ fun ResticBackupDetailPage(
     val resticProgress by viewModel.resticProgress.collectAsStateWithLifecycle()
     val dialogState = LocalSlotScope.current!!.dialogSlot  // 新增
     val coroutineScope = rememberCoroutineScope()
-    val context = LocalContext.current  // 新增：对话框在非 Composable 的 launch lambda 内需要它
     val noticeText = stringResource(R.string.restore_dialog_notice)  // 新增：提前 hoist 出对话框标题
+    val confirmDeleteText = stringResource(R.string.restore_confirm_delete_local_app, group.backups.size)
     val hasConfigSnapshot = group.backups.any { it.dataType == DataType.PACKAGE_CONFIG }
     // 新增删除状态变量
     val isDeleting = resticProgress.isDeleting
@@ -146,7 +145,7 @@ fun ResticBackupDetailPage(
                             coroutineScope.launch {
                                 if (dialogState.confirm(
                                         title = noticeText,
-                                        text = context.getString(R.string.restore_confirm_delete_local_app, group.backups.size)
+                                        text = confirmDeleteText
                                     )) {
                                     val success = viewModel.deleteLocalSnapshots(group)
                                     if (success) {

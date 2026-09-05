@@ -22,7 +22,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -65,8 +64,8 @@ fun ResticFilesBackupDetailPage(
     val resticProgress by viewModel.resticProgress.collectAsStateWithLifecycle()
     val dialogState = LocalSlotScope.current!!.dialogSlot  // 新增
     val coroutineScope = rememberCoroutineScope()
-    val context = LocalContext.current
     val noticeText = stringResource(R.string.restore_dialog_notice)
+    val confirmDeleteText = stringResource(R.string.restore_confirm_delete_local_file, group.backups.size)
     val hasConfigSnapshot = group.backups.any { it.dataType == DataType.PACKAGE_CONFIG }
 
     // 新增删除状态变量
@@ -148,7 +147,7 @@ fun ResticFilesBackupDetailPage(
                             coroutineScope.launch {
                                 if (dialogState.confirm(
                                         title = noticeText,
-                                        text = context.getString(R.string.restore_confirm_delete_local_file, group.backups.size)
+                                        text = confirmDeleteText
                                     )) {
                                     val success = viewModel.deleteLocalFileSnapshots(group)
                                     if (success) {

@@ -70,6 +70,7 @@ fun CloudFilesBackupDetailPage(
 
     // 对话框标题在非 Composable 的 lambda 中使用，需提前 hoist
     val noticeText = stringResource(R.string.restore_dialog_notice)
+    val confirmDeleteText = stringResource(R.string.restore_confirm_delete_cloud_file, group.backups.size)
 
     LaunchedEffect(accountName) {
         viewModel.setCloudEntity(accountName)
@@ -149,7 +150,7 @@ fun CloudFilesBackupDetailPage(
                             coroutineScope.launch {
                                 if (dialogState.confirm(
                                         title = noticeText,
-                                        text = context.getString(R.string.restore_confirm_delete_cloud_file, group.backups.size)
+                                        text = confirmDeleteText
                                     )) {
                                     val success = viewModel.deleteCloudFileSnapshots(group)
                                     if (success) {
