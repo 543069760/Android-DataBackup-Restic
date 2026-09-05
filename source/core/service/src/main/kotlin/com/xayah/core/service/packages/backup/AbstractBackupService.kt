@@ -114,7 +114,10 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
             )
 
             if (info != null) {
-                pkg.packageInfo.label = info.applicationInfo?.loadLabel(mContext.packageManager).toString()
+                // label：带重试 + 坏值不覆盖。
+                // loadLabel 偶发返回包名/空值时，不要用坏值冲掉上次备份写入的好值
+                // （pkg 来自 queryActivated(OpType.BACKUP)，其 label 可能已是正确值）。
+                resolveCleanLabel(info, pkg)?.let { pkg.packageInfo.label = it }
                 pkg.packageInfo.versionName = info.versionName ?: ""
                 pkg.packageInfo.versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     info.longVersionCode
@@ -146,6 +149,24 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                 }
             )
         }
+    }
+
+    /**
+     * 解析一个「干净的」label：非空、非空白、且不等于包名。
+     * loadLabel 偶发返回包名/空时重试一次；两次都拿不到有效值返回 null（调用方保留原值，不覆盖）。
+     */
+    private suspend fun resolveCleanLabel(
+        info: android.content.pm.PackageInfo,
+        pkg: PackageEntity
+    ): String? {
+        fun android.content.pm.PackageInfo.cleanLabel(): String? =
+            applicationInfo?.loadLabel(mContext.packageManager)?.toString()
+                ?.takeIf { it.isNotBlank() && it != pkg.packageName }
+
+        info.cleanLabel()?.let { return it }
+        // 重试：重新跨进程取一次 PackageInfo 再 loadLabel
+        val retry = mRootService.getPackageInfoAsUser(pkg.packageName, 0, pkg.userId)
+        return retry?.cleanLabel()
     }
 
     override suspend fun beforePreprocessing() {
