@@ -307,7 +307,7 @@ class PackagesRestoreUtil @Inject constructor(
                         callTar = { stdOut, stdErr, argv -> rootService.callTarCli(stdOut, stdErr, argv) },
                         exclusionList = exclusionList,
                         clear = if (context.readCleanRestoring().first()) "--recursive-unlink" else "",
-                        m = true,
+                        m = false,   // 还原归档里的原始 mtime（-xpf），减少 A→B 跨设备再备份的 header 级增量
                         src = src,
                         dst = dstDir,
                     ).also { result ->

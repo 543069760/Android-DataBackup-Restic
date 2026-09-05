@@ -56,6 +56,41 @@ object Tar {
         return runToFiles(cacheDir, argv.toTypedArray(), callTar)
     }
 
+    /**
+     * 图标专用确定性打包：仅用于 icon.tar，目标是"内容不变时逐字节稳定"，使 rustic CDC 能跨备份去重。
+     *
+     * 与通用 compressToFile 的区别：
+     *  - 追加确定性选项 --sort=name / --mtime=@0 / --clamp-mtime / --numeric-owner / --owner=0 / --group=0，
+     *    钉死归档里的顺序、时间、属主三类可变 header 字段；
+     *  - 显式 --format=gnu 锁定归档格式，避免默认格式随环境漂移；
+     *  - 去掉 --xattrs/--acls/--selinux：SELinux label 设备相关会破坏确定性，图标 png 一般无 xattr/ACL，
+     *    恢复侧改由代码 restorecon/chcon（PathUtil.setFilesDirSELinux 等）重新打标。
+     *  - 确定性选项必须放在 -c 之前。
+     *
+     * 注意：不要把这些选项加到 app 数据/APK 的通用打包路径，那些需要保留真实 mtime/属主用于恢复保真。
+     */
+    suspend fun compressIconsToFile(
+        cacheDir: String,
+        callTar: CallTar,
+        srcDir: String,
+        src: String,
+        dst: String,
+    ): ShellResult {
+        val argv = mutableListOf(
+            "tar",
+            "--totals",
+            "--sort=name",
+            "--mtime=@0",
+            "--clamp-mtime",
+            "--numeric-owner",
+            "--owner=0",
+            "--group=0",
+            "--format=gnu",
+        )
+        argv.addAll(listOf("-cpf", dst, "-C", srcDir, "--", src))
+        return runToFiles(cacheDir, argv.toTypedArray(), callTar)
+    }
+
     // 落盘压缩（多文件）：把 srcDir 下多个文件打进同一个 .tar（backupApk 用）
     suspend fun compressFilesToFile(
         cacheDir: String,
@@ -120,9 +155,10 @@ object Tar {
         src: String,
         dst: String,
     ): ShellResult {
+        // 去掉 m：还原归档里的原始 mtime（-xpf 而非 -xmpf），减少跨设备再备份的 header 级增量
         val argv = arrayOf(
             "tar", "--xattrs", "--xattrs-include=*", "--acls", "--selinux",
-            "--totals", "-xmpf", src, "-C", dst,
+            "--totals", "-xpf", src, "-C", dst,
         )
         return runToFiles(cacheDir, argv, callTar)
     }
@@ -139,7 +175,8 @@ object Tar {
             "--totals",
         )
         if (stripComponents > 0) argv.add("--strip-components=$stripComponents")
-        argv.addAll(listOf("-xmpf", src, "-C", dst))
+        // 去掉 m：还原原始 mtime
+        argv.addAll(listOf("-xpf", src, "-C", dst))
         return runToFiles(cacheDir, argv.toTypedArray(), callTar)
     }
 
@@ -155,6 +192,7 @@ object Tar {
         val argv = mutableListOf("tar", "--xattrs", "--xattrs-include=*", "--acls", "--selinux", "--totals")
         exclusionList.trim().forEach { argv.add("--exclude=$it") }
         if (clear.isNotEmpty()) argv.add(clear)
+        // m 由调用方控制；app/文件数据恢复统一传 m = false
         argv.add(if (m) "-xmpf" else "-xpf")
         argv.addAll(listOf(src, "-C", dst))
         return runToFiles(cacheDir, argv.toTypedArray(), callTar)

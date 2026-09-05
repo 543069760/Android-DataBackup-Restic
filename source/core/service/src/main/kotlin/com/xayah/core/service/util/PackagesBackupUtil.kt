@@ -353,12 +353,10 @@ class PackagesBackupUtil @Inject constructor(
         var isSuccess: Boolean
         val out = mutableListOf<String>()
 
-        Tar.compressToFile(
+        Tar.compressIconsToFile(
             cacheDir = context.cacheDir.path,
             callTar = callTar,
-            exclusionList = listOf(),
-            h = "",
-            srcDir = stagingRoot.absolutePath,   // 改：从暂存根目录
+            srcDir = stagingRoot.absolutePath,   // 暂存根目录
             src = IconRelativeDir,               // icon 子目录
             dst = dst,
         ).also { result ->
