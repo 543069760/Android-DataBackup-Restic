@@ -57,6 +57,8 @@ import com.xayah.core.ui.theme.value
 import com.xayah.core.ui.theme.withState
 import com.xayah.core.ui.token.SizeTokens
 import com.xayah.core.ui.util.LocalNavController
+import com.xayah.core.ui.material3.SnackbarType
+import com.xayah.core.ui.viewmodel.IndexUiEffect
 import com.xayah.feature.main.cloud.AccountSetupScaffold
 import com.xayah.feature.main.cloud.R
 import com.xayah.feature.main.cloud.SetupTextField
@@ -79,6 +81,7 @@ fun PageFTPSetup() {
     val notSelectedText = stringResource(id = R.string.not_selected)
     val deleteAccountText = stringResource(id = R.string.delete_account)
     val deleteAccountDescText = stringResource(id = R.string.delete_account_desc)
+    val repositoryCheckFailedText = stringResource(id = R.string.repository_check_failed)
     val navController = LocalNavController.current!!
     val viewModel = hiltViewModel<IndexViewModel>()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -144,18 +147,27 @@ fun PageFTPSetup() {
                 Text(text = stringResource(id = R.string.test_connection))
             }
 
-            Button(enabled = allFilled && remote.isNotEmpty() && uiState.isProcessing.not(), onClick = {
-                viewModel.launchOnIO {
-                    viewModel.updateFTPEntity(
-                        name = name, remote = remote, url = url,
-                        username = username, password = password, port = port,
-                        resticPassword = ftpPassword,
-                    )
-                    viewModel.emitIntent(IndexUiIntent.CreateAccount(navController = navController))
+            Button(
+                enabled = allFilled && remote.isNotEmpty() && uiState.isProcessing.not()
+                        && ftpInitState is FtpResticViewModel.FtpInitializationState.Success,
+                onClick = {
+                    viewModel.launchOnIO {
+                        viewModel.updateFTPEntity(
+                            name = name, remote = remote, url = url,
+                            username = username, password = password, port = port,
+                            resticPassword = ftpPassword,
+                        )
+                        val entity = uiState.cloudEntity
+                        val ok = entity != null && ftpViewModel.checkFtpRepository(entity, ftpPassword)
+                        if (!ok) {
+                            viewModel.emitEffect(IndexUiEffect.ShowSnackbar(
+                                message = repositoryCheckFailedText, type = SnackbarType.Error))
+                            return@launchOnIO
+                        }
+                        viewModel.emitIntent(IndexUiIntent.CreateAccount(navController = navController))
+                    }
                 }
-            }) {
-                Text(text = stringResource(id = R.string._continue))
-            }
+            ) { Text(text = stringResource(id = R.string._continue)) }
         }
     ) {
         Column(

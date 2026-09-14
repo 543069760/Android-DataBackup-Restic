@@ -142,6 +142,11 @@ class S3ResticViewModel @Inject constructor(
         }
     }
 
+    suspend fun checkS3Repository(cloudEntity: CloudEntity, password: String): Boolean {
+        if (_s3InitializationState.value !is S3InitializationState.Success) return false
+        return resticRepoCos.checkCosRepository(cloudEntity, password).isSuccess
+    }
+
     fun saveS3Password(password: String) {
         Log.d(TAG, "保存S3 Restic密码")
         _s3PasswordState.value = password

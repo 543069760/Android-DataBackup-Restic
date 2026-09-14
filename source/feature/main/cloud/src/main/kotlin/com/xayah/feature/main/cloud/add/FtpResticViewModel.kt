@@ -162,6 +162,11 @@ class FtpResticViewModel @Inject constructor(
         }
     }
 
+    suspend fun checkFtpRepository(cloudEntity: CloudEntity, password: String): Boolean {
+        if (_ftpInitializationState.value !is FtpInitializationState.Success) return false
+        return resticRepoFtp.checkFtpRepository(cloudEntity, password).isSuccess
+    }
+
     fun saveFtpPassword(password: String) {
         Log.d(TAG, "保存FTP Restic密码")
         _ftpPasswordState.value = password

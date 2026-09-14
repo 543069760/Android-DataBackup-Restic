@@ -72,6 +72,18 @@ class ResticRepositoryFtp @Inject constructor(
         }
     }
 
+    suspend fun checkFtpRepository(
+        cloudEntity: CloudEntity, password: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        val session = startServe(cloudEntity, cloudEntity.remote)
+        try {
+            val exists = shared.rootService.rusticRepositoryExists(session.restUrl, emptyMap())
+            if (exists) Result.success(Unit) else Result.failure(Exception("仓库不存在或不可访问"))
+        } catch (e: Exception) {
+            Log.e(ResticShared.TAG, "checkFtpRepository 异常", e); Result.failure(e)
+        } finally { stopServe(session) }
+    }
+
     // backupFileToFtp —— 对应 backupFileToSftp，返回 Pair<Int,String>（保持上层契约）
     suspend fun backupFileToFtp(
         cloudEntity: CloudEntity, remotePath: String, filePath: String,

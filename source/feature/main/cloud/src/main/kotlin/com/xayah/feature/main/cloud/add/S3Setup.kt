@@ -48,16 +48,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.database.S3Protocol
-import com.xayah.core.model.database.S3NetworkType  // 新增导入 / New import
+import com.xayah.core.model.database.S3NetworkType
 import com.xayah.core.network.util.getExtraEntity
 import com.xayah.core.ui.component.Clickable
 import com.xayah.core.ui.component.LocalSlotScope
 import com.xayah.core.ui.component.Title
 import com.xayah.core.ui.component.confirm
-import com.xayah.core.ui.component.confirmWithInput
 import com.xayah.core.ui.component.paddingHorizontal
 import com.xayah.core.ui.component.paddingStart
 import com.xayah.core.ui.component.paddingTop
+import com.xayah.core.ui.material3.SnackbarType
+import com.xayah.core.ui.viewmodel.IndexUiEffect
 import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
 import com.xayah.core.ui.theme.value
 import com.xayah.core.ui.theme.withState
@@ -75,6 +76,9 @@ fun PageS3Setup() {
     val dialogState = LocalSlotScope.current!!.dialogSlot
     val context = LocalContext.current
     val notSelectedText = stringResource(id = R.string.not_selected)
+    val deleteAccountText = stringResource(id = R.string.delete_account)
+    val deleteAccountDescText = stringResource(id = R.string.delete_account_desc)
+    val repositoryCheckFailedText = stringResource(id = R.string.repository_check_failed)
     val navController = LocalNavController.current!!
     val viewModel = hiltViewModel<IndexViewModel>()
     val s3ViewModel = hiltViewModel<S3ResticViewModel>()
@@ -173,29 +177,6 @@ fun PageS3Setup() {
         snackbarHostState = viewModel.snackbarHostState,
         title = stringResource(id = R.string.s3_setup),
         actions = {
-            // 删除账户按钮 - 左侧红色
-            if (uiState.currentName.isNotEmpty())
-                TextButton(
-                    enabled = uiState.isProcessing.not(),
-                    onClick = {
-                        viewModel.launchOnIO {
-                            if (dialogState.confirmWithInput(
-                                    title = "删除账户",
-                                    message = "此操作不可撤销，请输入确认文本继续",
-                                    confirmText = "确认删除",
-                                    hint = "请输入确认删除"
-                                )) {
-                                viewModel.emitIntent(IndexUiIntent.DeleteAccount(navController = navController))
-                            }
-                        }
-                    }
-                ) {
-                    Text(
-                        text = stringResource(id = R.string.delete_account),
-                        color = ThemedColorSchemeKeyTokens.Error.value
-                    )
-                }
-
             TextButton(
                 enabled = allFilled && uiState.isProcessing.not(),
                 onClick = {
@@ -219,26 +200,30 @@ fun PageS3Setup() {
             ) {
                 Text(text = stringResource(id = R.string.test_connection))
             }
-            Button(enabled = allFilled && remote.isNotEmpty() && uiState.isProcessing.not(), onClick = {
-                viewModel.launchOnIO {
-                    viewModel.updateS3Entity(
-                        name = name,
-                        remote = remote,
-                        type = "S3",
-                        region = region,
-                        accessKeyId = accessKeyId,
-                        secretAccessKey = secretAccessKey,
-                        bucket = bucket,
-                        endpoint = endpoint,
-                        protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP,
-                        networkType = if (networkTypeIndex == 0) S3NetworkType.PUBLIC else S3NetworkType.PRIVATE,
-                        resticPassword = s3Password,
-                    )
-                    viewModel.emitIntent(IndexUiIntent.CreateAccount(navController = navController))
+            Button(
+                enabled = allFilled && remote.isNotEmpty() && uiState.isProcessing.not()
+                        && s3InitState is S3ResticViewModel.S3InitializationState.Success,
+                onClick = {
+                    viewModel.launchOnIO {
+                        viewModel.updateS3Entity(
+                            name = name, remote = remote, type = "S3", region = region,
+                            accessKeyId = accessKeyId, secretAccessKey = secretAccessKey,
+                            bucket = bucket, endpoint = endpoint,
+                            protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP,
+                            networkType = if (networkTypeIndex == 0) S3NetworkType.PUBLIC else S3NetworkType.PRIVATE,
+                            resticPassword = s3Password,
+                        )
+                        val entity = uiState.cloudEntity
+                        val ok = entity != null && s3ViewModel.checkS3Repository(entity, s3Password)
+                        if (!ok) {
+                            viewModel.emitEffect(IndexUiEffect.ShowSnackbar(
+                                message = repositoryCheckFailedText, type = SnackbarType.Error))
+                            return@launchOnIO
+                        }
+                        viewModel.emitIntent(IndexUiIntent.CreateAccount(navController = navController))
+                    }
                 }
-            }) {
-                Text(text = stringResource(id = R.string._continue))
-            }
+            ) { Text(text = stringResource(id = R.string._continue)) }
         }
     ) {
         Column(
@@ -404,6 +389,27 @@ fun PageS3Setup() {
                     }
                 }
 
+                // 删除账户按钮 - 与 WebDAV 一致：位于高级区域内、远程路径下方，红色确认弹窗
+                if (uiState.currentName.isNotEmpty())
+                    TextButton(
+                        modifier = Modifier
+                            .paddingStart(SizeTokens.Level12)
+                            .paddingTop(SizeTokens.Level12),
+                        enabled = uiState.isProcessing.not(),
+                        onClick = {
+                            viewModel.launchOnIO {
+                                if (dialogState.confirm(title = deleteAccountText, text = deleteAccountDescText)) {
+                                    viewModel.emitIntent(IndexUiIntent.DeleteAccount(navController = navController))
+                                }
+                            }
+                        }
+                    ) {
+                        Text(
+                            text = stringResource(id = R.string.delete_account),
+                            color = ThemedColorSchemeKeyTokens.Error.value.withState(uiState.isProcessing.not())
+                        )
+                    }
+
                 Title(
                     enabled = uiState.isProcessing.not(),
                     title = stringResource(id = R.string.s3_restic_initialization)
@@ -507,8 +513,8 @@ fun PageS3Setup() {
                         }
                         Text(text = stringResource(id = R.string.s3_restic_initialize))
                     }
-                }  // 添加这个缺失的闭合大括号
-            }  // Title 块在这里结束
+                }
+            }
         }
     }
 }

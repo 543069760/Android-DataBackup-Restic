@@ -43,6 +43,20 @@ class ResticRepositoryCos @Inject constructor(
         } catch (e: Exception) { Result.failure(e) }
     }
 
+    suspend fun checkCosRepository(
+        cloudEntity: CloudEntity, password: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val extra = ResticShared.json.decodeFromString<S3Extra>(cloudEntity.extra)
+            val options = buildS3BackendOptions(extra, cloudEntity.remote)
+            val exists = shared.rootService.rusticRepositoryExists("opendal:cos", options)
+            if (exists) Result.success(Unit)
+            else Result.failure(Exception("仓库不存在或不可访问"))
+        } catch (e: Exception) {
+            Log.e(ResticShared.TAG, "checkCosRepository 异常", e); Result.failure(e)
+        }
+    }
+
     // backupFileToCos —— 对应 backupFileToS3，返回 Pair<Int,String>（保持上层契约）
     suspend fun backupFileToCos(
         extra: S3Extra, remotePath: String, filePath: String,

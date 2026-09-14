@@ -167,6 +167,17 @@ class WebdavResticViewModel @Inject constructor(
         }
     }
 
+    suspend fun checkWebdavRepository(cloudEntity: CloudEntity, password: String): Boolean {
+        Log.d(TAG, "checkWebdavRepository 开始 remote=${cloudEntity.remote} state=${_webdavInitializationState.value}")
+        if (_webdavInitializationState.value !is WebdavInitializationState.Success) {
+            Log.d(TAG, "checkWebdavRepository 被拦截：初始化状态非 Success，直接返回 false")
+            return false
+        }
+        val result = resticRepoWebdav.checkWebdavRepository(cloudEntity, password)
+        Log.d(TAG, "checkWebdavRepository 结果 isSuccess=${result.isSuccess} error=${result.exceptionOrNull()?.message}")
+        return result.isSuccess
+    }
+
     fun saveWebdavPassword(password: String) {
         Log.d(TAG, "保存WebDAV Restic密码")
         _webdavPasswordState.value = password

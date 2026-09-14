@@ -142,6 +142,11 @@ class SftpResticViewModel @Inject constructor(
         }
     }
 
+    suspend fun checkSftpRepository(cloudEntity: CloudEntity, password: String): Boolean {
+        if (_sftpInitializationState.value !is SftpInitializationState.Success) return false
+        return resticRepoSftp.checkSftpRepository(cloudEntity, password).isSuccess
+    }
+
     override suspend fun onEvent(state: SftpResticUiState, intent: SftpResticUiIntent) {
         // 暂时不需要处理特定的UI意图
     }
