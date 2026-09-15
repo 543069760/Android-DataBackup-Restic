@@ -358,6 +358,12 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
     }
     abstract val mMediumBackupUtil: MediumBackupUtil
 
+    /**
+     * 备份前仓库可用性前置检查挂钩。默认放行；子类可重写。
+     * 返回 false 表示仓库不可用，应终止本次备份。
+     */
+    protected open suspend fun onPreBackupRepositoryCheck(): Boolean = true
+
     override suspend fun onPreprocessing(entity: ProcessingInfoEntity) {
         when (entity.infoType) {
             ProcessingInfoType.NECESSARY_PREPARATIONS -> {

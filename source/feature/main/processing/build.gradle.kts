@@ -24,6 +24,7 @@ dependencies {
     implementation(project(":core:rootservice"))
     compileOnly(project(":core:hiddenapi"))
     implementation(project(":core:service"))
+    implementation(project(":core:restic"))
     implementation(project(":core:network"))
 
     // Hilt navigation

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+<string name="pre_backup_repository_check_failed">备份前仓库检查失败：仓库不存在、无法打开、已损坏或密码错误。</string>
+</resources>

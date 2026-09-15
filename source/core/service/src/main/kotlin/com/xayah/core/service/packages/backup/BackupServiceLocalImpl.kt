@@ -169,6 +169,24 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
         cleanupStopFiles()
     }
 
+    override suspend fun onTargetDirsCreated() {
+        super.onTargetDirsCreated()
+        // 备份前一次性仓库可用性检查：不通过直接终止本次备份
+        if (!onPreBackupRepositoryCheck()) {
+            throw IllegalStateException(mContext.getString(com.xayah.core.data.R.string.pre_backup_repository_check_failed))
+        }
+    }
+
+    override suspend fun onPreBackupRepositoryCheck(): Boolean {
+        val repoPath = getResticRepoPath()
+        val password = getResticPassword()
+        val ok = resticRepo.checkRepository(repoPath, password)
+        if (!ok) {
+            Log.e(mTAG, "备份前本地仓库检查失败: repoPath=$repoPath（仓库不存在/损坏/密码错/config 不可读）")
+        }
+        return ok
+    }
+
     override suspend fun onIconsSaved(path: String, entity: ProcessingInfoEntity) {
         val iconFile = File(path)
         if (!iconFile.exists()) {
