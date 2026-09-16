@@ -62,9 +62,18 @@ class ResticRepositoryWebdav @Inject constructor(
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val options = buildWebdavBackendOptions(cloudEntity, cloudEntity.remote)
+
             val exists = shared.rootService.rusticRepositoryExists("opendal:webdav", options)
             Log.i(ResticShared.TAG, "checkWebdavRepository exists=$exists root=${options["root"]} endpoint=${options["endpoint"]}")
-            if (exists) Result.success(Unit) else Result.failure(Exception("仓库不存在或不可访问"))
+            if (!exists) return@withContext Result.failure(Exception("仓库不存在或不可访问"))
+
+            val validate = shared.rootService.validateRusticRepository("opendal:webdav", password, options)
+            if (validate.isFailure) return@withContext Result.failure(validate.exceptionOrNull() ?: Exception("仓库密码错误或无法打开"))
+
+            val check = shared.rootService.checkRusticRepository("opendal:webdav", password, options)
+            if (check.isFailure) return@withContext Result.failure(check.exceptionOrNull() ?: Exception("仓库损坏"))
+
+            Result.success(Unit)
         } catch (e: Exception) { Log.e(ResticShared.TAG, "checkWebdavRepository 异常", e); Result.failure(e) }
     }
 

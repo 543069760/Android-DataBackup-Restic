@@ -154,7 +154,7 @@ class BackupViewModelImpl @Inject constructor(
                             ?: File(mContext.filesDir, "restic_repo").absolutePath
                         val password = mContext.readResticPassword() ?: "databackup_default"
 
-                        val ok = resticRepo.checkRepository(repoPath, password)
+                        val ok = resticRepo.verifyRepository(repoPath, password)
                         if (!ok) {
                             emitEffect(IndexUiEffect.DismissSnackbar)
                             emitEffectOnIO(

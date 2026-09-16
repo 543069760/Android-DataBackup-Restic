@@ -49,9 +49,20 @@ class ResticRepositoryCos @Inject constructor(
         try {
             val extra = ResticShared.json.decodeFromString<S3Extra>(cloudEntity.extra)
             val options = buildS3BackendOptions(extra, cloudEntity.remote)
+
+            // 1) 存在性门槛（返回真实 bool，不依赖异常）
             val exists = shared.rootService.rusticRepositoryExists("opendal:cos", options)
-            if (exists) Result.success(Unit)
-            else Result.failure(Exception("仓库不存在或不可访问"))
+            if (!exists) return@withContext Result.failure(Exception("仓库不存在或不可访问"))
+
+            // 2) validate（密码/可打开）
+            val validate = shared.rootService.validateRusticRepository("opendal:cos", password, options)
+            if (validate.isFailure) return@withContext Result.failure(validate.exceptionOrNull() ?: Exception("仓库密码错误或无法打开"))
+
+            // 3) check（完整性/损坏）
+            val check = shared.rootService.checkRusticRepository("opendal:cos", password, options)
+            if (check.isFailure) return@withContext Result.failure(check.exceptionOrNull() ?: Exception("仓库损坏"))
+
+            Result.success(Unit)
         } catch (e: Exception) {
             Log.e(ResticShared.TAG, "checkCosRepository 异常", e); Result.failure(e)
         }

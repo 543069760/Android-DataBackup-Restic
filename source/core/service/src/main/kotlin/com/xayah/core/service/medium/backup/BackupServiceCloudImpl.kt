@@ -112,6 +112,42 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
         log { "Trying to create: $mRemoteConfigsDir." }
         mClient.mkdirRecursively(mRemoteFilesDir)
         mClient.mkdirRecursively(mRemoteConfigsDir)
+
+        // 备份前一次性云端仓库可用性检查：不通过直接终止本次备份（与本地对称）
+        if (!onPreBackupRepositoryCheck()) {
+            throw IllegalStateException(mContext.getString(com.xayah.core.data.R.string.pre_backup_repository_check_failed))
+        }
+    }
+
+    override suspend fun onPreBackupRepositoryCheck(): Boolean {
+        val entity = mCloudEntity
+        val ok = when (entity.type) {
+            CloudType.S3 -> {
+                val extra = json.decodeFromString<S3Extra>(entity.extra)
+                val password = extra.resticPassword.ifEmpty { mContext.readS3ResticPassword() ?: getResticPassword() }
+                resticRepoCos.checkCosRepository(entity, password).isSuccess
+            }
+            CloudType.FTP -> {
+                val extra = json.decodeFromString<FTPExtra>(entity.extra)
+                val password = extra.resticPassword.ifEmpty { mContext.readFtpResticPassword() ?: getResticPassword() }
+                resticRepoFtp.checkFtpRepository(entity, password).isSuccess
+            }
+            CloudType.WEBDAV -> {
+                val extra = json.decodeFromString<WebDAVExtra>(entity.extra)
+                val password = extra.resticPassword.ifEmpty { mContext.readWebdavResticPassword() ?: getResticPassword() }
+                resticRepoWebdav.checkWebdavRepository(entity, password).isSuccess
+            }
+            CloudType.SFTP -> {
+                val extra = json.decodeFromString<SFTPExtra>(entity.extra)
+                val password = extra.resticPassword.ifEmpty { getResticPassword() }
+                resticRepoSftp.checkSftpRepository(entity, password).isSuccess
+            }
+            else -> true
+        }
+        if (!ok) {
+            Log.e(mTAG, "备份前云端仓库检查失败: type=${entity.type} remote=${entity.remote}（仓库不存在/损坏/密码错/不可访问）")
+        }
+        return ok
     }
 
     private fun getRemoteFileDir(archivesRelativeDir: String) = "${mRemoteFilesDir}/${archivesRelativeDir}"

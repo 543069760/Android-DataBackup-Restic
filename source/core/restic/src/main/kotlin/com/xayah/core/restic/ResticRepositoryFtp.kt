@@ -78,7 +78,15 @@ class ResticRepositoryFtp @Inject constructor(
         val session = startServe(cloudEntity, cloudEntity.remote)
         try {
             val exists = shared.rootService.rusticRepositoryExists(session.restUrl, emptyMap())
-            if (exists) Result.success(Unit) else Result.failure(Exception("仓库不存在或不可访问"))
+            if (!exists) return@withContext Result.failure(Exception("仓库不存在或不可访问"))
+
+            val validate = shared.rootService.validateRusticRepository(session.restUrl, password, emptyMap())
+            if (validate.isFailure) return@withContext Result.failure(validate.exceptionOrNull() ?: Exception("仓库密码错误或无法打开"))
+
+            val check = shared.rootService.checkRusticRepository(session.restUrl, password, emptyMap())
+            if (check.isFailure) return@withContext Result.failure(check.exceptionOrNull() ?: Exception("仓库损坏"))
+
+            Result.success(Unit)
         } catch (e: Exception) {
             Log.e(ResticShared.TAG, "checkFtpRepository 异常", e); Result.failure(e)
         } finally { stopServe(session) }

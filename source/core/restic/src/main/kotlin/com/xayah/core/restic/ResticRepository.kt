@@ -422,7 +422,10 @@ class ResticRepository @Inject constructor(
 
     suspend fun validateRepository(repoPath: String, password: String): Boolean =
         withContext(Dispatchers.IO) {
-            rootService.validateRusticRepository(repoPath, password).isSuccess
+            val result = rootService.validateRusticRepository(repoPath, password)
+            // ===== 临时排查日志（验证根因后移除）=====
+            Log.w(TAG, "validateRepository DEBUG: repoPath=$repoPath, isSuccess=${result.isSuccess}, exception=${result.exceptionOrNull()?.message}")
+            result.isSuccess
         }
 
     suspend fun deleteRepository(repoPath: String): Boolean = withContext(Dispatchers.IO) {
@@ -435,6 +438,8 @@ class ResticRepository @Inject constructor(
             // 原生 checkRepository 成功返回、失败抛异常（含"仓库不存在/config 缺失"），
             // 因此用 Result.isSuccess 直接映射为 Boolean，替代原来对 stdout 文本的解析。
             val result = rootService.checkRusticRepository(repoPath, password)
+            // ===== 临时排查日志（验证根因后移除）=====
+            Log.w(TAG, "checkRepository DEBUG: repoPath=$repoPath, isSuccess=${result.isSuccess}, exception=${result.exceptionOrNull()?.message}")
             if (result.isSuccess) {
                 true
             } else {
@@ -442,6 +447,32 @@ class ResticRepository @Inject constructor(
                 false
             }
         }
+    }
+
+    /**
+     * 组合式仓库可用性检查：存在性 → 门槛（validate）→ 完整性（check）。
+     * - exists：走 native repository_exists（config_id().is_some()），不依赖异常传播，
+     *   对未初始化/不存在的本地仓库稳定返回 false。
+     * - validate：拦掉"config 缺失或打不开 / 密码错"。
+     * - check：validate 通过后再做完整性检查，覆盖"仓库损坏"。
+     * 任一不通过即返回 false。
+     */
+    suspend fun verifyRepository(repoPath: String, password: String): Boolean {
+        val exists = rootService.rusticRepositoryExists(repoPath)
+        if (!exists) {
+            Log.w(TAG, "verifyRepository: repository 不存在（未初始化/config 缺失）: $repoPath")
+            return false
+        }
+        val valid = validateRepository(repoPath, password)
+        if (!valid) {
+            Log.w(TAG, "verifyRepository: validate 未通过（config 缺失/密码错）: $repoPath")
+            return false
+        }
+        val ok = checkRepository(repoPath, password)
+        if (!ok) {
+            Log.w(TAG, "verifyRepository: check 未通过（仓库损坏）: $repoPath")
+        }
+        return ok
     }
 
     suspend fun listBackedUpApps(repoPath: String, password: String): List<ResticBackupApp> {

@@ -557,7 +557,12 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
     }
 
     override fun validateRusticRepository(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?): Unit = synchronized(lock) {
-        Rustic.validateRepository(repositoryPath, password, options.toStringMap())
+        try {
+            Rustic.validateRepository(repositoryPath, password, options.toStringMap())
+        } catch (e: Exception) {
+            Log.i("ResticRepository", "impl.validateRusticRepository threw, msg=${e.message}")
+            throw IllegalStateException(e.message ?: "validateRusticRepository failed")
+        }
     }
 
     override fun createRusticSnapshot(repositoryPath: String, password: String, sourcePaths: MutableList<String>, tags: MutableList<String>, options: MutableMap<Any?, Any?>?, callback: ICallback?, cancelId: Long): String = synchronized(lock) {
@@ -609,7 +614,12 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
     }
 
     override fun checkRusticRepository(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?): Unit = synchronized(lock) {
-        Rustic.checkRepository(repositoryPath, password, options.toStringMap())
+        try {
+            Rustic.checkRepository(repositoryPath, password, options.toStringMap())
+        } catch (e: Exception) {
+            Log.i("ResticRepository", "impl.checkRusticRepository threw, msg=${e.message}")
+            throw IllegalStateException(e.message ?: "checkRusticRepository failed")
+        }
     }
 
     override fun forgetRusticSnapshot(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?, snapshotId: String): Unit = synchronized(lock) {

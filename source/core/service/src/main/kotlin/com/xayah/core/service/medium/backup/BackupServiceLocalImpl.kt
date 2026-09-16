@@ -62,7 +62,7 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
     override suspend fun onPreBackupRepositoryCheck(): Boolean {
         val repoPath = getResticRepoPath()
         val password = getResticPassword()
-        val ok = resticRepo.checkRepository(repoPath, password)
+        val ok = resticRepo.verifyRepository(repoPath, password)
         if (!ok) {
             Log.e(mTAG, "备份前本地仓库检查失败: repoPath=$repoPath（仓库不存在/损坏/密码错/config 不可读）")
         }

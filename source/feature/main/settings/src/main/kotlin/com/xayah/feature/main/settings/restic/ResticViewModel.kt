@@ -123,13 +123,33 @@ class ResticViewModel @Inject constructor(
                 val isInitialized = resticRepo.checkRepository(repoPath, password)
                 _resticInitializedState.value = isInitialized
 
+                Log.w(TAG, "checkResticStatus: repoPath=$repoPath, checkOk=$isInitialized")
+
                 if (!isInitialized) {
-                    // 仓库不存在，清除已保存的路径
-                    context.saveResticRepoPath("")
-                    _resticRepoPathState.value = ""
-                    _resticSnapshotCountState.value = 0
+                    // checkRepository 对“仓库不存在”和“密码错误”都返回 false，需进一步区分。
+                    // rusticRepositoryExists 走 native config_id()?.is_some()，返回真实 Boolean，
+                    // 不依赖异常跨 binder 传播，可稳定判断仓库是否真的存在。
+                    val exists = rootService.rusticRepositoryExists(repoPath)
+                    if (!exists) {
+                        // 仓库确实不存在/未初始化，清除已保存的路径
+                        Log.w(TAG, "checkResticStatus: 仓库不存在/未初始化，清空 repoPath: $repoPath")
+                        context.saveResticRepoPath("")
+                        _resticRepoPathState.value = ""
+                        _resticSnapshotCountState.value = 0
+                        _resticErrorState.value = null
+                        _initializationState.value = InitializationState.Idle
+                    } else {
+                        // 仓库存在但 checkRepository 失败 —— 密码错误，不能清空已保存的路径
+                        Log.w(TAG, "checkResticStatus: 仓库存在但校验失败（密码错误），保留 repoPath: $repoPath")
+                        _resticRepoPathState.value = repoPath
+                        _resticSnapshotCountState.value = 0
+                        _resticErrorState.value = context.getString(com.xayah.core.data.R.string.pre_backup_repository_check_failed)
+                        _initializationState.value = InitializationState.PasswordError(repoPath)
+                    }
                 } else {
                     _resticRepoPathState.value = repoPath
+                    _resticErrorState.value = null
+                    _initializationState.value = InitializationState.ReadyToUse(repoPath)
                     val snapshots = resticRepo.listSnapshots(repoPath, password)
                     _resticSnapshotCountState.value = snapshots.size
                 }
