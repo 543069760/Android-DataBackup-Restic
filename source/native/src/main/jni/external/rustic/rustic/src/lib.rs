@@ -10,6 +10,7 @@ mod repository;
 mod cancel;
 mod cancel_backend;
 mod counting_backend;
+mod opendal_ops;
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -19,3 +20,4 @@ pub use repository::{
     repository_exists, restore_snapshot, restore_snapshot_with_progress, validate_repository,
     RestorePlanStats,
 };
+pub use opendal_ops::{opendal_create_dir, opendal_list, OpenDalEntry};

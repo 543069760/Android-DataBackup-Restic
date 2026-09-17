@@ -495,6 +495,12 @@ class RemoteRootService(private val context: Context) {
     suspend fun rcloneRpcNoLock(method: String, input: String): String =
         runCatching { getService().rcloneRpcNoLock(method, input) }.onFailure(onFailure).getOrThrow()
 
+    suspend fun opendalList(scheme: String, path: String, options: Map<String, String> = emptyMap()): String =
+        runCatching { getService().opendalList(scheme, path, options) }.onFailure(onFailure).getOrThrow()
+
+    suspend fun opendalCreateDir(scheme: String, path: String, options: Map<String, String> = emptyMap()) =
+        runCatching { getService().opendalCreateDir(scheme, path, options) }.onFailure(onFailure)
+
     suspend fun writeJson(data: Any, dst: String): ShellResult = runCatching {
         var isSuccess: Boolean
         val out = mutableListOf<String>()

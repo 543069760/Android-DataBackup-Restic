@@ -15,9 +15,6 @@ dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:rootservice"))
 
-    // AWS kt SDK
-    implementation("aws.sdk.kotlin:s3:1.0.50")
-
     // 确保有必要的 Kotlin 协程依赖
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
 

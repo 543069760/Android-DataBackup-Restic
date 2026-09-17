@@ -1,50 +1,32 @@
 package com.xayah.core.network.client
 
 import android.content.Context
-import aws.sdk.kotlin.services.s3.S3Client
-import aws.sdk.kotlin.services.s3.model.*
-import aws.smithy.kotlin.runtime.auth.awscredentials.Credentials
-import aws.smithy.kotlin.runtime.auth.awscredentials.CredentialsProvider
-import aws.smithy.kotlin.runtime.content.ByteStream
-import aws.smithy.kotlin.runtime.net.url.Url
-import aws.smithy.kotlin.runtime.content.writeToFile
-import aws.smithy.kotlin.runtime.content.asByteStream
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.database.S3Protocol
 import com.xayah.core.network.R
 import com.xayah.core.network.util.getExtraEntity
 import com.xayah.core.rootservice.parcelables.PathParcelable
+import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.GsonUtil
 import com.xayah.core.util.LogUtil
-import com.xayah.core.util.PathUtil
 import com.xayah.core.util.withMainContext
 import com.xayah.libpickyou.PickYouLauncher
 import com.xayah.libpickyou.parcelables.DirChildrenParcelable
 import com.xayah.libpickyou.parcelables.FileParcelable
 import com.xayah.libpickyou.ui.model.PickerType
-import com.xayah.core.model.database.S3NetworkType
-import com.xayah.core.model.database.UploadIdEntity
-import com.xayah.core.database.dao.UploadIdDao
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.launch
-import java.io.File
-import java.io.InputStream
-import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.min
-import kotlin.math.max
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 
 class S3ClientImpl(
     private val entity: CloudEntity,
     private val extra: S3Extra,
-    private val uploadIdDao: UploadIdDao
+    private val rootService: RemoteRootService,
 ) : CloudClient {
-    private var s3Client: S3Client? = null
+
+    companion object {
+        /** opendal scheme;S3(COS) 固定为 "cos"。将来 awss3 走 "s3"。 */
+        private const val SCHEME = "cos"
+    }
 
     private fun log(msg: () -> String): String = run {
         LogUtil.log { "S3ClientImpl" to msg() }
@@ -55,98 +37,38 @@ class S3ClientImpl(
         return path.trim('/').replace("//", "/")
     }
 
-    companion object {
-        suspend fun cleanupOrphanedUpload(
-            uploadIdEntity: UploadIdEntity,
-            cloudEntity: CloudEntity
-        ) {
-            val extra: S3Extra = GsonUtil().fromJson(cloudEntity.extra, S3Extra::class.java) ?: return
+    /**
+     * 构建 opendal cos options。
+     * root 固定为 "/",当前浏览目录由 path 参数表达(与备份时 root=remotePath 语义不同)。
+     * endpoint 格式 protocol://endpoint(去尾斜杠、不含 bucket),
+     * 与 ResticShared.buildOpenDALEndpoint 一致,但在 network 层本地实现以避免依赖 restic 模块。
+     */
+    private fun buildOpendalOptions(): Map<String, String> = mapOf(
+        "bucket" to extra.bucket,
+        "root" to "/",
+        "endpoint" to buildOpendalEndpoint(),
+        "secret_id" to extra.accessKeyId,
+        "secret_key" to extra.secretAccessKey,
+    )
 
-            val s3Client = S3Client {
-                region = if (extra.endpoint.isNotEmpty()) {
-                    extra.region.ifEmpty { "us-east-1" }
-                } else {
-                    extra.region
-                }
-                credentialsProvider = object : CredentialsProvider {
-                    override suspend fun resolve(attributes: aws.smithy.kotlin.runtime.collections.Attributes): Credentials {
-                        return Credentials(
-                            accessKeyId = extra.accessKeyId,
-                            secretAccessKey = extra.secretAccessKey
-                        )
-                    }
-                }
-                if (extra.endpoint.isNotEmpty()) {
-                    val scheme = when (extra.protocol) {
-                        S3Protocol.HTTP -> "http"
-                        S3Protocol.HTTPS -> "https"
-                    }
-                    endpointUrl = Url.parse("$scheme://${extra.endpoint}")
-                }
-            }
-
-            try {
-                s3Client.abortMultipartUpload(
-                    AbortMultipartUploadRequest {
-                        bucket = uploadIdEntity.bucket
-                        key = uploadIdEntity.key
-                        uploadId = uploadIdEntity.uploadId
-                    }
-                )
-            } finally {
-                s3Client.close()
-            }
+    private fun buildOpendalEndpoint(): String {
+        val protocol = when (extra.protocol) {
+            S3Protocol.HTTP -> "http"
+            S3Protocol.HTTPS -> "https"
         }
+        return "$protocol://${extra.endpoint.trim().removeSuffix("/")}"
     }
 
-    override fun connect() {
-        s3Client = S3Client {
-            region = if (extra.endpoint.isNotEmpty()) {
-                extra.region.ifEmpty { "us-east-1" }
-            } else {
-                extra.region
-            }
-            credentialsProvider = object : CredentialsProvider {
-                override suspend fun resolve(attributes: aws.smithy.kotlin.runtime.collections.Attributes): Credentials {
-                    return Credentials(
-                        accessKeyId = extra.accessKeyId,
-                        secretAccessKey = extra.secretAccessKey
-                    )
-                }
-            }
-            if (extra.endpoint.isNotEmpty()) {
-                val scheme = when (extra.protocol) {
-                    S3Protocol.HTTP -> "http"
-                    S3Protocol.HTTPS -> "https"
-                }
-                endpointUrl = Url.parse("$scheme://${extra.endpoint}")
-            }
+    // opendal 无长连接概念,connect/disconnect 保留为空实现以满足接口。
+    override fun connect() {}
 
-            // 启用详细日志
-            logMode = aws.smithy.kotlin.runtime.client.LogMode.LogRequest +
-                    aws.smithy.kotlin.runtime.client.LogMode.LogResponse
-        }
-
-        log { "S3Client connected with endpoint: ${s3Client?.config?.endpointUrl}" }
-        log { "S3Client region: ${s3Client?.config?.region}" }
-    }
-
-    override fun disconnect() {
-        runBlocking {
-            s3Client?.close()
-        }
-        s3Client = null
-    }
+    override fun disconnect() {}
 
     override fun mkdir(dst: String) {
-        val key = normalizeObjectKey(dst) + "/"
-        log { "mkdir: $key" }
+        val path = normalizeObjectKey(dst)
+        log { "mkdir(opendal): $path" }
         runBlocking {
-            s3Client?.putObject(PutObjectRequest {
-                bucket = extra.bucket
-                this.key = key
-                body = ByteStream.fromBytes(ByteArray(0))
-            })
+            rootService.opendalCreateDir(SCHEME, path, buildOpendalOptions())
         }
     }
 
@@ -154,434 +76,74 @@ class S3ClientImpl(
         mkdir(dst)
     }
 
-    private fun calculatePartSize(fileSize: Long): Long {
-        val maxParts = 10000L
-        val minPartSize = 10L * 1024 * 1024  // 10MB
-
-        val calculatedSize = fileSize / maxParts
-
-        return when {
-            calculatedSize < minPartSize -> minPartSize
-            else -> calculatedSize
-        }
-    }
-
     override fun renameTo(
         src: String,
         dst: String,
         onProgress: ((currentPart: Int, totalParts: Int, currentFile: Int, totalFiles: Int) -> Unit)?
     ) {
-        // S3 不再需要 renameTo 操作,因为备份完全基于时间戳
+        // 备份完全基于 rustic 时间戳,S3 不再需要 renameTo。
         log { "renameTo is deprecated for S3, skipping: $src to $dst" }
     }
 
-    override fun upload(src: String, dst: String, onUploading: (read: Long, total: Long) -> Unit, isCanceled: (() -> Boolean)?) {
-        runBlocking {
-            val name = PathUtil.getFileName(src)
-            val dstPath = normalizeObjectKey("$dst/$name")
-            log { "upload: $src to $dstPath" }
-
-            val srcFile = File(src)
-            val srcFileSize = srcFile.length()
-            val partSize = calculatePartSize(srcFileSize).toInt()
-
-            val createMultipartUploadResponse = s3Client?.createMultipartUpload(
-                CreateMultipartUploadRequest {
-                    bucket = extra.bucket
-                    key = dstPath
-                }
-            )
-
-// 立即持久化 uploadId
-            val uploadIdEntity = UploadIdEntity(
-                uploadId = createMultipartUploadResponse?.uploadId ?: "",
-                bucket = extra.bucket,
-                key = dstPath,
-                timestamp = System.currentTimeMillis(),
-                cloudName = entity.name
-            )
-            val recordId = uploadIdDao.insert(uploadIdEntity)
-
-            // 根据网络类型动态设置并发数
-            val concurrency = when (extra.networkType) {
-                S3NetworkType.PRIVATE -> 5  // 内网使用 5 个并发
-                S3NetworkType.PUBLIC -> 3   // 公网使用 3 个并发
-            }
-            log { "Using concurrency: $concurrency for network type: ${extra.networkType}" }
-            val channel = kotlinx.coroutines.channels.Channel<Pair<Int, ByteArray>>(capacity = concurrency / 2)
-
-            val uploadedBytes = java.util.concurrent.atomic.AtomicLong(0L)
-            val completedParts = java.util.concurrent.ConcurrentHashMap<Int, CompletedPart>()
-
-            // 生产者协程:读取文件分块
-            val producer = launch {
-                try {
-                    srcFile.inputStream().buffered().use { file ->
-                        var pn = 1
-                        val partBuf = ByteArray(partSize)
-                        while (true) {
-                            // 在读取每个分块前检查取消标志
-                            if (isCanceled?.invoke() == true) {
-                                log { "Upload canceled by user during file reading" }
-                                throw kotlinx.coroutines.CancellationException("Upload canceled")
-                            }
-
-                            val haveRead = file.read(partBuf)
-                            if (haveRead <= 0) break
-
-                            // 发送到 channel,如果 channel 满了会自动阻塞
-                            channel.send(pn to partBuf.copyOf(haveRead))
-                            pn++
-                        }
-                    }
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    log { "Producer canceled: ${e.message}" }
-                    throw e
-                } finally {
-                    channel.close()
-                }
-            }
-
-            // 消费者协程:并发上传分块
-            val consumers = List(concurrency) {
-                launch {
-                    for ((partNumber, partData) in channel) {
-                        try {
-                            // 在上传每个分块前检查取消标志
-                            if (isCanceled?.invoke() == true) {
-                                log { "Upload canceled by user before uploading part $partNumber" }
-                                channel.cancel()
-                                throw kotlinx.coroutines.CancellationException("Upload canceled")
-                            }
-
-                            log { "Uploading part $partNumber" }
-
-                            val uploadPartResponse = s3Client?.uploadPart(
-                                UploadPartRequest {
-                                    bucket = extra.bucket
-                                    key = dstPath
-                                    uploadId = createMultipartUploadResponse?.uploadId
-                                    this.partNumber = partNumber
-                                    body = ByteStream.fromBytes(partData)
-                                }
-                            )
-
-                            completedParts[partNumber] = CompletedPart {
-                                eTag = uploadPartResponse?.eTag
-                                this.partNumber = partNumber
-                            }
-
-                            // 更新进度
-                            val currentUploaded = uploadedBytes.addAndGet(partData.size.toLong())
-                            onUploading(currentUploaded, srcFileSize)
-
-                            // 在进度更新后也检查取消标志
-                            if (isCanceled?.invoke() == true) {
-                                log { "Upload canceled by user after uploading part $partNumber" }
-                                channel.cancel()
-                                throw kotlinx.coroutines.CancellationException("Upload canceled")
-                            }
-
-                            log { "Part $partNumber uploaded successfully" }
-                        } catch (e: kotlinx.coroutines.CancellationException) {
-                            log { "Consumer canceled: ${e.message}" }
-                            channel.cancel()
-                            throw e
-                        } catch (e: Exception) {
-                            log { "Part $partNumber upload failed: ${e.message}" }
-                            channel.cancel()
-                            throw e
-                        }
-                    }
-                }
-            }
-
-            try {
-                // 等待生产者和所有消费者完成
-                producer.join()
-                consumers.forEach { it.join() }
-
-                // 显式检查取消状态
-                if (isCanceled?.invoke() == true) {
-                    throw kotlinx.coroutines.CancellationException("Upload canceled")
-                }
-
-                // 正常完成逻辑必须在 try 块内
-                val sortedParts = completedParts.toSortedMap().values.toList()
-
-                s3Client?.completeMultipartUpload(
-                    CompleteMultipartUploadRequest {
-                        bucket = extra.bucket
-                        key = dstPath
-                        uploadId = createMultipartUploadResponse?.uploadId
-                        multipartUpload { parts = sortedParts }
-                    }
-                )
-                uploadIdDao.deleteByUploadId(createMultipartUploadResponse?.uploadId ?: "")
-                onUploading(srcFileSize, srcFileSize)
-
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                // 取消时中止分片上传
-                log { "Upload canceled, aborting multipart upload" }
-                runCatching {
-                    s3Client?.abortMultipartUpload(
-                        AbortMultipartUploadRequest {
-                            bucket = extra.bucket
-                            key = dstPath
-                            uploadId = createMultipartUploadResponse?.uploadId
-                        }
-                    )
-                    uploadIdDao.deleteByUploadId(createMultipartUploadResponse?.uploadId ?: "")
-                }.onFailure { abortError ->
-                    log { "Failed to abort multipart upload: ${abortError.message}" }
-                }
-                throw e
-            }
-        }
+    override fun upload(
+        src: String,
+        dst: String,
+        onUploading: (read: Long, total: Long) -> Unit,
+        isCanceled: (() -> Boolean)?
+    ) {
+        // 备份/配置上传已统一走 rustic 快照链路,S3ClientImpl 不再提供上传能力。
+        throw UnsupportedOperationException("S3 upload is handled by rustic; direct upload is no longer supported.")
     }
 
     override fun download(src: String, dst: String, onDownloading: (written: Long, total: Long) -> Unit) {
-        runBlocking {
-            val name = PathUtil.getFileName(src)
-            val dstPath = "$dst/$name"
-            log { "download: $src to $dstPath" }
-
-            val srcKey = normalizeObjectKey(src)
-
-            // 先调用 HEAD 方法获取对象大小
-            val headResponse = s3Client?.headObject(HeadObjectRequest {
-                bucket = extra.bucket
-                key = srcKey
-            })
-            val totalSize = headResponse?.contentLength ?: -1L
-            log { "HEAD response: total size = $totalSize" }
-
-            try {
-                s3Client?.getObject(GetObjectRequest {
-                    bucket = extra.bucket
-                    key = srcKey
-                }) { resp ->
-                    val dstFile = File(dstPath)
-
-                    dstFile.parentFile?.mkdirs()
-                    log { "Starting download, total size: $totalSize" }
-
-                    coroutineScope {
-                        val progressJob = launch {
-                            var lastSize = 0L
-                            var lastProgressTime = System.currentTimeMillis()
-
-                            while (isActive) {
-                                delay(300)
-
-                                val currentSize = try {
-                                    if (dstFile.exists()) dstFile.length() else 0L
-                                } catch (e: Exception) {
-                                    lastSize
-                                }
-
-                                val currentTime = System.currentTimeMillis()
-                                log { "Progress check: currentSize=$currentSize, totalSize=$totalSize, exists=${dstFile.exists()}" }
-
-                                if (currentSize != lastSize) {
-                                    onDownloading(currentSize, totalSize)
-                                    log { "Progress updated: $currentSize / $totalSize" }
-                                    lastSize = currentSize
-                                    lastProgressTime = currentTime
-                                }
-
-                                if (totalSize > 0 && currentSize >= totalSize) {
-                                    break
-                                }
-
-                                // 安全退出：5秒无进度变化
-                                if (currentTime - lastProgressTime > 5000 && currentSize > 0) {
-                                    log { "No progress for 5 seconds, assuming completion" }
-                                    break
-                                }
-                            }
-                        }
-
-                        try {
-                            resp.body?.writeToFile(dstFile)
-                            val finalSize = dstFile.length()
-                            onDownloading(finalSize, totalSize)
-                            log { "Download completed: $finalSize bytes" }
-                        } catch (e: Exception) {
-                            log { "Download error: ${e.message}" }
-                            throw e
-                        } finally {
-                            progressJob.cancel()
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                log { "S3 operation failed: ${e.message}" }
-                throw e
-            }
-        }
+        // 恢复已统一走 rustic 快照链路,S3ClientImpl 不再提供下载能力。
+        throw UnsupportedOperationException("S3 download is handled by rustic; direct download is no longer supported.")
     }
 
     override fun deleteFile(src: String) {
-        log { "deleteFile: $src" }
-        runBlocking {
-            s3Client?.deleteObject(DeleteObjectRequest {
-                bucket = extra.bucket
-                key = normalizeObjectKey(src)
-            })
-        }
+        throw UnsupportedOperationException("S3 deleteFile is handled by rustic; not supported here.")
     }
 
     override fun removeDirectory(src: String): Boolean {
-        log { "removeDirectory: $src" }
-
-        // 检查连接状态,如果断开则重新连接
-        if (s3Client == null) {
-            log { "S3Client is null, reconnecting..." }
-            connect()
-        }
-
-        log { "S3Client state: ${if (s3Client != null) "connected" else "null"}" }
-        log { "Extra endpoint: ${extra.endpoint}" }
-        log { "Extra bucket: ${extra.bucket}" }
-
-        return runBlocking {
-            try {
-                val prefix = normalizeObjectKey(src) + "/"
-                log { "Listing objects with prefix: $prefix" }
-                log { "Using bucket: ${extra.bucket}" }
-                log { "S3 client endpoint: ${s3Client?.config?.endpointUrl}" }
-                log { "S3 client region: ${s3Client?.config?.region}" }
-
-                val listRequest = ListObjectsV2Request {
-                    bucket = extra.bucket
-                    this.prefix = prefix
-                }
-
-                // 打印请求详情
-                log { "ListObjectsV2Request details:" }
-                log { "  - bucket: ${extra.bucket}" }
-                log { "  - prefix: $prefix" }
-                log { "  - delimiter: ${listRequest.delimiter}" }
-                log { "  - maxKeys: ${listRequest.maxKeys}" }
-
-                val listResponse = s3Client?.listObjectsV2(listRequest)
-
-                // 打印响应详情
-                log { "ListObjectsV2Response details:" }
-                log { "  - isTruncated: ${listResponse?.isTruncated}" }
-                log { "  - keyCount: ${listResponse?.keyCount}" }
-                log { "  - maxKeys: ${listResponse?.maxKeys}" }
-                log { "  - name (bucket): ${listResponse?.name}" }
-                log { "  - prefix: ${listResponse?.prefix}" }
-                log { "  - delimiter: ${listResponse?.delimiter}" }
-                log { "  - encodingType: ${listResponse?.encodingType}" }
-                log { "  - continuationToken: ${listResponse?.continuationToken}" }
-                log { "  - nextContinuationToken: ${listResponse?.nextContinuationToken}" }
-                log { "  - startAfter: ${listResponse?.startAfter}" }
-                log { "  - contents size: ${listResponse?.contents?.size ?: 0}" }
-                log { "  - commonPrefixes size: ${listResponse?.commonPrefixes?.size ?: 0}" }
-
-                // 打印每个对象的详细信息
-                listResponse?.contents?.forEachIndexed { index, obj ->
-                    log { "  Object $index:" }
-                    log { "    - key: ${obj.key}" }
-                    log { "    - size: ${obj.size}" }
-                    log { "    - lastModified: ${obj.lastModified}" }
-                    log { "    - eTag: ${obj.eTag}" }
-                    log { "    - storageClass: ${obj.storageClass}" }
-                }
-
-                // 打印 commonPrefixes
-                listResponse?.commonPrefixes?.forEachIndexed { index, cp ->
-                    log { "  CommonPrefix $index: ${cp.prefix}" }
-                }
-
-                val objectIdentifiers = listResponse?.contents?.mapNotNull { obj ->
-                    obj.key?.let { key ->
-                        log { "Found object to delete: $key" }
-                        ObjectIdentifier { this.key = key }
-                    }
-                } ?: emptyList()
-
-                log { "Total objects to delete: ${objectIdentifiers.size}" }
-
-                if (objectIdentifiers.isNotEmpty()) {
-                    log { "Deleting ${objectIdentifiers.size} objects" }
-                    val deleteRequest = Delete {
-                        objects = objectIdentifiers
-                    }
-
-                    val deleteResponse = s3Client?.deleteObjects(DeleteObjectsRequest {
-                        bucket = extra.bucket
-                        delete = deleteRequest
-                    })
-
-                    log { "Delete response: deleted=${deleteResponse?.deleted?.size ?: 0}, errors=${deleteResponse?.errors?.size ?: 0}" }
-                    deleteResponse?.deleted?.forEach { deleted ->
-                        log { "Successfully deleted: ${deleted.key}" }
-                    }
-                    deleteResponse?.errors?.forEach { error ->
-                        log { "Failed to delete: ${error.key}, code=${error.code}, message=${error.message}" }
-                    }
-                } else {
-                    log { "No objects found to delete for prefix: $prefix" }
-                }
-                true
-            } catch (e: Exception) {
-                log { "removeDirectory failed: ${e.message}" }
-                log { "Exception type: ${e::class.simpleName}" }
-                log { "Stack trace: ${e.stackTraceToString()}" }
-                false
-            }
-        }
+        throw UnsupportedOperationException("S3 removeDirectory is handled by rustic; not supported here.")
     }
 
     override fun deleteRecursively(src: String): Boolean {
-        log { "deleteRecursively: $src" }
-        return removeDirectory(src)
-    }
-
-    suspend fun abortMultipartUpload(bucket: String, key: String, uploadId: String) {
-        s3Client?.abortMultipartUpload(
-            AbortMultipartUploadRequest {
-                this.bucket = bucket
-                this.key = key
-                this.uploadId = uploadId
-            }
-        )
+        throw UnsupportedOperationException("S3 deleteRecursively is handled by rustic; not supported here.")
     }
 
     override fun clearEmptyDirectoriesRecursively(src: String) {
-        // S3 没有真正的空目录概念
+        // 对象存储没有真正的空目录概念,无需处理。
     }
 
     override fun listFiles(src: String): DirChildrenParcelable {
-        log { "listFiles: $src" }
+        log { "listFiles(opendal): $src" }
         val files = mutableListOf<FileParcelable>()
         val directories = mutableListOf<FileParcelable>()
 
-        runBlocking {
-            val prefix = if (src.isEmpty()) "" else normalizeObjectKey(src) + "/"
-            val response = s3Client?.listObjectsV2(ListObjectsV2Request {
-                bucket = extra.bucket
-                this.prefix = prefix
-                delimiter = "/"
-            })
+        val path = if (src.isEmpty()) "/" else normalizeObjectKey(src)
+        val raw = runBlocking {
+            rootService.opendalList(SCHEME, path, buildOpendalOptions())
+        }
 
-            response?.contents?.forEach { obj ->
-                val key = obj.key ?: ""
-                if (key != prefix && !key.endsWith("/")) {
-                    val name = key.removePrefix(prefix)
-                    files.add(FileParcelable(name, obj.lastModified?.epochSeconds ?: 0))
+        // 解析格式(与 jni_bridge.rs nativeOpendalList 约定一致):
+        //   目录: d:<name>
+        //   文件: f:<name>:<mtimeEpoch>   (name 可能含 ':',用最后一个 ':' 之后作为 mtime)
+        //   条目以 '\n' 分隔
+        raw.lineSequence().forEach { line ->
+            if (line.isEmpty()) return@forEach
+            when {
+                line.startsWith("d:") -> {
+                    val name = line.removePrefix("d:").removeSuffix("/")
+                    if (name.isNotEmpty()) directories.add(FileParcelable(name, 0))
                 }
-            }
 
-            response?.commonPrefixes?.forEach { commonPrefix ->
-                val prefixStr = commonPrefix.prefix ?: ""
-                val name = prefixStr.removePrefix(prefix).removeSuffix("/")
-                if (name.isNotEmpty()) {
-                    directories.add(FileParcelable(name, 0))
+                line.startsWith("f:") -> {
+                    val rest = line.removePrefix("f:")
+                    val sep = rest.lastIndexOf(':')
+                    val name = if (sep >= 0) rest.substring(0, sep) else rest
+                    val mtime = if (sep >= 0) rest.substring(sep + 1).toLongOrNull() ?: 0L else 0L
+                    if (name.isNotEmpty()) files.add(FileParcelable(name, mtime))
                 }
             }
         }
@@ -592,71 +154,26 @@ class S3ClientImpl(
     }
 
     override fun walkFileTree(path: String): List<PathParcelable> {
-        val pathList = mutableListOf<PathParcelable>()
-        val prefix = normalizeObjectKey(path) + "/"
-
-        log { "walkFileTree called with path: $path, normalized prefix: $prefix" }
-        log { "S3 client state: ${if (s3Client != null) "connected" else "null"}" }
-
-        runBlocking {
-            val response = s3Client?.listObjectsV2(ListObjectsV2Request {
-                bucket = extra.bucket
-                this.prefix = prefix
-            })
-
-            log { "ListObjectsV2 response: ${response?.contents?.size ?: 0} objects" }
-
-            response?.contents?.forEach { obj ->
-                obj.key?.let { key ->
-                    if (!key.endsWith("/")) {
-                        pathList.add(PathParcelable(key))
-                    }
-                }
-            }
-        }
-        log { "walkFileTree returning ${pathList.size} paths" }
-        return pathList
+        // 递归遍历仅用于旧的 AWS 下载/reload 流程,已统一到 rustic,不再支持。
+        throw UnsupportedOperationException("S3 walkFileTree is handled by rustic; not supported here.")
     }
 
-    override fun exists(src: String): Boolean = runBlocking {
-        try {
-            s3Client?.headObject(HeadObjectRequest {
-                bucket = extra.bucket
-                key = normalizeObjectKey(src)
-            })
-            true
-        } catch (e: Exception) {
-            false
-        }
+    override fun exists(src: String): Boolean {
+        throw UnsupportedOperationException("S3 exists is handled by rustic; not supported here.")
     }
 
-    override fun size(src: String): Long = runBlocking {
-        try {
-            val response = s3Client?.headObject(HeadObjectRequest {
-                bucket = extra.bucket
-                key = normalizeObjectKey(src)
-            })
-            response?.contentLength ?: 0L
-        } catch (e: Exception) {
-            0L
-        }
+    override fun size(src: String): Long {
+        throw UnsupportedOperationException("S3 size is handled by rustic; not supported here.")
     }
 
     override suspend fun testConnection() {
-        connect()
-        try {
-            s3Client?.listObjectsV2(ListObjectsV2Request {
-                bucket = extra.bucket
-                maxKeys = 1
-            })
-        } finally {
-            disconnect()
-        }
+        // 能成功列举根路径即视为连通(凭据/endpoint 可用)。失败时 opendalList 抛异常上抛。
+        log { "testConnection(opendal): scheme=$SCHEME endpoint=${buildOpendalEndpoint()} bucket=${extra.bucket}" }
+        rootService.opendalList(SCHEME, "/", buildOpendalOptions())
     }
 
     override suspend fun setRemote(context: Context, onSet: suspend (remote: String, extra: String) -> Unit) {
         val currentExtra = entity.getExtraEntity<S3Extra>()!!
-        connect()
         val prefix = "${context.getString(R.string.cloud)}:"
         val pickYou = PickYouLauncher(
             checkPermission = false,
@@ -677,6 +194,5 @@ class S3ClientImpl(
             val remotePath = pathString.replaceFirst(prefix, "").trim('/')
             onSet(remotePath, GsonUtil().toJson(currentExtra))
         }
-        disconnect()
     }
 }

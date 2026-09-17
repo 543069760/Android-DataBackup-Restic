@@ -65,7 +65,7 @@ fun PageCloudAddAccount() {
                 }
                 Clickable(
                     icon = CloudType.S3.icon,
-                    title = CloudType.S3.title,
+                    title = stringResource(id = R.string.cloud_type_s3),
                 ) {
                     navController.navigateSingle(MainRoutes.S3Setup.getRoute(encodedURLWithSpace))
                 }

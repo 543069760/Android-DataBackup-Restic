@@ -14,7 +14,7 @@ use crate::repository::{
     get_version, init_repository, list_snapshots_db, prune_repository, repository_exists,
     restore_snapshot, restore_snapshot_with_progress, validate_repository,
 };
-
+use crate::opendal_ops::{opendal_create_dir, opendal_list};
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeInitPlatformVerifier<'local>(
@@ -338,6 +338,61 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeListSnapshotsDb<'lo
                 &db_path.to_string(),
             )
             .map_err(NativeError::from)
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeOpendalList<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    scheme: JString<'local>,
+    path: JString<'local>,
+    option_keys: JObjectArray<'local, JString<'local>>,
+    option_values: JObjectArray<'local, JString<'local>>,
+) -> JString<'local> {
+    unowned_env
+        .with_env(|env| -> Result<JString<'local>, NativeError> {
+            let options = string_arrays_to_map(env, &option_keys, &option_values)?;
+            let entries = opendal_list(&scheme.to_string(), &options, &path.to_string())
+                .map_err(NativeError::from)?;
+
+            // 序列化：每行一个条目，\n 分隔
+            //   目录: d:<name>
+            //   文件: f:<name>:<mtimeEpoch>
+            // name 中的 '\n' 会破坏行分隔，这里替换为空格做兜底（见下方说明）
+            let serialized = entries
+                .iter()
+                .map(|entry| {
+                    let name = entry.name.replace('\n', " ");
+                    if entry.is_dir {
+                        format!("d:{name}")
+                    } else {
+                        format!("f:{name}:{}", entry.mtime)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            env.new_string(serialized).map_err(NativeError::from)
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeOpendalCreateDir<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    scheme: JString<'local>,
+    path: JString<'local>,
+    option_keys: JObjectArray<'local, JString<'local>>,
+    option_values: JObjectArray<'local, JString<'local>>,
+) {
+    unowned_env
+        .with_env(|env| -> Result<(), NativeError> {
+            let options = string_arrays_to_map(env, &option_keys, &option_values)?;
+            opendal_create_dir(&scheme.to_string(), &options, &path.to_string())
+                .map_err(NativeError::from)
         })
         .resolve::<ThrowRuntimeExAndDefault>()
 }

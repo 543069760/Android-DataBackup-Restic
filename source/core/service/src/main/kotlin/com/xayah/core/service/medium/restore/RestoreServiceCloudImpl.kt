@@ -68,18 +68,8 @@ internal class RestoreServiceCloudImpl @Inject constructor() : AbstractRestoreSe
     private fun getRemoteFileDir(archivesRelativeDir: String) = "${mRemoteFilesDir}/${archivesRelativeDir}"
 
     override suspend fun restore(m: MediaEntity, t: TaskDetailMediaEntity, srcDir: String) {
-        val remoteFileDir = getRemoteFileDir(m.archivesRelativeDir)
-
-        if (m.path.isEmpty()) {
-            t.update(state = OperationState.ERROR, log = "Path is empty.")
-        } else {
-            mMediumRestoreUtil.download(client = mClient, m = m, t = t, dataType = DataType.PACKAGE_MEDIA, srcDir = remoteFileDir, dstDir = srcDir) { mM, mT, mPath ->
-                mMediumRestoreUtil.restoreMedia(m = mM, t = mT, srcDir = mPath)
-            }
-        }
-
-        t.update(progress = 1f)
-        t.update(processingIndex = t.processingIndex + 1)
+        // 死代码：云端恢复已统一走 rustic；移除对 AWS SDK 的 mMediumRestoreUtil.download(client=...) 依赖
+        throw UnsupportedOperationException("Cloud restore is handled by rustic; RestoreServiceCloudImpl is deprecated")
     }
 
     @Inject

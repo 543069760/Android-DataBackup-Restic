@@ -141,7 +141,7 @@ class CloudRepository @Inject constructor(
     suspend fun getClient(name: String? = null): Pair<CloudClient, CloudEntity> {
         val entity = queryByName(name ?: context.readCloudActivatedAccountName().first())
         if (entity != null) if (entity.remote.isEmpty()) throw IllegalAccessException("${entity.name}: Remote directory is not set.")
-        val client = entity?.getCloud(uploadIdDao)?.apply { connect() } ?: throw NullPointerException("Client is null.")
+        val client = entity?.getCloud(rootService)?.apply { connect() } ?: throw NullPointerException("Client is null.")
         return client to entity
     }
 
@@ -174,7 +174,7 @@ class CloudRepository @Inject constructor(
         if (!skipRemoteCheck && entity.remote.isEmpty()) {
             throw IllegalAccessException("${entity.name}: Remote directory is not set.")
         }
-        val client = entity.getCloud(uploadIdDao).apply {
+        val client = entity.getCloud(rootService).apply {
             log { "withClient: Connecting client..." }
             connect()
         }
@@ -197,7 +197,7 @@ class CloudRepository @Inject constructor(
         val clients: MutableList<Pair<CloudClient, CloudEntity>> = mutableListOf()
         cloudDao.queryActivated().forEach {
             if (it.remote.isEmpty()) throw IllegalAccessException("${it.name}: Remote directory is not set.")
-            clients.add(it.getCloud(uploadIdDao).apply { connect() } to it)
+            clients.add(it.getCloud(rootService).apply { connect() } to it)
         }
         try {
             block(clients)

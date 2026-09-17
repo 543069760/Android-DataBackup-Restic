@@ -10,7 +10,7 @@ import com.xayah.core.network.util.getExtraEntity
 import com.xayah.core.rootservice.parcelables.PathParcelable
 import com.xayah.libpickyou.parcelables.DirChildrenParcelable
 import com.xayah.core.model.database.S3Extra
-import com.xayah.core.database.dao.UploadIdDao
+import com.xayah.core.rootservice.service.RemoteRootService
 
 interface CloudClient {
     fun connect()
@@ -36,7 +36,7 @@ interface CloudClient {
     suspend fun setRemote(context: Context, onSet: suspend (remote: String, extra: String) -> Unit)
 }
 
-fun CloudEntity.getCloud(uploadIdDao: UploadIdDao) = when (this.type) {
+fun CloudEntity.getCloud(rootService: RemoteRootService) = when (this.type) {
     CloudType.FTP -> {
         val extra = getExtraEntity<FTPExtra>()!!
         FTPClientImpl(this, extra)
@@ -54,6 +54,6 @@ fun CloudEntity.getCloud(uploadIdDao: UploadIdDao) = when (this.type) {
 
     CloudType.S3 -> {
         val extra = getExtraEntity<S3Extra>()!!
-        S3ClientImpl(this, extra, uploadIdDao)
+        S3ClientImpl(this, extra, rootService)
     }
 }

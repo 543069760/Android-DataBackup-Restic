@@ -9,6 +9,7 @@
     <string name="s3_restic_init_failed">Initialization Failed: %s</string>
     <string name="s3_restic_init_status">Initialization Status</string>
     <string name="s3_restic_initialize">Initialize</string>
+    <string name="cloud_type_s3">Tencent Cloud COS</string>
     <!-- Repository Check -->
     <string name="repository_check_failed">Repository check failed. Please verify the remote path and password.</string>
     <!-- FTP Public IP Warning -->

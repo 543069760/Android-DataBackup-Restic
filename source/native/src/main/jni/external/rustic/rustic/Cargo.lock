@@ -3784,6 +3784,7 @@ dependencies = [
  "bytes",
  "jni",
  "log",
+ "opendal",
  "rusqlite",
  "rustic_backend",
  "rustic_core",
@@ -3792,6 +3793,7 @@ dependencies = [
  "serde_json",
  "simplelog",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]

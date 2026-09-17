@@ -68,17 +68,10 @@ internal class RestoreServiceCloudImpl @Inject constructor() : AbstractRestoreSe
     private fun getRemoteAppDir(archivesRelativeDir: String) = "${mRemoteAppsDir}/${archivesRelativeDir}"
 
     override suspend fun restore(type: DataType, userId: Int, p: PackageEntity, t: TaskDetailPackageEntity, srcDir: String) {
-        val remoteAppDir = getRemoteAppDir(p.archivesRelativeDir)
-        mPackagesRestoreUtil.download(client = mClient, p = p, t = t, dataType = type, srcDir = remoteAppDir, dstDir = srcDir) { mP, mT, _, mPath ->
-            if (type == DataType.PACKAGE_APK) {
-                mPackagesRestoreUtil.restoreApk(userId = userId, p = mP, t = mT, srcDir = mPath)
-            } else {
-                mPackagesRestoreUtil.restoreData(userId = userId, p = mP, t = mT, dataType = type, srcDir = mPath)
-            }
-        }
-
-        t.update(dataType = type, progress = 1f)
-        t.update(processingIndex = t.processingIndex + 1)
+        // 死代码：云端恢复已统一走 rustic（mLocalService.startRestore），
+        // 此 Service 不再被 ProcessingServiceProxyCloudImpl 触发（startRestore 抛 UnsupportedOperationException）。
+        // 移除对 AWS SDK 的 mPackagesRestoreUtil.download(client=...) 依赖，防止误用。
+        throw UnsupportedOperationException("Cloud restore is handled by rustic; RestoreServiceCloudImpl is deprecated")
     }
 
     @Inject

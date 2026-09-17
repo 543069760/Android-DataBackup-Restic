@@ -697,13 +697,8 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
     }
 
     override suspend fun onConfigSaved(path: String, archivesRelativeDir: String) {
-        mCloudRepo.upload(
-            client = mClient,
-            src = path,
-            dstDir = getRemoteFileDir(archivesRelativeDir),
-            onUploading = { _, _ -> },
-            isCanceled = { isCanceled() }
-        )
+        // config 已作为 PACKAGE_CONFIG rustic 快照备份，无需再经 AWS SDK 单独上传对象
+        Log.d(mTAG, "onConfigSaved: skip object upload; config is backed up as PACKAGE_CONFIG restic snapshot")
     }
 
     override suspend fun onCleanupFailedBackup(archivesRelativeDir: String) {

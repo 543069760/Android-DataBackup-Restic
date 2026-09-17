@@ -634,6 +634,20 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         Rustic.listSnapshotsDb(repositoryPath, password, dbPath, options.toStringMap())
     }
 
+    override fun opendalList(scheme: String, path: String, options: MutableMap<Any?, Any?>): String =
+        synchronized(lock) {
+            @Suppress("UNCHECKED_CAST")
+            val opts = options as Map<String, String>
+            Rustic.opendalList(scheme, path, opts)
+        }
+
+    override fun opendalCreateDir(scheme: String, path: String, options: MutableMap<Any?, Any?>) =
+        synchronized(lock) {
+            @Suppress("UNCHECKED_CAST")
+            val opts = options as Map<String, String>
+            Rustic.opendalCreateDir(scheme, path, opts)
+        }
+
     override fun callTarCli(stdOut: String, stdErr: String, argv: Array<String>): Int {
         return TarWrapper.callCli(stdOut, stdErr, argv)
     }

@@ -122,6 +122,24 @@ object Rustic {
         nativeListSnapshotsDb(repositoryPath, password, optionKeys, optionValues, dbPath)
     }
 
+    fun opendalList(
+        scheme: String,
+        path: String,
+        options: Map<String, String> = emptyMap(),
+    ): String {
+        val (optionKeys, optionValues) = options.toKeyValueArrays()
+        return nativeOpendalList(scheme, path, optionKeys, optionValues)
+    }
+
+    fun opendalCreateDir(
+        scheme: String,
+        path: String,
+        options: Map<String, String> = emptyMap(),
+    ) {
+        val (optionKeys, optionValues) = options.toKeyValueArrays()
+        nativeOpendalCreateDir(scheme, path, optionKeys, optionValues)
+    }
+
     private external fun nativeInitPlatformVerifier(context: android.content.Context)
 
     // keys 与 values 来自同一个 entry 迭代，保证按位一一对应，
@@ -211,5 +229,19 @@ object Rustic {
         optionKeys: Array<String>,
         optionValues: Array<String>,
         dbPath: String,
+    )
+
+    private external fun nativeOpendalList(
+        scheme: String,
+        path: String,
+        optionKeys: Array<String>,
+        optionValues: Array<String>,
+    ): String
+
+    private external fun nativeOpendalCreateDir(
+        scheme: String,
+        path: String,
+        optionKeys: Array<String>,
+        optionValues: Array<String>,
     )
 }

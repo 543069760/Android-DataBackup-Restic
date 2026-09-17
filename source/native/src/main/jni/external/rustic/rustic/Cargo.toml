@@ -15,6 +15,9 @@ simplelog = "0.12.2"
 thiserror = "2.0.18"
 rustls-platform-verifier = "0.7"
 bytes = "1"
+# opendal 目录浏览/建目录（scheme 无关，与 rustic_backend 复用同版本以合并特性）
+opendal = { version = "0.57.0", default-features = false, features = ["services-cos", "services-s3"] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
 
 # rustic_core submodule（同级目录，比 source-next 骨架少一层 external/rustic）
 rustic_core = { path = "../rustic_core/crates/core" }
