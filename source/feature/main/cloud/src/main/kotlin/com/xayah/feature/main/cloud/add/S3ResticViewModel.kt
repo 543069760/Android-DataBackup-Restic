@@ -11,7 +11,6 @@ import com.xayah.core.datastore.saveS3ResticInitialized
 import com.xayah.core.datastore.saveS3ResticPassword
 import com.xayah.core.datastore.saveS3ResticRepoPath
 import com.xayah.core.model.database.S3Extra
-import com.xayah.core.model.database.S3NetworkType
 import com.xayah.core.model.database.S3Protocol
 import com.xayah.core.model.CloudType
 import com.xayah.core.model.database.CloudEntity

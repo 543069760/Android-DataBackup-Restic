@@ -408,17 +408,12 @@
     <string name="root_denied_msg">请检查您的Root管理器并重新启动应用程序</string>
     <string name="clear_all">清空</string>
     <string name="s3_setup">腾讯云COS配置</string>
-    <string name="region">区域</string>
     <string name="access_key_id">腾讯云COS密钥ID</string>
     <string name="secret_access_key">腾讯云COS访问密钥</string>
     <string name="bucket">存储桶</string>
     <string name="endpoint">端点</string>
     <string name="protocol">协议</string>
     <string name="protocol_desc">选择HTTP或HTTPS协议</string>
-    <string name="network_type">网络类型</string>
-    <string name="network_type_desc">正确选择网络类型以获得最佳性能</string>
-    <string name="network_type_public">公网(公有云)</string>
-    <string name="network_type_private">内网(自建S3)</string>
     <string name="cancel_backup">取消备份</string>
     <string name="cancel_restore">取消恢复</string>
 </resources>

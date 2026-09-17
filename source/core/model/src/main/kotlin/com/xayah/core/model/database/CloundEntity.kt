@@ -30,14 +30,12 @@ data class WebDAVExtra(
 @Serializable
 data class S3Extra(
     val type: String = "S3",
-    val region: String,
     val accessKeyId: String,
     val secretAccessKey: String,
     val bucket: String,
     val endpoint: String = "",
     val protocol: S3Protocol = S3Protocol.HTTPS,
-    val networkType: S3NetworkType = S3NetworkType.PUBLIC,
-    val resticPassword: String = "",   // 新增：按账户存储的 restic 仓库密码
+    val resticPassword: String = "",
 )
 
 enum class S3Protocol {
@@ -48,11 +46,6 @@ enum class S3Protocol {
 enum class WebDAVProtocol {
     HTTP,
     HTTPS
-}
-
-enum class S3NetworkType {
-    PUBLIC,  // 公网(公有云)
-    PRIVATE  // 内网(自建S3)
 }
 
 @Entity

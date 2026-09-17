@@ -10,7 +10,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
-import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -21,6 +20,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,8 +50,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.database.S3Protocol
-import com.xayah.core.model.database.S3NetworkType
 import com.xayah.core.network.util.getExtraEntity
+import com.xayah.core.ui.component.BodyMediumText
 import com.xayah.core.ui.component.Clickable
 import com.xayah.core.ui.component.LocalSlotScope
 import com.xayah.core.ui.component.Title
@@ -102,11 +104,6 @@ fun PageS3Setup() {
             uiState.cloudEntity?.remote ?: ""
         )
     }
-    var region by rememberSaveable(uiState.cloudEntity) {
-        mutableStateOf(
-            uiState.cloudEntity?.getExtraEntity<S3Extra>()?.region ?: ""
-        )
-    }
     var accessKeyId by rememberSaveable(uiState.cloudEntity) {
         mutableStateOf(
             uiState.cloudEntity?.user ?: ""
@@ -135,20 +132,6 @@ fun PageS3Setup() {
         mutableIntStateOf(
             when (uiState.cloudEntity?.getExtraEntity<S3Extra>()?.protocol) {
                 S3Protocol.HTTP -> 1
-                else -> 0
-            }
-        )
-    }
-
-    // 网络类型选择状态 / Network type selection state
-    val networkTypeOptions = listOf(
-        stringResource(id = R.string.network_type_public),  // 公网(公有云) / Public Cloud
-        stringResource(id = R.string.network_type_private)  // 内网(自建S3) / Private Network
-    )
-    var networkTypeIndex by rememberSaveable(uiState.cloudEntity) {
-        mutableIntStateOf(
-            when (uiState.cloudEntity?.getExtraEntity<S3Extra>()?.networkType) {
-                S3NetworkType.PRIVATE -> 1
                 else -> 0
             }
         )
@@ -185,13 +168,11 @@ fun PageS3Setup() {
                             name = name,
                             remote = remote,
                             type = "S3",
-                            region = region,
                             accessKeyId = accessKeyId,
                             secretAccessKey = secretAccessKey,
                             bucket = bucket,
                             endpoint = endpoint,
                             protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP,
-                            networkType = if (networkTypeIndex == 0) S3NetworkType.PUBLIC else S3NetworkType.PRIVATE,
                             resticPassword = s3Password,
                         )
                         viewModel.emitIntent(IndexUiIntent.TestConnection)
@@ -206,11 +187,10 @@ fun PageS3Setup() {
                 onClick = {
                     viewModel.launchOnIO {
                         viewModel.updateS3Entity(
-                            name = name, remote = remote, type = "S3", region = region,
+                            name = name, remote = remote, type = "S3",
                             accessKeyId = accessKeyId, secretAccessKey = secretAccessKey,
                             bucket = bucket, endpoint = endpoint,
                             protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP,
-                            networkType = if (networkTypeIndex == 0) S3NetworkType.PUBLIC else S3NetworkType.PRIVATE,
                             resticPassword = s3Password,
                         )
                         val entity = uiState.cloudEntity
@@ -244,17 +224,6 @@ fun PageS3Setup() {
                     leadingIcon = ImageVector.vectorResource(id = R.drawable.ic_rounded_badge),
                     onValueChange = { name = it },
                     label = stringResource(id = R.string.name)
-                )
-
-                SetupTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .paddingHorizontal(SizeTokens.Level24),
-                    enabled = uiState.isProcessing.not(),
-                    value = region,
-                    leadingIcon = Icons.Rounded.Public,
-                    onValueChange = { region = it },
-                    label = stringResource(id = R.string.region)
                 )
 
                 SetupTextField(
@@ -307,18 +276,7 @@ fun PageS3Setup() {
                 enabled = uiState.isProcessing.not(),
                 title = stringResource(id = R.string.advanced)
             ) {
-                SetupTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .paddingHorizontal(SizeTokens.Level24),
-                    enabled = uiState.isProcessing.not(),
-                    value = endpoint,
-                    leadingIcon = ImageVector.vectorResource(id = R.drawable.ic_rounded_link),
-                    onValueChange = { endpoint = it },
-                    label = stringResource(id = R.string.endpoint)
-                )
-
-                // 协议选择 - 使用分段按钮 / Protocol selection - using segmented buttons
+                // 1. 协议选择 - 使用分段按钮 / Protocol selection - using segmented buttons
                 SingleChoiceSegmentedButtonRow(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -341,29 +299,57 @@ fun PageS3Setup() {
                     }
                 }
 
-                // 网络类型选择 - 使用分段按钮 / Network type selection - using segmented buttons
-                SingleChoiceSegmentedButtonRow(
+                // 2. Endpoint 输入框
+                SetupTextField(
                     modifier = Modifier
                         .fillMaxWidth()
                         .paddingHorizontal(SizeTokens.Level24),
+                    enabled = uiState.isProcessing.not(),
+                    value = endpoint,
+                    leadingIcon = ImageVector.vectorResource(id = R.drawable.ic_rounded_link),
+                    onValueChange = { endpoint = it },
+                    label = stringResource(id = R.string.endpoint)
+                )
+
+                // 3a. 示例说明卡片
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .paddingHorizontal(SizeTokens.Level24)
+                        .padding(top = SizeTokens.Level12),
+                    colors = CardDefaults.cardColors(
+                        containerColor = ThemedColorSchemeKeyTokens.BluePrimaryContainer.value
+                    ),
                 ) {
-                    networkTypeOptions.forEachIndexed { index, label ->
-                        SegmentedButton(
-                            enabled = uiState.isProcessing.not(),
-                            shape = SegmentedButtonDefaults.itemShape(
-                                index = index,
-                                count = networkTypeOptions.size
-                            ),
-                            onClick = {
-                                networkTypeIndex = index
-                            },
-                            selected = index == networkTypeIndex
-                        ) {
-                            Text(label)
-                        }
-                    }
+                    BodyMediumText(
+                        modifier = Modifier.padding(SizeTokens.Level16),
+                        text = stringResource(id = R.string.s3_endpoint_example),
+                        color = ThemedColorSchemeKeyTokens.BlueOnPrimaryContainer.value
+                    )
                 }
 
+                // 完整访问地址预览卡片（不同的动态颜色 SecondaryContainer）
+                val previewUrl = if (bucket.isNotBlank() && endpoint.isNotBlank()) {
+                    val scheme = if (protocolIndex == 0) "https" else "http"
+                    "$scheme://${bucket.trim()}.${endpoint.trim().removeSuffix("/")}"
+                } else ""
+                if (previewUrl.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .paddingHorizontal(SizeTokens.Level24)
+                            .padding(top = SizeTokens.Level12),
+                        colors = CardDefaults.cardColors(
+                            containerColor = ThemedColorSchemeKeyTokens.SecondaryContainer.value
+                        ),
+                    ) {
+                        BodyMediumText(
+                            modifier = Modifier.padding(SizeTokens.Level16),
+                            text = stringResource(id = R.string.s3_url_preview, previewUrl),
+                            color = ThemedColorSchemeKeyTokens.OnSecondaryContainer.value
+                        )
+                    }
+                }
                 Clickable(
                     enabled = allFilled && uiState.isProcessing.not(),
                     title = stringResource(id = R.string.remote_path),
@@ -375,13 +361,11 @@ fun PageS3Setup() {
                             name = name,
                             remote = remote,
                             type = "S3",
-                            region = region,
                             accessKeyId = accessKeyId,
                             secretAccessKey = secretAccessKey,
                             bucket = bucket,
                             endpoint = endpoint,
                             protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP,
-                            networkType = if (networkTypeIndex == 0) S3NetworkType.PUBLIC else S3NetworkType.PRIVATE,
                             resticPassword = s3Password,
                         )
                         viewModel.emitIntent(IndexUiIntent.SetRemotePath(context = context))
@@ -463,13 +447,11 @@ fun PageS3Setup() {
                                     // 构建S3Extra对象
                                     val s3Extra = S3Extra(
                                         type = "S3",
-                                        region = region,
                                         accessKeyId = accessKeyId,
                                         secretAccessKey = secretAccessKey,
                                         bucket = bucket,
                                         endpoint = endpoint,
-                                        protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP,
-                                        networkType = if (networkTypeIndex == 0) S3NetworkType.PUBLIC else S3NetworkType.PRIVATE
+                                        protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP
                                     )
                                     s3ViewModel.initializeS3Repository(s3Extra, remote, s3Password)
                                 }
@@ -490,13 +472,11 @@ fun PageS3Setup() {
                                 // 构建完整的S3Extra对象
                                 val s3Extra = S3Extra(
                                     type = "S3",
-                                    region = region,
                                     accessKeyId = accessKeyId,
                                     secretAccessKey = secretAccessKey,
                                     bucket = bucket,
                                     endpoint = endpoint,
-                                    protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP,
-                                    networkType = if (networkTypeIndex == 0) S3NetworkType.PUBLIC else S3NetworkType.PRIVATE
+                                    protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP
                                 )
 
                                 // 调用初始化方法

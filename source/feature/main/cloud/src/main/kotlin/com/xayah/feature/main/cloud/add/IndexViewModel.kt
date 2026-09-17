@@ -25,7 +25,6 @@ import com.xayah.core.ui.viewmodel.UiState
 import com.xayah.core.util.GsonUtil
 import com.xayah.core.util.decodeURL
 import com.xayah.feature.main.cloud.R
-import com.xayah.core.model.database.S3NetworkType
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 
@@ -158,17 +157,16 @@ class IndexViewModel @Inject constructor(
 
     suspend fun updateS3Entity(
         name: String, remote: String, type: String,
-        region: String, accessKeyId: String, secretAccessKey: String,
+        accessKeyId: String, secretAccessKey: String,
         bucket: String, endpoint: String,
-        protocol: S3Protocol, networkType: S3NetworkType,
-        resticPassword: String,               // 新增
+        protocol: S3Protocol,
+        resticPassword: String,
     ) {
         val extra = GsonUtil().toJson(
             S3Extra(
-                type = type, region = region, accessKeyId = accessKeyId,
+                type = type, accessKeyId = accessKeyId,
                 secretAccessKey = secretAccessKey, bucket = bucket, endpoint = endpoint,
-                protocol = protocol, networkType = networkType,
-                resticPassword = resticPassword, // 新增
+                protocol = protocol, resticPassword = resticPassword,
             )
         )
         emitIntent(
