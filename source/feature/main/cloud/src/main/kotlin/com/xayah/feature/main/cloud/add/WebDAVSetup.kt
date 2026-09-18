@@ -83,7 +83,6 @@ fun PageWebDAVSetup() {
     val deleteAccountText = stringResource(id = R.string.delete_account)
     val deleteAccountDescText = stringResource(id = R.string.delete_account_desc)
     val nonPublicCaUnsupportedText = stringResource(id = R.string.webdav_https_non_public_ca_unsupported)
-    val repositoryCheckFailedText = stringResource(id = R.string.repository_check_failed)
     val navController = LocalNavController.current!!
     val viewModel = hiltViewModel<IndexViewModel>()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -198,28 +197,24 @@ fun PageWebDAVSetup() {
                 Text(text = stringResource(id = R.string.test_connection))
             }
 
-            Button(
+            ContinueButton(
+                viewModel = viewModel,
+                navController = navController,
                 enabled = allFilled && remote.isNotEmpty() && uiState.isProcessing.not()
                         && webdavInitState is WebdavResticViewModel.WebdavInitializationState.Success,
-                onClick = {
-                    viewModel.launchOnIO {
-                        viewModel.updateWebDAVEntity(
-                            name = name, remote = remote, url = url,
-                            username = username, password = password, insecure = false,
-                            protocol = if (protocolIndex == 0) WebDAVProtocol.HTTPS else WebDAVProtocol.HTTP,
-                            resticPassword = webdavPassword,
-                        )
-                        val entity = uiState.cloudEntity
-                        val ok = entity != null && webdavViewModel.checkWebdavRepository(entity, webdavPassword)
-                        if (!ok) {
-                            viewModel.emitEffect(IndexUiEffect.ShowSnackbar(
-                                message = repositoryCheckFailedText, type = SnackbarType.Error))
-                            return@launchOnIO
-                        }
-                        viewModel.emitIntent(IndexUiIntent.CreateAccount(navController = navController))
-                    }
-                }
-            ) { Text(text = stringResource(id = R.string._continue)) }
+                onUpdateEntity = {
+                    viewModel.updateWebDAVEntity(
+                        name = name, remote = remote, url = url,
+                        username = username, password = password, insecure = false,
+                        protocol = if (protocolIndex == 0) WebDAVProtocol.HTTPS else WebDAVProtocol.HTTP,
+                        resticPassword = webdavPassword,
+                    )
+                },
+                check = {
+                    val entity = uiState.cloudEntity
+                    entity != null && webdavViewModel.checkWebdavRepository(entity, webdavPassword)
+                },
+            )
         }
     ) {
         Column(

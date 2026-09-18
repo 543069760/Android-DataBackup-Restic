@@ -80,7 +80,6 @@ fun PageS3Setup() {
     val notSelectedText = stringResource(id = R.string.not_selected)
     val deleteAccountText = stringResource(id = R.string.delete_account)
     val deleteAccountDescText = stringResource(id = R.string.delete_account_desc)
-    val repositoryCheckFailedText = stringResource(id = R.string.repository_check_failed)
     val navController = LocalNavController.current!!
     val viewModel = hiltViewModel<IndexViewModel>()
     val s3ViewModel = hiltViewModel<S3ResticViewModel>()
@@ -181,29 +180,25 @@ fun PageS3Setup() {
             ) {
                 Text(text = stringResource(id = R.string.test_connection))
             }
-            Button(
+            ContinueButton(
+                viewModel = viewModel,
+                navController = navController,
                 enabled = allFilled && remote.isNotEmpty() && uiState.isProcessing.not()
                         && s3InitState is S3ResticViewModel.S3InitializationState.Success,
-                onClick = {
-                    viewModel.launchOnIO {
-                        viewModel.updateS3Entity(
-                            name = name, remote = remote, type = "S3",
-                            accessKeyId = accessKeyId, secretAccessKey = secretAccessKey,
-                            bucket = bucket, endpoint = endpoint,
-                            protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP,
-                            resticPassword = s3Password,
-                        )
-                        val entity = uiState.cloudEntity
-                        val ok = entity != null && s3ViewModel.checkS3Repository(entity, s3Password)
-                        if (!ok) {
-                            viewModel.emitEffect(IndexUiEffect.ShowSnackbar(
-                                message = repositoryCheckFailedText, type = SnackbarType.Error))
-                            return@launchOnIO
-                        }
-                        viewModel.emitIntent(IndexUiIntent.CreateAccount(navController = navController))
-                    }
-                }
-            ) { Text(text = stringResource(id = R.string._continue)) }
+                onUpdateEntity = {
+                    viewModel.updateS3Entity(
+                        name = name, remote = remote, type = "S3",
+                        accessKeyId = accessKeyId, secretAccessKey = secretAccessKey,
+                        bucket = bucket, endpoint = endpoint,
+                        protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP,
+                        resticPassword = s3Password,
+                    )
+                },
+                check = {
+                    val entity = uiState.cloudEntity
+                    entity != null && s3ViewModel.checkS3Repository(entity, s3Password)
+                },
+            )
         }
     ) {
         Column(

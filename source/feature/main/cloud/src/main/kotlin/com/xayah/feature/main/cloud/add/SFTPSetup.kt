@@ -93,7 +93,6 @@ fun PageSFTPSetup() {
     val notSelectedText = stringResource(id = R.string.not_selected)
     val deleteAccountText = stringResource(id = R.string.delete_account)
     val deleteAccountDescText = stringResource(id = R.string.delete_account_desc)
-    val repositoryCheckFailedText = stringResource(id = R.string.repository_check_failed)
     val navController = LocalNavController.current!!
     val viewModel = hiltViewModel<IndexViewModel>()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -168,28 +167,24 @@ fun PageSFTPSetup() {
                 Text(text = stringResource(id = R.string.test_connection))
             }
 
-            Button(
+            ContinueButton(
+                viewModel = viewModel,
+                navController = navController,
                 enabled = allFilled && remote.isNotEmpty() && uiState.isProcessing.not()
                         && sftpInitState is SftpResticViewModel.SftpInitializationState.Success,
-                onClick = {
-                    viewModel.launchOnIO {
-                        viewModel.updateSFTPEntity(
-                            name = name, remote = remote, url = url,
-                            username = username, password = password, port = port,
-                            mode = SFTPAuthMode.indexOf(modeIndex),
-                            privateKey = privateKey, resticPassword = sftpPassword,
-                        )
-                        val entity = uiState.cloudEntity
-                        val ok = entity != null && sftpViewModel.checkSftpRepository(entity, sftpPassword)
-                        if (!ok) {
-                            viewModel.emitEffect(IndexUiEffect.ShowSnackbar(
-                                message = repositoryCheckFailedText, type = SnackbarType.Error))
-                            return@launchOnIO
-                        }
-                        viewModel.emitIntent(IndexUiIntent.CreateAccount(navController = navController))
-                    }
-                }
-            ) { Text(text = stringResource(id = R.string._continue)) }
+                onUpdateEntity = {
+                    viewModel.updateSFTPEntity(
+                        name = name, remote = remote, url = url,
+                        username = username, password = password, port = port,
+                        mode = SFTPAuthMode.indexOf(modeIndex),
+                        privateKey = privateKey, resticPassword = sftpPassword,
+                    )
+                },
+                check = {
+                    val entity = uiState.cloudEntity
+                    entity != null && sftpViewModel.checkSftpRepository(entity, sftpPassword)
+                },
+            )
         }
     ) {
         Column(

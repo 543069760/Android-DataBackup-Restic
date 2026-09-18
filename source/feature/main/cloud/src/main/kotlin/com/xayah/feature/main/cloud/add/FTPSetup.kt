@@ -81,7 +81,6 @@ fun PageFTPSetup() {
     val notSelectedText = stringResource(id = R.string.not_selected)
     val deleteAccountText = stringResource(id = R.string.delete_account)
     val deleteAccountDescText = stringResource(id = R.string.delete_account_desc)
-    val repositoryCheckFailedText = stringResource(id = R.string.repository_check_failed)
     val navController = LocalNavController.current!!
     val viewModel = hiltViewModel<IndexViewModel>()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -147,27 +146,23 @@ fun PageFTPSetup() {
                 Text(text = stringResource(id = R.string.test_connection))
             }
 
-            Button(
+            ContinueButton(
+                viewModel = viewModel,
+                navController = navController,
                 enabled = allFilled && remote.isNotEmpty() && uiState.isProcessing.not()
                         && ftpInitState is FtpResticViewModel.FtpInitializationState.Success,
-                onClick = {
-                    viewModel.launchOnIO {
-                        viewModel.updateFTPEntity(
-                            name = name, remote = remote, url = url,
-                            username = username, password = password, port = port,
-                            resticPassword = ftpPassword,
-                        )
-                        val entity = uiState.cloudEntity
-                        val ok = entity != null && ftpViewModel.checkFtpRepository(entity, ftpPassword)
-                        if (!ok) {
-                            viewModel.emitEffect(IndexUiEffect.ShowSnackbar(
-                                message = repositoryCheckFailedText, type = SnackbarType.Error))
-                            return@launchOnIO
-                        }
-                        viewModel.emitIntent(IndexUiIntent.CreateAccount(navController = navController))
-                    }
-                }
-            ) { Text(text = stringResource(id = R.string._continue)) }
+                onUpdateEntity = {
+                    viewModel.updateFTPEntity(
+                        name = name, remote = remote, url = url,
+                        username = username, password = password, port = port,
+                        resticPassword = ftpPassword,
+                    )
+                },
+                check = {
+                    val entity = uiState.cloudEntity
+                    entity != null && ftpViewModel.checkFtpRepository(entity, ftpPassword)
+                },
+            )
         }
     ) {
         Column(
