@@ -4,8 +4,10 @@ import android.util.Log
 import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.S3Extra
-import com.xayah.core.model.restic.ResticBackupFiles   // listBackedUpFilesFromS3WithSqlJni 返回类型
-import com.xayah.core.rootservice.ICallback            // ICallback? / ICallback.Stub()
+import com.xayah.core.model.restic.ResticBackupFiles
+import com.xayah.core.rootservice.ICallback
+import com.xayah.core.datastore.readS3ResticPassword
+import com.xayah.core.datastore.readResticPassword
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
@@ -19,67 +21,60 @@ import javax.inject.Singleton
  *
  * options key 依据 opendal 0.57.0 `opendal-service-cos` 的 CosConfig 字段确定：
  *   root / endpoint / secret_id / secret_key / bucket（无 region，凭据用 secret_id/secret_key）。
+ *
+ * 本类实现 CloudResticBackend：统一入参为 CloudEntity + remotePath + password，
+ * 内部 decode 出 S3Extra 后走原有 buildS3BackendOptions 逻辑。旧的 COS 专用方法保留，
+ * 供尚未迁移到注册表的调用点（恢复/列表等）继续使用；接口方法以委托方式复用它们。
  */
 @Singleton
 class ResticRepositoryCos @Inject constructor(
     private val shared: ResticShared,
-) {
+) : CloudResticBackend {
+
+    // ==================== CloudResticBackend override（统一入参 CloudEntity） ====================
+
     // initCosRepository —— 对应 initS3Repository
     // 压缩配置：仅在建库时合并压缩 key；语义与本地一致
     //   -1(AUTO) -> resticCompressionOptions() 返回 emptyMap()（不设 set_compression → rustic v2 默认压缩）
     //    0(OFF)  -> {COMPRESSION_KEY:"0"}（关闭压缩）
     //  1..22     -> {COMPRESSION_KEY:"<level>"}（指定 zstd 级别）
     // 该 key 会被 Rust 侧 backends() 过滤，不会进入 opendal 后端配置。
-    suspend fun initCosRepository(
-        extra: S3Extra, remotePath: String, password: String
+    override suspend fun initRepository(
+        cloudEntity: CloudEntity, remotePath: String, password: String
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
+            val extra = ResticShared.json.decodeFromString<S3Extra>(cloudEntity.extra)
             // 仅在 init 这一处合并压缩 key；buildS3BackendOptions 本身不改（被 backup/restore/prune/list 共用）
             val options = buildS3BackendOptions(extra, remotePath) + shared.context.resticCompressionOptions()
-            Log.i("ResticCompression", "cos initCosRepository options=$options")
+            Log.i("ResticCompression", "cos initRepository options=$options")
             val result = shared.rootService.initRusticRepository("opendal:cos", password, options)
             if (result.isSuccess) Result.success("COS repository initialized")
             else Result.failure(Exception(result.exceptionOrNull()?.message ?: "Unknown error during rustic init"))
         } catch (e: Exception) { Result.failure(e) }
     }
 
-    suspend fun checkCosRepository(
-        cloudEntity: CloudEntity, password: String
-    ): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            val extra = ResticShared.json.decodeFromString<S3Extra>(cloudEntity.extra)
-            val options = buildS3BackendOptions(extra, cloudEntity.remote)
-
-            // 1) 存在性门槛（返回真实 bool，不依赖异常）
-            val exists = shared.rootService.rusticRepositoryExists("opendal:cos", options)
-            if (!exists) return@withContext Result.failure(Exception("仓库不存在或不可访问"))
-
-            // 2) validate（密码/可打开）
-            val validate = shared.rootService.validateRusticRepository("opendal:cos", password, options)
-            if (validate.isFailure) return@withContext Result.failure(validate.exceptionOrNull() ?: Exception("仓库密码错误或无法打开"))
-
-            // 3) check（完整性/损坏）
-            val check = shared.rootService.checkRusticRepository("opendal:cos", password, options)
-            if (check.isFailure) return@withContext Result.failure(check.exceptionOrNull() ?: Exception("仓库损坏"))
-
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e(ResticShared.TAG, "checkCosRepository 异常", e); Result.failure(e)
-        }
+    override suspend fun resolveResticPassword(cloudEntity: CloudEntity): String {
+        val extra = ResticShared.json.decodeFromString<S3Extra>(cloudEntity.extra)
+        return extra.resticPassword.ifEmpty { shared.context.readS3ResticPassword() ?: shared.context.readResticPassword() ?: "" }
     }
 
+    override suspend fun checkRepository(
+        cloudEntity: CloudEntity, password: String
+    ): Result<Unit> = checkCosRepository(cloudEntity, password)
+
     // backupFileToCos —— 对应 backupFileToS3，返回 Pair<Int,String>（保持上层契约）
-    suspend fun backupFileToCos(
-        extra: S3Extra, remotePath: String, filePath: String,
+    override suspend fun backupFile(
+        cloudEntity: CloudEntity, remotePath: String, filePath: String,
         tags: List<String>, password: String,
-        progressCallback: ResticRepository.ResticProgressCallback? = null,
-        cancelId: Long = 0L
+        progressCallback: ResticRepository.ResticProgressCallback?,
+        cancelId: Long
     ): Pair<Int, String> = withContext(Dispatchers.IO) {
         try {
+            val extra = ResticShared.json.decodeFromString<S3Extra>(cloudEntity.extra)
             val options = buildS3BackendOptions(extra, remotePath)
 
             // RusticCancel: 进入日志，确认这一层收到的 cancelId（若显示 0 说明上层没透传）
-            Log.i("RusticCancel", "backupFileToCos enter, cancelId=$cancelId")
+            Log.i("RusticCancel", "backupFile(cos) enter, cancelId=$cancelId")
 
             val callback: ICallback? = progressCallback?.let { cb ->
                 object : ICallback.Stub() {
@@ -116,21 +111,73 @@ class ResticRepositoryCos @Inject constructor(
             )
 
             if (snapshotId.isNotBlank()) {
-                Log.d(ResticShared.TAG, "backupFileToCos 成功，snapshotId=$snapshotId")
+                Log.d(ResticShared.TAG, "backupFile(cos) 成功，snapshotId=$snapshotId")
                 Pair(0, snapshotId)
             } else {
-                Log.e(ResticShared.TAG, "backupFileToCos 返回空快照 ID")
+                Log.e(ResticShared.TAG, "backupFile(cos) 返回空快照 ID")
                 Pair(1, "Rustic returned an empty snapshot ID")
             }
         } catch (e: Exception) {
             val msg = e.message ?: "Unknown error"
             if (msg.contains("cancel", ignoreCase = true)) {
-                Log.i("RusticCancel", "backupFileToCos cancelled by user, cancelId=$cancelId, msg=$msg")
+                Log.i("RusticCancel", "backupFile(cos) cancelled by user, cancelId=$cancelId, msg=$msg")
                 Pair(1, "用户取消")
             } else {
-                Log.e("RusticCancel", "backupFileToCos failed, cancelId=$cancelId, msg=$msg")
+                Log.e("RusticCancel", "backupFile(cos) failed, cancelId=$cancelId, msg=$msg")
                 Pair(1, msg)
             }
+        }
+    }
+
+    override suspend fun listSnapshots(
+        cloudEntity: CloudEntity, password: String
+    ): List<ResticSnapshot> = listSnapshotsFromCos(cloudEntity, password)
+
+    override suspend fun restoreSnapshot(
+        cloudEntity: CloudEntity, password: String, snapshotId: String,
+        targetPath: String, snapshotSubPath: String?,
+        includePath: String?,
+        progressCallback: ResticRepository.ResticProgressCallback?
+    ): Boolean = restoreSnapshotFromCos(
+        cloudEntity, password, snapshotId, targetPath, snapshotSubPath, includePath, progressCallback
+    )
+
+    override suspend fun forgetSnapshot(
+        cloudEntity: CloudEntity, password: String, snapshotId: String
+    ): Boolean = forgetSnapshotFromCos(cloudEntity, password, snapshotId)
+
+    override suspend fun pruneRepository(
+        cloudEntity: CloudEntity, password: String
+    ): Boolean = pruneCosRepository(cloudEntity, password)
+
+    override suspend fun listBackedUpFiles(
+        cloudEntity: CloudEntity, password: String
+    ): List<ResticBackupFiles> = listBackedUpFilesFromS3WithSqlJni(cloudEntity, password)
+
+    // ==================== COS 专用实现（保留原方法名，供既有调用点使用） ====================
+
+    suspend fun checkCosRepository(
+        cloudEntity: CloudEntity, password: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val extra = ResticShared.json.decodeFromString<S3Extra>(cloudEntity.extra)
+            val options = buildS3BackendOptions(extra, cloudEntity.remote)
+
+            // 1) 存在性门槛（返回真实 bool，不依赖异常）
+            val exists = shared.rootService.rusticRepositoryExists("opendal:cos", options)
+            if (!exists) return@withContext Result.failure(Exception("仓库不存在或不可访问"))
+
+            // 2) validate（密码/可打开）
+            val validate = shared.rootService.validateRusticRepository("opendal:cos", password, options)
+            if (validate.isFailure) return@withContext Result.failure(validate.exceptionOrNull() ?: Exception("仓库密码错误或无法打开"))
+
+            // 3) check（完整性/损坏）
+            val check = shared.rootService.checkRusticRepository("opendal:cos", password, options)
+            if (check.isFailure) return@withContext Result.failure(check.exceptionOrNull() ?: Exception("仓库损坏"))
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(ResticShared.TAG, "checkCosRepository 异常", e); Result.failure(e)
         }
     }
 
@@ -233,11 +280,11 @@ class ResticRepositoryCos @Inject constructor(
      * 与 ResticRepository.listBackedUpAppsFromS3WithSql（二进制路径，已随二进制移除）功能等价。
      */
     /** 只读缓存：不触发网络/JNI，供进列表时秒开渲染 */
-    suspend fun readCachedApps(cloudEntity: CloudEntity): List<ResticBackupApp> =
+    override suspend fun readCachedApps(cloudEntity: CloudEntity): List<ResticBackupApp> =
         withContext(Dispatchers.IO) { shared.readCachedApps(cloudEntity.name) }
 
     /** 重建：走 JNI 拉取并原子写入持久 db，供后台静默刷新 */
-    suspend fun refreshAndListApps(
+    override suspend fun refreshAndListApps(
         cloudEntity: CloudEntity, password: String
     ): List<ResticBackupApp> = withContext(Dispatchers.IO) {
         try {

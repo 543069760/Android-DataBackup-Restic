@@ -8,25 +8,15 @@ import com.xayah.core.database.dao.PackageDao
 import com.xayah.core.data.repository.CloudRepository
 import com.xayah.core.datastore.readBackupDirectory
 import com.xayah.core.datastore.readResticPassword
-import com.xayah.core.datastore.readS3ResticPassword
-import com.xayah.core.datastore.readFtpResticPassword
-import com.xayah.core.datastore.readWebdavResticPassword
 import com.xayah.core.model.DataType
 import com.xayah.core.model.OpType
 import com.xayah.core.model.ResticProgressState
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.PackageEntity
-import com.xayah.core.model.database.S3Extra
-import com.xayah.core.model.database.FTPExtra
-import com.xayah.core.model.database.WebDAVExtra
 import com.xayah.core.model.CloudType
 import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.restic.ResticRepository
-import com.xayah.core.restic.ResticRepositoryCos
-import com.xayah.core.restic.ResticRepositoryFtp
-import com.xayah.core.restic.ResticRepositoryWebdav
-import com.xayah.core.restic.ResticRepositorySftp
-import com.xayah.core.model.database.SFTPExtra
+import com.xayah.core.restic.CloudResticBackend
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.GsonUtil
 import com.xayah.core.util.decodeURL
@@ -65,10 +55,7 @@ import java.io.File
 @HiltViewModel
 class CloudRestoreViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val resticRepoCos: ResticRepositoryCos,
-    private val resticRepoFtp: ResticRepositoryFtp,
-    private val resticRepoWebdav: ResticRepositoryWebdav,
-    private val resticRepoSftp: ResticRepositorySftp,
+    private val resticBackends: Map<CloudType, @JvmSuppressWildcards CloudResticBackend>,
     private val appsDao: PackageDao,
     private val appsRepo: com.xayah.core.data.repository.AppsRepo,
     private val rootService: RemoteRootService,
@@ -85,6 +72,10 @@ class CloudRestoreViewModel @Inject constructor(
     private var accountName: String = ""
     private val _uiState = MutableStateFlow<CloudRestoreUiState>(CloudRestoreUiState.Loading)
     val uiState: StateFlow<CloudRestoreUiState> = _uiState.asStateFlow()
+
+    /** 按 CloudType 从注册表取对应后端；找不到 key 抛 NoSuchElementException（fail-fast，替代原 else 兜底） */
+    private fun backend(cloudEntity: CloudEntity): CloudResticBackend =
+        resticBackends.getValue(cloudEntity.type)
 
     /**
      * 批量恢复准备（云端 restic）：逐包只解出 config 并校验，仅把通过的包写入队列 + 激活到 DB。
@@ -135,38 +126,15 @@ class CloudRestoreViewModel @Inject constructor(
                                 val snapshotSubPath = "$backupBaseDir/apps/${group.packageName}/user_${group.userId}"
                                 val fullTargetPath = "${targetBasePath}apps/${group.packageName}/user_${group.userId}/"
 
-                                // 云端按 CloudType 分派解出 config
+                                // 云端通过注册表多态解出 config
                                 val ok = runCatching {
-                                    when (cloudEntity.type) {
-                                        CloudType.FTP -> resticRepoFtp.restoreSnapshotFromFtp(
-                                            cloudEntity = cloudEntity, password = password,
-                                            snapshotId = configBackup.snapshotId,
-                                            targetPath = fullTargetPath,
-                                            snapshotSubPath = snapshotSubPath,
-                                            includePath = "package_restore_config.json"
-                                        )
-                                        CloudType.WEBDAV -> resticRepoWebdav.restoreSnapshotFromWebdav(
-                                            cloudEntity = cloudEntity, password = password,
-                                            snapshotId = configBackup.snapshotId,
-                                            targetPath = fullTargetPath,
-                                            snapshotSubPath = snapshotSubPath,
-                                            includePath = "package_restore_config.json"
-                                        )
-                                        CloudType.SFTP -> resticRepoSftp.restoreSnapshotFromSftp(
-                                            cloudEntity = cloudEntity, password = password,
-                                            snapshotId = configBackup.snapshotId,
-                                            targetPath = fullTargetPath,
-                                            snapshotSubPath = snapshotSubPath,
-                                            includePath = "package_restore_config.json"
-                                        )
-                                        else -> resticRepoCos.restoreSnapshotFromCos(
-                                            cloudEntity = cloudEntity, password = password,
-                                            snapshotId = configBackup.snapshotId,
-                                            targetPath = fullTargetPath,
-                                            snapshotSubPath = snapshotSubPath,
-                                            includePath = "package_restore_config.json"
-                                        )
-                                    }
+                                    backend(cloudEntity).restoreSnapshot(
+                                        cloudEntity = cloudEntity, password = password,
+                                        snapshotId = configBackup.snapshotId,
+                                        targetPath = fullTargetPath,
+                                        snapshotSubPath = snapshotSubPath,
+                                        includePath = "package_restore_config.json"
+                                    )
                                 }.getOrElse { e ->
                                     Log.e(TAG, "prepareBatchRestore: ${group.packageName} config 解出异常: ${e.message}", e)
                                     false
@@ -232,27 +200,9 @@ class CloudRestoreViewModel @Inject constructor(
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** 按账户类型解析 restic 仓库密码：账户级(extra) 优先，回落 DataStore 全局值 */
-    private suspend fun resolveResticPassword(cloudEntity: CloudEntity): String? {
-        return when (cloudEntity.type) {
-            CloudType.FTP -> {
-                val ftpExtra = runCatching { json.decodeFromString<FTPExtra>(cloudEntity.extra) }.getOrNull()
-                ftpExtra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readFtpResticPassword()
-            }
-            CloudType.WEBDAV -> {
-                val webdavExtra = runCatching { json.decodeFromString<WebDAVExtra>(cloudEntity.extra) }.getOrNull()
-                webdavExtra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readWebdavResticPassword()
-            }
-            CloudType.SFTP -> {
-                val sftpExtra = runCatching { json.decodeFromString<SFTPExtra>(cloudEntity.extra) }.getOrNull()
-                sftpExtra?.resticPassword?.takeIf { it.isNotEmpty() }
-            }
-            else -> {
-                val s3Extra = runCatching { json.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
-                s3Extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: context.readS3ResticPassword()
-            }
-        }
-    }
+    /** 按账户类型解析 restic 仓库密码：委托到对应后端（账户级 extra 优先，回落 DataStore 全局值） */
+    private suspend fun resolveResticPassword(cloudEntity: CloudEntity): String? =
+        backend(cloudEntity).resolveResticPassword(cloudEntity)
 
     fun setCloudEntity(accountName: String) {
         val cleanAccountName = accountName.replace("accountName=", "").decodeURL()
@@ -290,12 +240,7 @@ class CloudRestoreViewModel @Inject constructor(
 
             // ---- 阶段一：读持久缓存（纯本地 SQLite 读，零网络），命中则秒开 ----
             val cachedApps: List<ResticBackupApp> = runCatching {
-                when (cloudEntity.type) {
-                    CloudType.FTP    -> resticRepoFtp.readCachedApps(cloudEntity)
-                    CloudType.WEBDAV -> resticRepoWebdav.readCachedApps(cloudEntity)
-                    CloudType.SFTP   -> resticRepoSftp.readCachedApps(cloudEntity)
-                    else             -> resticRepoCos.readCachedApps(cloudEntity)
-                }
+                backend(cloudEntity).readCachedApps(cloudEntity)
             }.getOrElse { emptyList() }
 
             if (cachedApps.isNotEmpty()) {
@@ -310,12 +255,8 @@ class CloudRestoreViewModel @Inject constructor(
 
             // ---- 阶段二：后台重建（走 JNI open_repository + get_all_snapshots），完成后静默替换 ----
             try {
-                val freshApps: List<ResticBackupApp> = when (cloudEntity.type) {
-                    CloudType.FTP    -> resticRepoFtp.refreshAndListApps(cloudEntity, password)
-                    CloudType.WEBDAV -> resticRepoWebdav.refreshAndListApps(cloudEntity, password)
-                    CloudType.SFTP   -> resticRepoSftp.refreshAndListApps(cloudEntity, password)
-                    else             -> resticRepoCos.refreshAndListApps(cloudEntity, password)
-                }
+                val freshApps: List<ResticBackupApp> =
+                    backend(cloudEntity).refreshAndListApps(cloudEntity, password)
                 // 图标/labels 取回仍在重建后调用（保持原顺序）
                 runCatching { loadCloudIconsFromRestic(cloudEntity, password) }
                     .onSuccess { _iconVersion.value++ }   // 图标已解压，触发列表重取图
@@ -382,12 +323,7 @@ class CloudRestoreViewModel @Inject constructor(
 
         try {
             // 1. 列快照，筛 __icons__-<accountId>- 前缀，取 time 最新
-            val snapshots = when (cloudEntity.type) {
-                CloudType.FTP    -> resticRepoFtp.listSnapshotsFromFtp(cloudEntity, password)
-                CloudType.WEBDAV -> resticRepoWebdav.listSnapshotsFromWebdav(cloudEntity, password)
-                CloudType.SFTP   -> resticRepoSftp.listSnapshotsFromSftp(cloudEntity, password)
-                else             -> resticRepoCos.listSnapshotsFromCos(cloudEntity, password)
-            }
+            val snapshots = backend(cloudEntity).listSnapshots(cloudEntity, password)
             Log.d("IconRestore", "cloud snapshots total=${snapshots.size}")
 
             val matched = snapshots.filter { snap -> snap.tags.any { it.startsWith("__icons__-$accountId-") } }
@@ -417,12 +353,7 @@ class CloudRestoreViewModel @Inject constructor(
             // 3. 整快照还原到临时目录
             val tmpDir = File(context.cacheDir, "icon_restore_$accountId").apply { deleteRecursively(); mkdirs() }
             Log.d("IconRestore", "cloud restoring snapshot to tmpDir=${tmpDir.absolutePath}")
-            val ok = when (cloudEntity.type) {
-                CloudType.FTP    -> resticRepoFtp.restoreSnapshotFromFtp(cloudEntity, password, snapshotId, tmpDir.absolutePath)
-                CloudType.WEBDAV -> resticRepoWebdav.restoreSnapshotFromWebdav(cloudEntity, password, snapshotId, tmpDir.absolutePath)
-                CloudType.SFTP   -> resticRepoSftp.restoreSnapshotFromSftp(cloudEntity, password, snapshotId, tmpDir.absolutePath)
-                else             -> resticRepoCos.restoreSnapshotFromCos(cloudEntity, password, snapshotId, tmpDir.absolutePath)
-            }
+            val ok = backend(cloudEntity).restoreSnapshot(cloudEntity, password, snapshotId, tmpDir.absolutePath)
             if (!ok) {
                 Log.w("IconRestore", "cloud restore snapshot failed accountId=$accountId, snapshotId=$snapshotId")
                 tmpDir.deleteRecursively()
@@ -563,44 +494,15 @@ class CloudRestoreViewModel @Inject constructor(
                     }
                     val fullTargetPath = "${targetPath}apps/${backup.packageName}/user_${backup.userId}/"
 
-                    val success = when (cloudEntity.type) {              // 改：按类型分派
-                        CloudType.FTP -> resticRepoFtp.restoreSnapshotFromFtp(
-                            cloudEntity = cloudEntity,
-                            password = password,
-                            snapshotId = backup.snapshotId,
-                            targetPath = fullTargetPath,
-                            snapshotSubPath = snapshotSubPath,
-                            includePath = includePath,
-                            progressCallback = progressCallback
-                        )
-                        CloudType.WEBDAV -> resticRepoWebdav.restoreSnapshotFromWebdav(   // 新增
-                            cloudEntity = cloudEntity,
-                            password = password,
-                            snapshotId = backup.snapshotId,
-                            targetPath = fullTargetPath,
-                            snapshotSubPath = snapshotSubPath,
-                            includePath = includePath,
-                            progressCallback = progressCallback
-                        )
-                        CloudType.SFTP -> resticRepoSftp.restoreSnapshotFromSftp(
-                            cloudEntity = cloudEntity,
-                            password = password,
-                            snapshotId = backup.snapshotId,
-                            targetPath = fullTargetPath,
-                            snapshotSubPath = snapshotSubPath,
-                            includePath = includePath,
-                            progressCallback = progressCallback
-                        )
-                        else -> resticRepoCos.restoreSnapshotFromCos(
-                            cloudEntity = cloudEntity,
-                            password = password,
-                            snapshotId = backup.snapshotId,
-                            targetPath = fullTargetPath,
-                            snapshotSubPath = snapshotSubPath,
-                            includePath = includePath,
-                            progressCallback = progressCallback
-                        )
-                    }
+                    val success = backend(cloudEntity).restoreSnapshot(
+                        cloudEntity = cloudEntity,
+                        password = password,
+                        snapshotId = backup.snapshotId,
+                        targetPath = fullTargetPath,
+                        snapshotSubPath = snapshotSubPath,
+                        includePath = includePath,
+                        progressCallback = progressCallback
+                    )
 
                     if (!success) {
                         Log.e("CloudRestore", "恢复失败: ${backup.dataType.type}, 快照ID: ${backup.snapshotId}")
@@ -646,20 +548,9 @@ class CloudRestoreViewModel @Inject constructor(
                 Log.d("CloudRestore", "删除第 ${index + 1}/${sortedBackups.size} 个快照: ${backup.dataType.type}")
                 _resticProgress.value = _resticProgress.value.copy(currentDataTypeIndex = index)
 
-                val success = when (cloudEntity.type) {                 // 改：按类型分派
-                    CloudType.FTP -> resticRepoFtp.forgetSnapshotFromFtp(
-                        cloudEntity = cloudEntity, password = password, snapshotId = backup.snapshotId
-                    )
-                    CloudType.WEBDAV -> resticRepoWebdav.forgetSnapshotFromWebdav(   // 新增
-                        cloudEntity = cloudEntity, password = password, snapshotId = backup.snapshotId
-                    )
-                    CloudType.SFTP -> resticRepoSftp.forgetSnapshotFromSftp(
-                        cloudEntity = cloudEntity, password = password, snapshotId = backup.snapshotId
-                    )
-                    else -> resticRepoCos.forgetSnapshotFromCos(
-                        cloudEntity = cloudEntity, password = password, snapshotId = backup.snapshotId
-                    )
-                }
+                val success = backend(cloudEntity).forgetSnapshot(
+                    cloudEntity = cloudEntity, password = password, snapshotId = backup.snapshotId
+                )
 
                 if (!success) {
                     _resticProgress.value = ResticProgressState()
@@ -670,12 +561,7 @@ class CloudRestoreViewModel @Inject constructor(
             Log.d("CloudRestore", "执行 prune 清理 (步骤 ${totalSteps}/${totalSteps})")
             _resticProgress.value = _resticProgress.value.copy(currentDataTypeIndex = sortedBackups.size)
 
-            val pruneSuccess = when (cloudEntity.type) {                // 改：按类型分派
-                CloudType.FTP -> resticRepoFtp.pruneFtpRepository(cloudEntity, password)
-                CloudType.WEBDAV -> resticRepoWebdav.pruneWebdavRepository(cloudEntity, password)   // 新增
-                CloudType.SFTP -> resticRepoSftp.pruneSftpRepository(cloudEntity, password)
-                else -> resticRepoCos.pruneCosRepository(cloudEntity, password)
-            }
+            val pruneSuccess = backend(cloudEntity).pruneRepository(cloudEntity, password)
 
             _resticProgress.value = ResticProgressState()
             pruneSuccess

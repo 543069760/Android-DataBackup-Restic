@@ -155,19 +155,45 @@ class IndexViewModel @Inject constructor(
         )
     }
 
-    suspend fun updateS3Entity(
+    // 新增：纯构造，字段映射必须与 onEvent(UpdateEntity) 完全一致
+    fun buildS3CloudEntity(
         name: String, remote: String, type: String,
         accessKeyId: String, secretAccessKey: String,
         bucket: String, endpoint: String,
         protocol: S3Protocol,
         resticPassword: String,
-    ) {
+    ): CloudEntity {
         val extra = GsonUtil().toJson(
             S3Extra(
                 type = type, accessKeyId = accessKeyId,
                 secretAccessKey = secretAccessKey, bucket = bucket, endpoint = endpoint,
                 protocol = protocol, resticPassword = resticPassword,
             )
+        )
+        return CloudEntity(
+            name = name,
+            type = CloudType.S3,
+            host = bucket,
+            user = accessKeyId,
+            pass = secretAccessKey,
+            remote = remote,
+            extra = extra,
+            activated = false,
+        )
+    }
+
+    suspend fun updateS3Entity(
+        name: String, remote: String, type: String,
+        accessKeyId: String, secretAccessKey: String,
+        bucket: String, endpoint: String,
+        protocol: S3Protocol,
+        resticPassword: String,
+    ): CloudEntity {
+        val entity = buildS3CloudEntity(
+            name = name, remote = remote, type = type,
+            accessKeyId = accessKeyId, secretAccessKey = secretAccessKey,
+            bucket = bucket, endpoint = endpoint,
+            protocol = protocol, resticPassword = resticPassword,
         )
         emitIntent(
             IndexUiIntent.UpdateEntity(
@@ -176,10 +202,11 @@ class IndexViewModel @Inject constructor(
                 url = bucket,
                 username = accessKeyId,
                 password = secretAccessKey,
-                extra = extra,
+                extra = entity.extra,
                 remote = remote,
             )
         )
+        return entity
     }
 
     override suspend fun onEvent(state: IndexUiState, intent: IndexUiIntent) {

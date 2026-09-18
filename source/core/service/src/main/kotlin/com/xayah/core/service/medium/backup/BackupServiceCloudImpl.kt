@@ -18,29 +18,16 @@ import com.xayah.core.model.database.ProcessingInfoEntity
 import com.xayah.core.model.database.TaskDetailMediaEntity
 import com.xayah.core.model.database.TaskEntity
 import com.xayah.core.network.client.CloudClient
-import com.xayah.core.network.client.S3ClientImpl
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.service.util.CommonBackupUtil
 import com.xayah.core.service.util.MediumBackupUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.localBackupSaveDir
-import com.xayah.core.restic.ResticRepository
-import com.xayah.core.restic.ResticRepositoryCos
+import com.xayah.core.restic.CloudResticBackend
 import com.xayah.core.restic.ResticRepository.ResticProgressCallback
 import com.xayah.core.restic.ResticSnapshot
-import com.xayah.core.datastore.readS3ResticRepoPath
-import com.xayah.core.datastore.readS3ResticPassword
 import com.xayah.core.model.DataType
-import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.util.formatSize
-import com.xayah.core.restic.ResticRepositoryFtp
-import com.xayah.core.model.database.FTPExtra
-import com.xayah.core.datastore.readFtpResticPassword
-import com.xayah.core.restic.ResticRepositorySftp
-import com.xayah.core.model.database.SFTPExtra
-import com.xayah.core.restic.ResticRepositoryWebdav
-import com.xayah.core.model.database.WebDAVExtra
-import com.xayah.core.datastore.readWebdavResticPassword
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import dagger.hilt.android.AndroidEntryPoint
@@ -72,16 +59,10 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
     override lateinit var mTaskRepo: TaskRepository
 
     @Inject
-    lateinit var resticRepoCos: ResticRepositoryCos
+    lateinit var resticBackends: Map<CloudType, @JvmSuppressWildcards CloudResticBackend>
 
-    @Inject
-    lateinit var resticRepoFtp: ResticRepositoryFtp
-
-    @Inject
-    lateinit var resticRepoWebdav: ResticRepositoryWebdav
-
-    @Inject
-    lateinit var resticRepoSftp: ResticRepositorySftp
+    /** 按云类型取对应 restic 后端；找不到直接抛异常（fail-fast，替代原 else 兜底） */
+    private fun backend(entity: CloudEntity): CloudResticBackend = resticBackends.getValue(entity.type)
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -121,29 +102,9 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
 
     override suspend fun onPreBackupRepositoryCheck(): Boolean {
         val entity = mCloudEntity
-        val ok = when (entity.type) {
-            CloudType.S3 -> {
-                val extra = json.decodeFromString<S3Extra>(entity.extra)
-                val password = extra.resticPassword.ifEmpty { mContext.readS3ResticPassword() ?: getResticPassword() }
-                resticRepoCos.checkCosRepository(entity, password).isSuccess
-            }
-            CloudType.FTP -> {
-                val extra = json.decodeFromString<FTPExtra>(entity.extra)
-                val password = extra.resticPassword.ifEmpty { mContext.readFtpResticPassword() ?: getResticPassword() }
-                resticRepoFtp.checkFtpRepository(entity, password).isSuccess
-            }
-            CloudType.WEBDAV -> {
-                val extra = json.decodeFromString<WebDAVExtra>(entity.extra)
-                val password = extra.resticPassword.ifEmpty { mContext.readWebdavResticPassword() ?: getResticPassword() }
-                resticRepoWebdav.checkWebdavRepository(entity, password).isSuccess
-            }
-            CloudType.SFTP -> {
-                val extra = json.decodeFromString<SFTPExtra>(entity.extra)
-                val password = extra.resticPassword.ifEmpty { getResticPassword() }
-                resticRepoSftp.checkSftpRepository(entity, password).isSuccess
-            }
-            else -> true
-        }
+        val backend = backend(entity)
+        val password = backend.resolveResticPassword(entity)
+        val ok = backend.checkRepository(entity, password).isSuccess
         if (!ok) {
             Log.e(mTAG, "备份前云端仓库检查失败: type=${entity.type} remote=${entity.remote}（仓库不存在/损坏/密码错/不可访问）")
         }
@@ -252,85 +213,14 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
     }
 
     /**
-     * 按云类型分派到对应的 Restic 备份实现。
-     * 走 restic 的有 S3、FTP、WEBDAV、SFTP：
-     * FTP 走 opendal:ftp，WEBDAV 走 opendal:webdav，
-     * SFTP 经 librclone serve restic 起本地 REST 服务后走 rest: URL（密码认证由 rclone 完成），
-     * 其余（默认）走 COS/S3。
+     * 统一的 Restic 文件备份实现：不再按云类型分派。
+     * 通过 backend(mCloudEntity) 取对应后端（S3/COS、FTP、WEBDAV、SFTP），
+     * 密码经各后端 resolveResticPassword 解析，备份逻辑对所有类型完全一致。
      */
     private suspend fun backupFileWithResticByType(
         mediaName: String,
         compressedFile: File,
         dataType: DataType,
-        remotePath: String,
-        t: TaskDetailMediaEntity? = null
-    ): Boolean {
-        return when (mCloudEntity.type) {
-            CloudType.FTP -> {
-                val ftpExtra = json.decodeFromString<FTPExtra>(mCloudEntity.extra)
-                backupFileWithResticToFtp(
-                    mediaName = mediaName,
-                    compressedFile = compressedFile,
-                    dataType = dataType,
-                    ftpExtra = ftpExtra,
-                    remotePath = remotePath,
-                    t = t
-                )
-            }
-            CloudType.WEBDAV -> {
-                val webdavExtra = json.decodeFromString<WebDAVExtra>(mCloudEntity.extra)
-                backupFileWithResticToWebdav(
-                    mediaName = mediaName,
-                    compressedFile = compressedFile,
-                    dataType = dataType,
-                    webdavExtra = webdavExtra,
-                    remotePath = remotePath,
-                    t = t
-                )
-            }
-            CloudType.SFTP -> {
-                val sftpExtra = json.decodeFromString<SFTPExtra>(mCloudEntity.extra)
-                backupFileWithResticToSftp(
-                    mediaName = mediaName,
-                    compressedFile = compressedFile,
-                    dataType = dataType,
-                    sftpExtra = sftpExtra,
-                    remotePath = remotePath,
-                    t = t
-                )
-            }
-            else -> {
-                val s3Extra = json.decodeFromString<S3Extra>(mCloudEntity.extra)
-                backupFileWithResticToS3(
-                    mediaName = mediaName,
-                    compressedFile = compressedFile,
-                    dataType = dataType,
-                    s3Extra = s3Extra,
-                    remotePath = remotePath,
-                    t = t
-                )
-            }
-        }
-    }
-
-    // 辅助方法：查找压缩文件
-    private fun findCompressedFile(dstDir: String): File? {
-        return File("$dstDir/media.tar").takeIf { it.exists() }
-    }
-
-    // 辅助方法：查找配置文件
-    private fun findConfigFile(dstDir: String): File? {
-        return File("$dstDir/media_restore_config.json").takeIf { it.exists() }
-    }
-
-    /**
-     * 使用 Restic 备份文件到 S3
-     */
-    private suspend fun backupFileWithResticToS3(
-        mediaName: String,
-        compressedFile: File,
-        dataType: DataType,
-        s3Extra: S3Extra,
         remotePath: String,
         t: TaskDetailMediaEntity? = null
     ): Boolean {
@@ -342,27 +232,29 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                 else -> "filesbackup"
             }
 
-            // 新的文件备份标签格式:mediaName-timestamp-filesbackup/filesconfig
+            // 文件备份标签格式:mediaName-timestamp-filesbackup/filesconfig
             val tag = "$mediaName-$mBackupTimestamp-$tagSuffix"
             val tags = listOf(tag)
 
-            // 【新增】设置当前处理标签,用于取消机制
+            // 设置当前处理标签,用于取消机制
             Log.d("ResticTag", "Setting current tag: $tag")
             mCurrentProcessingTag = tag
 
-            // 【取消】生成并记录本次备份的取消令牌 id
+            // 生成并记录本次备份的取消令牌 id
             val cancelId = System.nanoTime()
             mCurrentBackupCancelId = cancelId
-            Log.i("RusticCancel", "backupFileWithResticToS3 enter, media=$mediaName, tag=$tag, cancelId=$cancelId")
+            Log.i("RusticCancel", "backupFileWithRestic enter, media=$mediaName, tag=$tag, cancelId=$cancelId")
 
+            val backend = backend(mCloudEntity)
+            val password = backend.resolveResticPassword(mCloudEntity)
             val unifiedRepoPath = mCloudEntity.remote
             val backupStartAt = System.currentTimeMillis()
-            val result = resticRepoCos.backupFileToCos(
-                extra = s3Extra,
+            val result = backend.backupFile(
+                cloudEntity = mCloudEntity,
                 remotePath = unifiedRepoPath,
                 filePath = compressedFile.absolutePath,
                 tags = tags,
-                password = s3Extra.resticPassword.ifEmpty { mContext.readS3ResticPassword() ?: getResticPassword() },
+                password = password,
                 progressCallback = object : ResticProgressCallback {
                     override fun onBackupProgress(
                         percentDone: Float, bytesDone: Long,
@@ -374,7 +266,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                         val speedText = if (avgSpeed > 0) avgSpeed.formatToStorageSizePerSecond() else ""
                         val bytesText = bytesDone.toDouble().formatSize()
                         val content = if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
-                        Log.d(mTAG, "Restic S3 backup progress: $content")
+                        Log.d(mTAG, "Restic backup progress: $content")
                         runBlocking {
                             // 不再传 progress = percentDone(恒为 0),避免 UI 进度条卡 0%
                             t?.update(content = content)
@@ -392,293 +284,41 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                 cancelId = cancelId
             )
 
-            // 【新增】清除当前处理标签(正常完成)
+            // 清除当前处理标签(正常完成)
             mCurrentProcessingTag = null
             mCurrentBackupCancelId = 0L
 
             if (result.first == 0) {
                 val snapshotId = extractSnapshotIdFromJson(result.second)
                 if (snapshotId != null) {
-                    Log.d(mTAG, "Restic S3 backup successful for $mediaName, snapshotId: $snapshotId")
+                    Log.d(mTAG, "Restic backup successful for $mediaName, snapshotId: $snapshotId")
                     updateCloudResticInfo(mediaName, snapshotId, remotePath)
                 }
                 true
             } else {
-                Log.i("RusticCancel", "backupFileWithResticToS3 non-zero result, media=$mediaName, code=${result.first}, msg=${result.second}")
+                Log.i("RusticCancel", "backupFileWithRestic non-zero result, media=$mediaName, code=${result.first}, msg=${result.second}")
                 false
             }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
-            // 【新增】异常时也要清除标签
+            // 异常时也要清除标签
             mCurrentProcessingTag = null
             mCurrentBackupCancelId = 0L
 
-            Log.e("RusticCancel", "backupFileWithResticToS3 failed/cancelled, media=$mediaName, msg=${e.message}")
-            Log.e(mTAG, "Error during S3 file Restic backup", e)
+            Log.e("RusticCancel", "backupFileWithRestic failed/cancelled, media=$mediaName, msg=${e.message}")
+            Log.e(mTAG, "Error during file Restic backup", e)
             false
         }
     }
 
-    /**
-     * 使用 Restic 备份文件到 FTP（opendal:ftp，纯 JNI）
-     */
-    private suspend fun backupFileWithResticToFtp(
-        mediaName: String,
-        compressedFile: File,
-        dataType: DataType,
-        ftpExtra: FTPExtra,
-        remotePath: String,
-        t: TaskDetailMediaEntity? = null
-    ): Boolean {
-        return try {
-            // 根据文件类型确定标签后缀
-            val tagSuffix = when (dataType) {
-                DataType.PACKAGE_MEDIA -> "filesbackup"
-                DataType.PACKAGE_CONFIG -> "filesconfig"
-                else -> "filesbackup"
-            }
-
-            // 文件备份标签格式:mediaName-timestamp-filesbackup/filesconfig
-            val tag = "$mediaName-$mBackupTimestamp-$tagSuffix"
-            val tags = listOf(tag)
-
-            Log.d("ResticTag", "Setting current tag: $tag")
-            mCurrentProcessingTag = tag
-
-            val cancelId = System.nanoTime()
-            mCurrentBackupCancelId = cancelId
-            Log.i("RusticCancel", "backupFileWithResticToFtp enter, media=$mediaName, tag=$tag, cancelId=$cancelId")
-
-            val unifiedRepoPath = mCloudEntity.remote
-
-            val result = resticRepoFtp.backupFileToFtp(
-                cloudEntity = mCloudEntity,
-                remotePath = unifiedRepoPath,
-                filePath = compressedFile.absolutePath,
-                tags = tags,
-                password = ftpExtra.resticPassword.ifEmpty { mContext.readFtpResticPassword() ?: getResticPassword() },
-                progressCallback = object : ResticProgressCallback {
-                    override fun onBackupProgress(
-                        percentDone: Float, bytesDone: Long,
-                        bytesTotal: Long, filesDone: Long, filesTotal: Long,
-                        speed: Long
-                    ) {
-                        val speedText = if (speed > 0) speed.formatToStorageSizePerSecond() else ""
-                        val bytesText = bytesDone.toDouble().formatSize()
-                        val content = if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
-                        Log.d(mTAG, "Restic FTP backup progress: $content")
-                        runBlocking {
-                            t?.update(content = "$speedText | $bytesText")
-                        }
-                    }
-
-                    override fun onRestoreProgress(
-                        filesFinished: Long, filesTotal: Long,
-                        bytesWritten: Long, bytesTotal: Long,
-                        filesSkipped: Long, bytesSkipped: Long
-                    ) {
-                        // 备份时不使用
-                    }
-                },
-                cancelId = cancelId
-            )
-
-            mCurrentProcessingTag = null
-            mCurrentBackupCancelId = 0L
-
-            if (result.first == 0) {
-                val snapshotId = extractSnapshotIdFromJson(result.second)
-                if (snapshotId != null) {
-                    Log.d(mTAG, "Restic FTP backup successful for $mediaName, snapshotId: $snapshotId")
-                    updateCloudResticInfo(mediaName, snapshotId, remotePath)
-                }
-                true
-            } else {
-                Log.i("RusticCancel", "backupFileWithResticToFtp non-zero result, media=$mediaName, code=${result.first}, msg=${result.second}")
-                false
-            }
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            mCurrentProcessingTag = null
-            mCurrentBackupCancelId = 0L
-
-            Log.e("RusticCancel", "backupFileWithResticToFtp failed/cancelled, media=$mediaName, msg=${e.message}")
-            Log.e(mTAG, "Error during FTP file Restic backup", e)
-            false
-        }
+    // 辅助方法：查找压缩文件
+    private fun findCompressedFile(dstDir: String): File? {
+        return File("$dstDir/media.tar").takeIf { it.exists() }
     }
 
-    /**
-     * 使用 Restic 备份文件到 WebDAV（opendal:webdav，纯 JNI）
-     */
-    private suspend fun backupFileWithResticToWebdav(
-        mediaName: String,
-        compressedFile: File,
-        dataType: DataType,
-        webdavExtra: WebDAVExtra,
-        remotePath: String,
-        t: TaskDetailMediaEntity? = null
-    ): Boolean {
-        return try {
-            val tagSuffix = when (dataType) {
-                DataType.PACKAGE_MEDIA -> "filesbackup"
-                DataType.PACKAGE_CONFIG -> "filesconfig"
-                else -> "filesbackup"
-            }
-
-            val tag = "$mediaName-$mBackupTimestamp-$tagSuffix"
-            val tags = listOf(tag)
-
-            Log.d("ResticTag", "Setting current tag: $tag")
-            mCurrentProcessingTag = tag
-
-            val cancelId = System.nanoTime()
-            mCurrentBackupCancelId = cancelId
-            Log.i("RusticCancel", "backupFileWithResticToWebdav enter, media=$mediaName, tag=$tag, cancelId=$cancelId")
-
-            val unifiedRepoPath = mCloudEntity.remote
-
-            val result = resticRepoWebdav.backupFileToWebdav(
-                cloudEntity = mCloudEntity,
-                remotePath = unifiedRepoPath,
-                filePath = compressedFile.absolutePath,
-                tags = tags,
-                password = webdavExtra.resticPassword.ifEmpty { mContext.readWebdavResticPassword() ?: getResticPassword() },
-                progressCallback = object : ResticProgressCallback {
-                    override fun onBackupProgress(
-                        percentDone: Float, bytesDone: Long,
-                        bytesTotal: Long, filesDone: Long, filesTotal: Long,
-                        speed: Long
-                    ) {
-                        val speedText = if (speed > 0) speed.formatToStorageSizePerSecond() else ""
-                        val bytesText = bytesDone.toDouble().formatSize()
-                        val content = if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
-                        Log.d(mTAG, "Restic WebDAV backup progress: $content")
-                        runBlocking {
-                            t?.update(content = "$speedText | $bytesText")
-                        }
-                    }
-
-                    override fun onRestoreProgress(
-                        filesFinished: Long, filesTotal: Long,
-                        bytesWritten: Long, bytesTotal: Long,
-                        filesSkipped: Long, bytesSkipped: Long
-                    ) {
-                        // 备份时不使用
-                    }
-                },
-                cancelId = cancelId
-            )
-
-            mCurrentProcessingTag = null
-            mCurrentBackupCancelId = 0L
-
-            if (result.first == 0) {
-                val snapshotId = extractSnapshotIdFromJson(result.second)
-                if (snapshotId != null) {
-                    Log.d(mTAG, "Restic WebDAV backup successful for $mediaName, snapshotId: $snapshotId")
-                    updateCloudResticInfo(mediaName, snapshotId, remotePath)
-                }
-                true
-            } else {
-                Log.i("RusticCancel", "backupFileWithResticToWebdav non-zero result, media=$mediaName, code=${result.first}, msg=${result.second}")
-                false
-            }
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            mCurrentProcessingTag = null
-            mCurrentBackupCancelId = 0L
-
-            Log.e("RusticCancel", "backupFileWithResticToWebdav failed/cancelled, media=$mediaName, msg=${e.message}")
-            Log.e(mTAG, "Error during WebDAV file Restic backup", e)
-            false
-        }
-    }
-
-    /**
-     * 使用 Restic 备份文件到 SFTP（rest: → librclone serve restic）
-     */
-    private suspend fun backupFileWithResticToSftp(
-        mediaName: String,
-        compressedFile: File,
-        dataType: DataType,
-        sftpExtra: SFTPExtra,
-        remotePath: String,
-        t: TaskDetailMediaEntity? = null
-    ): Boolean {
-        return try {
-            val tagSuffix = when (dataType) {
-                DataType.PACKAGE_MEDIA -> "filesbackup"
-                DataType.PACKAGE_CONFIG -> "filesconfig"
-                else -> "filesbackup"
-            }
-
-            val tag = "$mediaName-$mBackupTimestamp-$tagSuffix"
-            val tags = listOf(tag)
-
-            Log.d("ResticTag", "Setting current tag: $tag")
-            mCurrentProcessingTag = tag
-
-            val cancelId = System.nanoTime()
-            mCurrentBackupCancelId = cancelId
-            Log.i("RusticCancel", "backupFileWithResticToSftp enter, media=$mediaName, tag=$tag, cancelId=$cancelId")
-
-            val unifiedRepoPath = mCloudEntity.remote
-
-            val result = resticRepoSftp.backupFileToSftp(
-                cloudEntity = mCloudEntity,
-                remotePath = unifiedRepoPath,
-                filePath = compressedFile.absolutePath,
-                tags = tags,
-                password = sftpExtra.resticPassword.ifEmpty { getResticPassword() },
-                progressCallback = object : ResticProgressCallback {
-                    override fun onBackupProgress(
-                        percentDone: Float, bytesDone: Long,
-                        bytesTotal: Long, filesDone: Long, filesTotal: Long,
-                        speed: Long
-                    ) {
-                        val speedText = if (speed > 0) speed.formatToStorageSizePerSecond() else ""
-                        val bytesText = bytesDone.toDouble().formatSize()
-                        val content = if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
-                        Log.d(mTAG, "Restic SFTP backup progress: $content")
-                        runBlocking {
-                            t?.update(content = "$speedText | $bytesText")
-                        }
-                    }
-
-                    override fun onRestoreProgress(
-                        filesFinished: Long, filesTotal: Long,
-                        bytesWritten: Long, bytesTotal: Long,
-                        filesSkipped: Long, bytesSkipped: Long
-                    ) {
-                        // 备份时不使用
-                    }
-                },
-                cancelId = cancelId
-            )
-
-            mCurrentProcessingTag = null
-            mCurrentBackupCancelId = 0L
-
-            if (result.first == 0) {
-                val snapshotId = extractSnapshotIdFromJson(result.second)
-                if (snapshotId != null) {
-                    Log.d(mTAG, "Restic SFTP backup successful for $mediaName, snapshotId: $snapshotId")
-                    updateCloudResticInfo(mediaName, snapshotId, remotePath)
-                }
-                true
-            } else {
-                Log.i("RusticCancel", "backupFileWithResticToSftp non-zero result, media=$mediaName, code=${result.first}, msg=${result.second}")
-                false
-            }
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            mCurrentProcessingTag = null
-            mCurrentBackupCancelId = 0L
-            Log.e("RusticCancel", "backupFileWithResticToSftp failed/cancelled, media=$mediaName, msg=${e.message}")
-            Log.e(mTAG, "Error during SFTP file Restic backup", e)
-            false
-        }
+    // 辅助方法：查找配置文件
+    private fun findConfigFile(dstDir: String): File? {
+        return File("$dstDir/media_restore_config.json").takeIf { it.exists() }
     }
 
     /**

@@ -8,29 +8,19 @@ import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.database.dao.PackageDao
 import com.xayah.core.database.dao.TaskDao
 import com.xayah.core.datastore.readBackupDirectory
-import com.xayah.core.datastore.readFtpResticPassword
 import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.datastore.readResticRepoPath
-import com.xayah.core.datastore.readS3ResticPassword
-import com.xayah.core.datastore.readWebdavResticPassword
 import com.xayah.core.model.CloudType
 import com.xayah.core.model.DataType
 import com.xayah.core.model.OpType
 import com.xayah.core.model.TaskType
 import com.xayah.core.model.database.CloudEntity
-import com.xayah.core.model.database.FTPExtra
 import com.xayah.core.model.database.PackageEntity
-import com.xayah.core.model.database.S3Extra
-import com.xayah.core.model.database.SFTPExtra
 import com.xayah.core.model.database.TaskDetailPackageEntity
 import com.xayah.core.model.database.TaskEntity
-import com.xayah.core.model.database.WebDAVExtra
 import com.xayah.core.model.restic.ResticRestoreQueueItem
+import com.xayah.core.restic.CloudResticBackend
 import com.xayah.core.restic.ResticRepository
-import com.xayah.core.restic.ResticRepositoryCos
-import com.xayah.core.restic.ResticRepositoryFtp
-import com.xayah.core.restic.ResticRepositorySftp
-import com.xayah.core.restic.ResticRepositoryWebdav
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.service.util.CommonBackupUtil
 import com.xayah.core.service.util.PackagesRestoreUtil
@@ -83,21 +73,14 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
     @Inject
     override lateinit var mTaskRepo: TaskRepository
 
-    // 本地 + 云端 restic 仓库（均在 core:restic，core:service 已依赖）
+    // 本地 restic 仓库（core:restic，core:service 已依赖）
     @Inject
     lateinit var mResticRepo: ResticRepository
 
+    // 云端 restic 后端注册表：Hilt 多绑定 Map<CloudType, CloudResticBackend>
+    // 注意 @JvmSuppressWildcards，否则 Dagger 生成 Map<CloudType, ? extends CloudResticBackend> 找不到绑定
     @Inject
-    lateinit var mResticRepoFtp: ResticRepositoryFtp
-
-    @Inject
-    lateinit var mResticRepoWebdav: ResticRepositoryWebdav
-
-    @Inject
-    lateinit var mResticRepoSftp: ResticRepositorySftp
-
-    @Inject
-    lateinit var mResticRepoCos: ResticRepositoryCos
+    lateinit var resticBackends: Map<CloudType, @JvmSuppressWildcards CloudResticBackend>
 
     @Inject
     lateinit var mCloudRepo: CloudRepository
@@ -400,30 +383,13 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
         return "$backupBaseDir/apps/$pkg/user_$userId"
     }
 
-    /** 原样搬 CloudFilesRestoreViewModel.resolveResticPassword 的 when(CloudType) 分派 */
+    /** 密码解析统一走注册表：各后端 resolveResticPassword 内部 decode 自己的 extra 并回退对应 datastore */
     private suspend fun resolveCloudPassword(cloudEntity: CloudEntity): String? {
-        return when (cloudEntity.type) {
-            CloudType.FTP -> {
-                val extra = runCatching { QUEUE_JSON.decodeFromString<FTPExtra>(cloudEntity.extra) }.getOrNull()
-                extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: mContext.readFtpResticPassword()
-            }
-            CloudType.WEBDAV -> {
-                val extra = runCatching { QUEUE_JSON.decodeFromString<WebDAVExtra>(cloudEntity.extra) }.getOrNull()
-                extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: mContext.readWebdavResticPassword()
-            }
-            CloudType.SFTP -> {
-                val extra = runCatching { QUEUE_JSON.decodeFromString<SFTPExtra>(cloudEntity.extra) }.getOrNull()
-                extra?.resticPassword?.takeIf { it.isNotEmpty() }
-            }
-            else -> {
-                val extra = runCatching { QUEUE_JSON.decodeFromString<S3Extra>(cloudEntity.extra) }.getOrNull()
-                extra?.resticPassword?.takeIf { it.isNotEmpty() } ?: mContext.readS3ResticPassword()
-            }
-        }
+        return resticBackends.getValue(cloudEntity.type).resolveResticPassword(cloudEntity)
     }
 
     /**
-     * 本地/云端分派解出：accountName 空→本地 restoreSnapshot；非空→按 CloudType 分派云端。
+     * 本地/云端分派解出：accountName 空→本地 restoreSnapshot；非空→按注册表多态分派云端。
      * progressCallback 预留（下载进度接线属后续步骤），默认 null。
      */
     private suspend fun extractOne(
@@ -463,28 +429,16 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
                     Log.e(mTAG, "云端 restic 密码解析失败: ${item.accountName}")
                     return false
                 }
-                when (cloudEntity.type) {
-                    CloudType.FTP -> mResticRepoFtp.restoreSnapshotFromFtp(
-                        cloudEntity = cloudEntity, password = password, snapshotId = item.snapshotId,
-                        targetPath = targetPath, snapshotSubPath = snapshotSubPath,
-                        includePath = includePath, progressCallback = progressCallback
-                    )
-                    CloudType.WEBDAV -> mResticRepoWebdav.restoreSnapshotFromWebdav(
-                        cloudEntity = cloudEntity, password = password, snapshotId = item.snapshotId,
-                        targetPath = targetPath, snapshotSubPath = snapshotSubPath,
-                        includePath = includePath, progressCallback = progressCallback
-                    )
-                    CloudType.SFTP -> mResticRepoSftp.restoreSnapshotFromSftp(
-                        cloudEntity = cloudEntity, password = password, snapshotId = item.snapshotId,
-                        targetPath = targetPath, snapshotSubPath = snapshotSubPath,
-                        includePath = includePath, progressCallback = progressCallback
-                    )
-                    else -> mResticRepoCos.restoreSnapshotFromCos(
-                        cloudEntity = cloudEntity, password = password, snapshotId = item.snapshotId,
-                        targetPath = targetPath, snapshotSubPath = snapshotSubPath,
-                        includePath = includePath, progressCallback = progressCallback
-                    )
-                }
+                // 注册表多态：getValue 找不到 key 会抛 NoSuchElementException，替代原 else -> COS 兜底（fail-fast）
+                resticBackends.getValue(cloudEntity.type).restoreSnapshot(
+                    cloudEntity = cloudEntity,
+                    password = password,
+                    snapshotId = item.snapshotId,
+                    targetPath = targetPath,
+                    snapshotSubPath = snapshotSubPath,
+                    includePath = includePath,
+                    progressCallback = progressCallback
+                )
             }
         } catch (e: Exception) {
             Log.e(mTAG, "extractOne 异常: ${e.message}", e)

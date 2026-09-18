@@ -3,7 +3,9 @@ package com.xayah.core.restic
 import android.util.Log
 import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.model.database.CloudEntity
+import com.xayah.core.model.database.SFTPExtra
 import com.xayah.core.model.restic.ResticBackupFiles
+import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.rootservice.ICallback
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -36,7 +38,61 @@ import javax.inject.Singleton
 class ResticRepositorySftp @Inject constructor(
     private val shared: ResticShared,
     private val rcloneServe: RcloneServe,
-) {
+) : CloudResticBackend {
+
+    // ==================== CloudResticBackend 接口实现（委托到下方保留的旧名方法）====================
+    // 只新增 override 薄封装，旧名方法体一字不改，现有 when(CloudType) 调用点不受影响。
+    // override 不重复写接口里已声明的默认值（默认值只在 CloudResticBackend 接口声明）。
+
+    override suspend fun initRepository(
+        cloudEntity: CloudEntity, remotePath: String, password: String
+    ): Result<String> = initSftpRepository(cloudEntity, remotePath, password)
+
+    override suspend fun resolveResticPassword(cloudEntity: CloudEntity): String {
+        val extra = ResticShared.json.decodeFromString<SFTPExtra>(cloudEntity.extra)
+        return extra.resticPassword.ifEmpty { shared.context.readResticPassword() ?: "" }
+    }
+
+    override suspend fun checkRepository(
+        cloudEntity: CloudEntity, password: String
+    ): Result<Unit> = checkSftpRepository(cloudEntity, password)
+
+    override suspend fun backupFile(
+        cloudEntity: CloudEntity, remotePath: String, filePath: String,
+        tags: List<String>, password: String,
+        progressCallback: ResticRepository.ResticProgressCallback?,
+        cancelId: Long
+    ): Pair<Int, String> = backupFileToSftp(
+        cloudEntity, remotePath, filePath, tags, password, progressCallback, cancelId
+    )
+
+    override suspend fun listSnapshots(
+        cloudEntity: CloudEntity, password: String
+    ): List<ResticSnapshot> = listSnapshotsFromSftp(cloudEntity, password)
+
+    override suspend fun restoreSnapshot(
+        cloudEntity: CloudEntity, password: String, snapshotId: String,
+        targetPath: String, snapshotSubPath: String?,
+        includePath: String?,
+        progressCallback: ResticRepository.ResticProgressCallback?
+    ): Boolean = restoreSnapshotFromSftp(
+        cloudEntity, password, snapshotId, targetPath, snapshotSubPath, includePath, progressCallback
+    )
+
+    override suspend fun forgetSnapshot(
+        cloudEntity: CloudEntity, password: String, snapshotId: String
+    ): Boolean = forgetSnapshotFromSftp(cloudEntity, password, snapshotId)
+
+    override suspend fun pruneRepository(
+        cloudEntity: CloudEntity, password: String
+    ): Boolean = pruneSftpRepository(cloudEntity, password)
+
+    override suspend fun listBackedUpFiles(
+        cloudEntity: CloudEntity, password: String
+    ): List<ResticBackupFiles> = listBackedUpFilesFromSftpWithSqlJni(cloudEntity, password)
+
+    // ==================== 原有实现（方法体保持不变）====================
+
     // initSftpRepository —— 对应 initFtpRepository
     suspend fun initSftpRepository(
         cloudEntity: CloudEntity, remotePath: String, password: String
@@ -266,10 +322,10 @@ class ResticRepositorySftp @Inject constructor(
         }
     }
 
-    fun readCachedApps(cloudEntity: CloudEntity): List<ResticBackupApp> =
+    override suspend fun readCachedApps(cloudEntity: CloudEntity): List<ResticBackupApp> =
         shared.readCachedApps(cloudEntity.name)
 
-    suspend fun refreshAndListApps(
+    override suspend fun refreshAndListApps(
         cloudEntity: CloudEntity, password: String
     ): List<ResticBackupApp> = withContext(Dispatchers.IO) {
         val session = startServe(cloudEntity, cloudEntity.remote)

@@ -3,7 +3,10 @@ package com.xayah.core.restic
 import android.util.Log
 import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.model.database.CloudEntity
+import com.xayah.core.model.database.FTPExtra
 import com.xayah.core.model.restic.ResticBackupFiles
+import com.xayah.core.datastore.readFtpResticPassword
+import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.rootservice.ICallback
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -36,7 +39,61 @@ import javax.inject.Singleton
 class ResticRepositoryFtp @Inject constructor(
     private val shared: ResticShared,
     private val rcloneServe: RcloneServe,
-) {
+) : CloudResticBackend {
+
+    // ==================== CloudResticBackend 统一接口实现 ====================
+    // 全部委托到下方各自的旧名方法（旧名保留，避免破坏现有 when(CloudType) 调用点）。
+    // 注意：override 不重复写接口里已声明的默认值（progressCallback/cancelId/snapshotSubPath/includePath）。
+
+    override suspend fun initRepository(
+        cloudEntity: CloudEntity, remotePath: String, password: String
+    ): Result<String> = initFtpRepository(cloudEntity, remotePath, password)
+
+    override suspend fun resolveResticPassword(cloudEntity: CloudEntity): String {
+        val extra = ResticShared.json.decodeFromString<FTPExtra>(cloudEntity.extra)
+        return extra.resticPassword.ifEmpty { shared.context.readFtpResticPassword() ?: shared.context.readResticPassword() ?: "" }
+    }
+
+    override suspend fun checkRepository(
+        cloudEntity: CloudEntity, password: String
+    ): Result<Unit> = checkFtpRepository(cloudEntity, password)
+
+    override suspend fun backupFile(
+        cloudEntity: CloudEntity, remotePath: String, filePath: String,
+        tags: List<String>, password: String,
+        progressCallback: ResticRepository.ResticProgressCallback?,
+        cancelId: Long
+    ): Pair<Int, String> = backupFileToFtp(
+        cloudEntity, remotePath, filePath, tags, password, progressCallback, cancelId
+    )
+
+    override suspend fun listSnapshots(
+        cloudEntity: CloudEntity, password: String
+    ): List<ResticSnapshot> = listSnapshotsFromFtp(cloudEntity, password)
+
+    override suspend fun restoreSnapshot(
+        cloudEntity: CloudEntity, password: String, snapshotId: String,
+        targetPath: String, snapshotSubPath: String?,
+        includePath: String?,
+        progressCallback: ResticRepository.ResticProgressCallback?
+    ): Boolean = restoreSnapshotFromFtp(
+        cloudEntity, password, snapshotId, targetPath, snapshotSubPath, includePath, progressCallback
+    )
+
+    override suspend fun forgetSnapshot(
+        cloudEntity: CloudEntity, password: String, snapshotId: String
+    ): Boolean = forgetSnapshotFromFtp(cloudEntity, password, snapshotId)
+
+    override suspend fun pruneRepository(
+        cloudEntity: CloudEntity, password: String
+    ): Boolean = pruneFtpRepository(cloudEntity, password)
+
+    override suspend fun listBackedUpFiles(
+        cloudEntity: CloudEntity, password: String
+    ): List<ResticBackupFiles> = listBackedUpFilesFromFtpWithSqlJni(cloudEntity, password)
+
+    // ==================== 以下为原有旧名方法（方法体保持不变） ====================
+
     // initFtpRepository —— 对应 initSftpRepository
     suspend fun initFtpRepository(
         cloudEntity: CloudEntity, remotePath: String, password: String
@@ -295,11 +352,13 @@ class ResticRepositoryFtp @Inject constructor(
     }
 
     // 只读缓存：直接读持久 db，不起 serve、不走 JNI（毫秒级）
-    fun readCachedApps(cloudEntity: CloudEntity): List<ResticBackupApp> =
+    // 注意：接口声明为 suspend，这里必须加 suspend + override（原为非 suspend 的普通 fun）。
+    override suspend fun readCachedApps(cloudEntity: CloudEntity): List<ResticBackupApp> =
         shared.readCachedApps(cloudEntity.name)
 
     // 重建：起 serve 拿 restUrl，走 JNI 重建持久 db 后解析返回
-    suspend fun refreshAndListApps(
+    // 名字与接口一致，直接加 override。
+    override suspend fun refreshAndListApps(
         cloudEntity: CloudEntity, password: String
     ): List<ResticBackupApp> = withContext(Dispatchers.IO) {
         val session = startServe(cloudEntity, cloudEntity.remote)

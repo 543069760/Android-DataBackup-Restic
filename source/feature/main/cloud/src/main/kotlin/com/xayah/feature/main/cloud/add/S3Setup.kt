@@ -439,16 +439,19 @@ fun PageS3Setup() {
                         onClick = {
                             if (s3InitState is S3ResticViewModel.S3InitializationState.Idle && s3Password.isNotEmpty()) {
                                 scope.launch {
-                                    // 构建S3Extra对象
-                                    val s3Extra = S3Extra(
+                                    // 用 updateS3Entity 返回的 CloudEntity 直接传入，避免读 uiState 旧快照
+                                    val entity = viewModel.updateS3Entity(
+                                        name = name,
+                                        remote = remote,
                                         type = "S3",
                                         accessKeyId = accessKeyId,
                                         secretAccessKey = secretAccessKey,
                                         bucket = bucket,
                                         endpoint = endpoint,
-                                        protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP
+                                        protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP,
+                                        resticPassword = s3Password,
                                     )
-                                    s3ViewModel.initializeS3Repository(s3Extra, remote, s3Password)
+                                    s3ViewModel.initializeS3Repository(entity, remote, s3Password)
                                 }
                             }
                         }
@@ -464,18 +467,19 @@ fun PageS3Setup() {
                                 s3InitState !is S3ResticViewModel.S3InitializationState.Initializing,
                         onClick = {
                             scope.launch {
-                                // 构建完整的S3Extra对象
-                                val s3Extra = S3Extra(
+                                // 用 updateS3Entity 返回的 CloudEntity 直接传入，避免读 uiState 旧快照
+                                val entity = viewModel.updateS3Entity(
+                                    name = name,
+                                    remote = remote,
                                     type = "S3",
                                     accessKeyId = accessKeyId,
                                     secretAccessKey = secretAccessKey,
                                     bucket = bucket,
                                     endpoint = endpoint,
-                                    protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP
+                                    protocol = if (protocolIndex == 0) S3Protocol.HTTPS else S3Protocol.HTTP,
+                                    resticPassword = s3Password,
                                 )
-
-                                // 调用初始化方法
-                                s3ViewModel.initializeS3Repository(s3Extra, remote, s3Password)
+                                s3ViewModel.initializeS3Repository(entity, remote, s3Password)
                             }
                         }
                     ) {

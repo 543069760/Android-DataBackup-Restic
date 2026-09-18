@@ -103,19 +103,15 @@ class S3ResticViewModel @Inject constructor(
      * 根据官方文档要求构造完整的S3配置
      */
     suspend fun initializeS3Repository(
-        s3Extra: S3Extra,
+        cloudEntity: CloudEntity,
         remotePath: String,
         password: String
     ): Boolean {
         Log.d(TAG, "开始初始化S3 Restic仓库: $remotePath")
         _s3InitializationState.value = S3InitializationState.Initializing
-
         return withContext(Dispatchers.IO) {
             try {
-                // 迁移到进程内 JNI：由 ResticRepositoryCos.initCosRepository 构建
-                // opendal:cos 后端 options（bucket/root/endpoint/secret_id/secret_key），
-                // 密码单独传入，经 AIDL → RemoteRootServiceImpl → Rustic 在 root 进程完成 init。
-                val result = resticRepoCos.initCosRepository(s3Extra, remotePath, password)
+                val result = resticRepoCos.initRepository(cloudEntity, remotePath, password)
 
                 if (result.isSuccess) {
                     // 保存配置到DataStore

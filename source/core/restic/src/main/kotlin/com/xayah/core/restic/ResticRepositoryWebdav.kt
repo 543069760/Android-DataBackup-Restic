@@ -5,6 +5,8 @@ import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.WebDAVExtra
 import com.xayah.core.model.restic.ResticBackupFiles
+import com.xayah.core.datastore.readWebdavResticPassword
+import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.rootservice.ICallback
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -23,7 +25,59 @@ import javax.inject.Singleton
 @Singleton
 class ResticRepositoryWebdav @Inject constructor(
     private val shared: ResticShared,
-) {
+) : CloudResticBackend {
+
+    // ==================== CloudResticBackend override（统一接口，委托到旧名方法） ====================
+
+    override suspend fun initRepository(
+        cloudEntity: CloudEntity, remotePath: String, password: String
+    ): Result<String> = initWebdavRepository(cloudEntity, remotePath, password)
+
+    override suspend fun resolveResticPassword(cloudEntity: CloudEntity): String {
+        val extra = ResticShared.json.decodeFromString<WebDAVExtra>(cloudEntity.extra)
+        return extra.resticPassword.ifEmpty { shared.context.readWebdavResticPassword() ?: shared.context.readResticPassword() ?: "" }
+    }
+
+    override suspend fun checkRepository(
+        cloudEntity: CloudEntity, password: String
+    ): Result<Unit> = checkWebdavRepository(cloudEntity, password)
+
+    override suspend fun backupFile(
+        cloudEntity: CloudEntity, remotePath: String, filePath: String,
+        tags: List<String>, password: String,
+        progressCallback: ResticRepository.ResticProgressCallback?,
+        cancelId: Long
+    ): Pair<Int, String> = backupFileToWebdav(
+        cloudEntity, remotePath, filePath, tags, password, progressCallback, cancelId
+    )
+
+    override suspend fun listSnapshots(
+        cloudEntity: CloudEntity, password: String
+    ): List<ResticSnapshot> = listSnapshotsFromWebdav(cloudEntity, password)
+
+    override suspend fun restoreSnapshot(
+        cloudEntity: CloudEntity, password: String, snapshotId: String,
+        targetPath: String, snapshotSubPath: String?,
+        includePath: String?,
+        progressCallback: ResticRepository.ResticProgressCallback?
+    ): Boolean = restoreSnapshotFromWebdav(
+        cloudEntity, password, snapshotId, targetPath, snapshotSubPath, includePath, progressCallback
+    )
+
+    override suspend fun forgetSnapshot(
+        cloudEntity: CloudEntity, password: String, snapshotId: String
+    ): Boolean = forgetSnapshotFromWebdav(cloudEntity, password, snapshotId)
+
+    override suspend fun pruneRepository(
+        cloudEntity: CloudEntity, password: String
+    ): Boolean = pruneWebdavRepository(cloudEntity, password)
+
+    override suspend fun listBackedUpFiles(
+        cloudEntity: CloudEntity, password: String
+    ): List<ResticBackupFiles> = listBackedUpFilesFromWebdavWithSqlJni(cloudEntity, password)
+
+    // ==================== 以下为原有方法，方法体一字不改 ====================
+
     // initWebdavRepository —— 对应 initFtpRepository
     suspend fun initWebdavRepository(
         cloudEntity: CloudEntity, remotePath: String, password: String
@@ -214,10 +268,10 @@ class ResticRepositoryWebdav @Inject constructor(
         } catch (e: Exception) { emptyList() }
     }
 
-    fun readCachedApps(cloudEntity: CloudEntity): List<ResticBackupApp> =
+    override suspend fun readCachedApps(cloudEntity: CloudEntity): List<ResticBackupApp> =
         shared.readCachedApps(cloudEntity.name)
 
-    suspend fun refreshAndListApps(
+    override suspend fun refreshAndListApps(
         cloudEntity: CloudEntity, password: String
     ): List<ResticBackupApp> = withContext(Dispatchers.IO) {
         try {

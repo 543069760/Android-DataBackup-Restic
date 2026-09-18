@@ -5,29 +5,19 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import com.xayah.core.data.repository.CloudRepository
 import com.xayah.core.data.repository.MediaRepository
 import com.xayah.core.data.repository.TaskRepository
-import com.xayah.core.datastore.readFtpResticPassword
 import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.datastore.readResticRepoPath
-import com.xayah.core.datastore.readS3ResticPassword
-import com.xayah.core.datastore.readWebdavResticPassword
 import com.xayah.core.datastore.saveCloudActivatedAccountName
 import com.xayah.core.model.CloudType
 import com.xayah.core.model.OpType
 import com.xayah.core.model.StorageMode
-import com.xayah.core.model.database.FTPExtra
+import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.MediaEntity
-import com.xayah.core.model.database.S3Extra
-import com.xayah.core.model.database.SFTPExtra
-import com.xayah.core.model.database.WebDAVExtra
 import com.xayah.core.model.util.formatSize
 import com.xayah.core.network.client.getCloud
-import com.xayah.core.network.util.getExtraEntity
-import com.xayah.core.restic.ResticRepository
-import com.xayah.core.restic.ResticRepositoryCos
-import com.xayah.core.restic.ResticRepositoryFtp
-import com.xayah.core.restic.ResticRepositorySftp
-import com.xayah.core.restic.ResticRepositoryWebdav
 import com.xayah.core.rootservice.service.RemoteRootService
+import com.xayah.core.restic.CloudResticBackend
+import com.xayah.core.restic.ResticRepository
 import com.xayah.core.service.medium.backup.ProcessingServiceProxyCloudImpl
 import com.xayah.core.service.medium.backup.ProcessingServiceProxyLocalImpl
 import com.xayah.core.ui.material3.SnackbarDuration
@@ -65,11 +55,11 @@ class BackupViewModelImpl @Inject constructor(
     mLocalService: ProcessingServiceProxyLocalImpl,
     mCloudService: ProcessingServiceProxyCloudImpl,
     private val resticRepo: ResticRepository,
-    private val resticRepoCos: ResticRepositoryCos,
-    private val resticRepoFtp: ResticRepositoryFtp,
-    private val resticRepoWebdav: ResticRepositoryWebdav,
-    private val resticRepoSftp: ResticRepositorySftp,
+    private val resticBackends: Map<CloudType, @JvmSuppressWildcards CloudResticBackend>,
 ) : AbstractMediumProcessingViewModel(mContext, mRootService, mTaskRepo, mLocalService, mCloudService) {
+
+    private fun backend(entity: CloudEntity) = resticBackends.getValue(entity.type)
+
     override suspend fun onOtherEvent(state: IndexUiState, intent: ProcessingUiIntent) {
         when (intent) {
             is UpdateFiles -> {
@@ -104,24 +94,10 @@ class BackupViewModelImpl @Inject constructor(
                         client.testConnection()
 
                         // 备份前仓库可用性前置检查（fail-fast）：
-                        // 解析 restic 密码（优先 extra，回退 datastore），按类型分派检查仓库是否可达/可打开
-                        val password = when (entity.type) {
-                            CloudType.S3 -> entity.getExtraEntity<S3Extra>()?.resticPassword?.takeIf { it.isNotEmpty() }
-                                ?: mContext.readS3ResticPassword() ?: ""
-                            CloudType.FTP -> entity.getExtraEntity<FTPExtra>()?.resticPassword?.takeIf { it.isNotEmpty() }
-                                ?: mContext.readFtpResticPassword() ?: ""
-                            CloudType.WEBDAV -> entity.getExtraEntity<WebDAVExtra>()?.resticPassword?.takeIf { it.isNotEmpty() }
-                                ?: mContext.readWebdavResticPassword() ?: ""
-                            CloudType.SFTP -> entity.getExtraEntity<SFTPExtra>()?.resticPassword ?: ""
-                            else -> ""
-                        }
-                        val ok = when (entity.type) {
-                            CloudType.S3 -> resticRepoCos.checkCosRepository(entity, password).isSuccess
-                            CloudType.FTP -> resticRepoFtp.checkFtpRepository(entity, password).isSuccess
-                            CloudType.WEBDAV -> resticRepoWebdav.checkWebdavRepository(entity, password).isSuccess
-                            CloudType.SFTP -> resticRepoSftp.checkSftpRepository(entity, password).isSuccess
-                            else -> true
-                        }
+                        // 解析 restic 密码（优先 extra，回退 datastore），检查仓库是否可达/可打开
+                        val backend = backend(entity)
+                        val password = backend.resolveResticPassword(entity)
+                        val ok = backend.checkRepository(entity, password).isSuccess
                         if (!ok) {
                             emitEffect(IndexUiEffect.DismissSnackbar)
                             emitEffectOnIO(
