@@ -33,17 +33,19 @@
 
 ### 云存储协议支持
 
-| 功能                 | 旧版 (DataBackup) | 新版 (DataBackup Revived 3.0.0)         |  
-|--------------------| --- |---------------------------------------|  
-| **本地存储**           | ✅ 已支持 | ✅ **块级去重（JNI rustic，已完成）**            |  
-| **Tencent COS 协议** | ❌ 不支持 | ✅ **块级去重（JNI rustic，已完成）**            |  
-| **FTP 协议**         | ✅ 已支持 | ✅ **块级去重（JNI rustic over librclone，已完成）** |  
-| **SFTP 协议**        | ✅ 已支持 | ✅ **块级去重（JNI rustic over librclone，已完成）**  |  
-| **WebDAV 协议**      | ✅ 已支持 | ✅ **块级去重（JNI rustic，已完成）**            |  
-| **SMB/CIFS 协议**    | ✅ 已支持 | ❌ opendal不支持，后续移除                     |  
+| 功能                            | 旧版 (DataBackup) | 新版 (DataBackup Revived 3.0.0)             |  
+|-------------------------------| --- |-------------------------------------------|  
+| **本地存储**                      | ✅ 已支持 | ✅ **块级去重（JNI rustic，已完成）**                |  
+| **AWS S3(兼容Minio Rustfs) 协议** | ❌ 不支持 | ✅ **块级去重（JNI rustic，已完成）**                |  
+| **Tencent COS 协议**            | ❌ 不支持 | ✅ **块级去重（JNI rustic，已完成）**                |  
+| **Aliyun OSS 协议**             | ❌ 不支持 | ❗ **块级去重（JNI rustic，待实现）**                |  
+| **HuaWei OBS 协议**             | ❌ 不支持 | ❗ **块级去重（JNI rustic，待实现）**                |  
+| **FTP 协议**                    | ✅ 已支持 | ✅ **块级去重（JNI rustic over librclone，已完成）** |  
+| **SFTP 协议**                   | ✅ 已支持 | ✅ **块级去重（JNI rustic over librclone，已完成）** |  
+| **WebDAV 协议**                 | ✅ 已支持 | ✅ **块级去重（JNI rustic，已完成）**                |  
+| **SMB/CIFS 协议**               | ✅ 已支持 | ❗ **块级去重（JNI rustic over librclone，待实现）** |  
 
-> 目前 JNI `rustic_core` **本地存储**,**远程协议**均迁移到 JNI**。
-> 腾讯 COS：是兼容S3协议的对象存储，特别说明：S3之间（比如AWS S3、腾讯云COS、阿里云OSS）可能存在参数差异，目前只适配了腾讯云COS，额外的其他S3对象存储目前还没有支持，在逐步适配中，敬请期待.
+> 阿里云 OOS、华为云OB、SMB/CIFS：在逐步适配中，敬请期待.
 
 ### 备份架构演进
 
