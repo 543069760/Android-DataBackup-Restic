@@ -92,6 +92,7 @@ fun PageCloud() {
                                             CloudType.WEBDAV -> MainRoutes.WebDAVSetup.getRoute(it.name.encodeURL())
                                             CloudType.SFTP -> MainRoutes.SFTPSetup.getRoute(it.name.encodeURL())
                                             CloudType.S3 -> MainRoutes.S3Setup.getRoute(it.name.encodeURL())
+                                            CloudType.AWSS3 -> MainRoutes.AwsS3Setup.getRoute(it.name.encodeURL())
                                         }
                                     )
                                 }

@@ -154,7 +154,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                     // 根据云存储类型选择备份方式
                     try {
                         when (mCloudEntity.type) {
-                            CloudType.S3, CloudType.FTP, CloudType.WEBDAV, CloudType.SFTP -> {
+                            CloudType.S3, CloudType.FTP, CloudType.WEBDAV, CloudType.SFTP, CloudType.AWSS3 -> {
                                 Log.d(mTAG, "Using Restic backup for ${m.name}")
                                 val mediaSuccess = backupFileWithResticByType(
                                     mediaName = m.name,

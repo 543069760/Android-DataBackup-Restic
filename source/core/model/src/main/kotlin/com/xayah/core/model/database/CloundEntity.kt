@@ -48,6 +48,24 @@ enum class WebDAVProtocol {
     HTTPS
 }
 
+@Serializable
+data class AwsS3Extra(
+    val type: String = "AWSS3",
+    val accessKeyId: String,
+    val secretAccessKey: String,
+    val bucket: String,
+    val region: String = "us-east-1",
+    val endpoint: String = "",
+    val protocol: AwsS3Protocol = AwsS3Protocol.HTTPS,
+    val enableVirtualHostStyle: Boolean,
+    val resticPassword: String = "",
+)
+
+enum class AwsS3Protocol {
+    HTTP,
+    HTTPS
+}
+
 @Entity
 data class CloudEntity(
     @PrimaryKey var name: String,

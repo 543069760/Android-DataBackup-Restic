@@ -31,6 +31,7 @@ import com.xayah.feature.main.cloud.add.PageFTPSetup
 import com.xayah.feature.main.cloud.add.PageSFTPSetup
 import com.xayah.feature.main.cloud.add.PageWebDAVSetup
 import com.xayah.feature.main.cloud.add.PageS3Setup
+import com.xayah.feature.main.cloud.add.PageAwsS3Setup
 import com.xayah.feature.main.configurations.PageConfigurations
 import com.xayah.feature.main.dashboard.PageDashboard
 import com.xayah.feature.main.details.DetailsRoute
@@ -122,6 +123,9 @@ class MainActivity : AppCompatActivity() {
                         }
                         composable(MainRoutes.S3Setup.route) {
                             PageS3Setup()
+                        }
+                        composable(MainRoutes.AwsS3Setup.route) {
+                            PageAwsS3Setup()
                         }
                         composable(MainRoutes.List.route) {
                             ListRoute()

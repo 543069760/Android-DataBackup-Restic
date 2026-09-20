@@ -22,10 +22,15 @@ val KeyCompressionType = stringPreferencesKey("compression_type")
 val KeyAppsUpdateTime = longPreferencesKey("apps_update_time")
 val KeyResticCompressionLevel = intPreferencesKey("restic_compression_level_int")
 
-// S3 Restic 配置键
+// COS Restic 配置键
 val KeyS3ResticRepoPath = stringPreferencesKey("s3_restic_repo_path")
 val KeyS3ResticPassword = stringPreferencesKey("s3_restic_password")
 val KeyS3ResticInitialized = booleanPreferencesKey("s3_restic_initialized")
+
+// AWS S3 Restic 配置键
+val KeyAwsS3ResticRepoPath = stringPreferencesKey("aws_s3_restic_repo_path")
+val KeyAwsS3ResticPassword = stringPreferencesKey("aws_s3_restic_password")
+val KeyAwsS3ResticInitialized = booleanPreferencesKey("aws_s3_restic_initialized")
 
 // FTP Restic 配置键
 val KeyFtpResticRepoPath = stringPreferencesKey("ftp_restic_repo_path")
@@ -70,7 +75,7 @@ suspend fun Context.saveResticCompressionLevel(level: Int) {
     }
 }
 
-// S3 Restic 配置扩展函数
+// COS Restic 配置扩展函数
 suspend fun Context.saveS3ResticPassword(password: String) {
     dataStore.edit { settings ->
         settings[KeyS3ResticPassword] = password
@@ -104,6 +109,43 @@ suspend fun Context.saveS3ResticRepoPath(path: String) {
 suspend fun Context.readS3ResticRepoPath(): String? {
     return dataStore.data.map { preferences ->
         preferences[KeyS3ResticRepoPath]
+    }.first()
+}
+
+// AWS S3 Restic 配置扩展函数
+suspend fun Context.saveAwsS3ResticPassword(password: String) {
+    dataStore.edit { settings ->
+        settings[KeyAwsS3ResticPassword] = password
+    }
+}
+
+suspend fun Context.readAwsS3ResticPassword(): String? {
+    return dataStore.data.map { preferences ->
+        preferences[KeyAwsS3ResticPassword]
+    }.first()
+}
+
+suspend fun Context.saveAwsS3ResticInitialized(initialized: Boolean) {
+    dataStore.edit { settings ->
+        settings[KeyAwsS3ResticInitialized] = initialized
+    }
+}
+
+suspend fun Context.readAwsS3ResticInitialized(): Boolean {
+    return dataStore.data.map { preferences ->
+        preferences[KeyAwsS3ResticInitialized] ?: false
+    }.first()
+}
+
+suspend fun Context.saveAwsS3ResticRepoPath(path: String) {
+    dataStore.edit { settings ->
+        settings[KeyAwsS3ResticRepoPath] = path
+    }
+}
+
+suspend fun Context.readAwsS3ResticRepoPath(): String? {
+    return dataStore.data.map { preferences ->
+        preferences[KeyAwsS3ResticRepoPath]
     }.first()
 }
 

@@ -10,6 +10,15 @@
     <string name="s3_restic_init_status">Initialization Status</string>
     <string name="s3_restic_initialize">Initialize</string>
     <string name="cloud_type_s3">Tencent Cloud COS</string>
+    <string name="cloud_type_aws_s3">AWS S3 / MinIO / RustFS</string>
+    <string name="aws_s3_setup">AWS S3 / MinIO / RustFS</string>
+    <string name="aws_s3_region">Region</string>
+    <string name="aws_s3_addressing_path_style">Path-Style</string>
+    <string name="aws_s3_addressing_virtual_hosted">Virtual-Hosted</string>
+    <string name="aws_s3_endpoint_example">AWS official: endpoint can be left blank (derived from Region), or set like s3.us-east-1.amazonaws.com.\nSelf-hosted (MinIO / RustFS, etc.): fill in the full address (the server IP or its resolved domain), e.g. minio.example.com:9000, usually Path-Style.</string>
+    <string name="aws_s3_url_preview">Full URL: %1$s</string>
+    <string name="aws_s3_access_key_id">Access Key ID</string>
+    <string name="aws_s3_secret_access_key">Secret Access Key</string>2.
     <!-- Repository Check -->
     <string name="repository_check_failed">Repository check failed. Please verify the remote path and password.</string>
     <string name="repository_checking">Verifying repository, please wait. Do not close or leave this page.</string>

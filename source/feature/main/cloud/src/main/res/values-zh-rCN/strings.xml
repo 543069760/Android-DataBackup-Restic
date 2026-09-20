@@ -10,6 +10,15 @@
     <string name="s3_restic_init_status">初始化状态</string>
     <string name="s3_restic_initialize">初始化</string>
     <string name="cloud_type_s3">腾讯云COS</string>
+    <string name="cloud_type_aws_s3">AWS S3 / MinIO / RustFS</string>
+    <string name="aws_s3_setup">AWS S3 / MinIO / RustFS</string>
+    <string name="aws_s3_region">区域 (Region)</string>
+    <string name="aws_s3_addressing_path_style">Path-Style</string>
+    <string name="aws_s3_addressing_virtual_hosted">Virtual-Hosted</string>
+    <string name="aws_s3_endpoint_example">AWS 官方：端点可留空（由 Region 自动推导），或填写如 s3.us-east-1.amazonaws.com。\nMinIO / RustFS 等自建：端点填写完整地址（自建服务器的 IP，或对应解析的域名），如 minio.example.com:9000，通常使用 Path-Style。</string>
+    <string name="aws_s3_url_preview">完整访问地址：%1$s</string>
+    <string name="aws_s3_access_key_id">访问密钥 ID</string>
+    <string name="aws_s3_secret_access_key">私有访问密钥 Key</string>3.
     <!-- 仓库检查 -->
     <string name="repository_check_failed">仓库检查失败，请确认远程路径与密码</string>
     <string name="repository_checking">正在校验仓库中，请稍候，不要关闭或退出页面</string>

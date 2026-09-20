@@ -10,6 +10,7 @@ import com.xayah.core.network.util.getExtraEntity
 import com.xayah.core.rootservice.parcelables.PathParcelable
 import com.xayah.libpickyou.parcelables.DirChildrenParcelable
 import com.xayah.core.model.database.S3Extra
+import com.xayah.core.model.database.AwsS3Extra
 import com.xayah.core.rootservice.service.RemoteRootService
 
 interface CloudClient {
@@ -55,5 +56,10 @@ fun CloudEntity.getCloud(rootService: RemoteRootService) = when (this.type) {
     CloudType.S3 -> {
         val extra = getExtraEntity<S3Extra>()!!
         S3ClientImpl(this, extra, rootService)
+    }
+
+    CloudType.AWSS3 -> {
+        val extra = getExtraEntity<AwsS3Extra>()!!
+        AwsS3ClientImpl(this, extra, rootService)
     }
 }

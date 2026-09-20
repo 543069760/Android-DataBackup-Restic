@@ -69,6 +69,12 @@ fun PageCloudAddAccount() {
                 ) {
                     navController.navigateSingle(MainRoutes.S3Setup.getRoute(encodedURLWithSpace))
                 }
+                Clickable(
+                    icon = CloudType.AWSS3.icon,
+                    title = stringResource(id = R.string.cloud_type_aws_s3),
+                ) {
+                    navController.navigateSingle(MainRoutes.AwsS3Setup.getRoute(encodedURLWithSpace))
+                }
             }
         }
     }

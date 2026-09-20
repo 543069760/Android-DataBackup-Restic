@@ -2,6 +2,7 @@ package com.xayah.core.restic.di
 
 import com.xayah.core.model.CloudType
 import com.xayah.core.restic.CloudResticBackend
+import com.xayah.core.restic.ResticRepositoryAwsS3
 import com.xayah.core.restic.ResticRepositoryCos
 import com.xayah.core.restic.ResticRepositoryFtp
 import com.xayah.core.restic.ResticRepositorySftp
@@ -13,7 +14,7 @@ import dagger.hilt.components.SingletonComponent
 import dagger.multibindings.IntoMap
 
 /**
- * 把四个 restic 后端按 CloudType 注册进 Map<CloudType, CloudResticBackend>。
+ * 把 restic 后端按 CloudType 注册进 Map<CloudType, CloudResticBackend>。
  * 注入点用 Map<CloudType, @JvmSuppressWildcards CloudResticBackend> 消费，
  * 以多态 registry[type] 替代散落的 when(CloudType) 分派。
  *
@@ -43,4 +44,9 @@ abstract class CloudResticBackendModule {
     @IntoMap
     @CloudTypeKey(CloudType.SFTP)
     abstract fun bindSftpBackend(impl: ResticRepositorySftp): CloudResticBackend
+
+    @Binds
+    @IntoMap
+    @CloudTypeKey(CloudType.AWSS3)
+    abstract fun bindAwsS3Backend(impl: ResticRepositoryAwsS3): CloudResticBackend
 }

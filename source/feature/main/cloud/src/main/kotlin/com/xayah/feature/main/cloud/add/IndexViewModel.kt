@@ -14,6 +14,8 @@ import com.xayah.core.model.database.WebDAVExtra
 import com.xayah.core.model.database.WebDAVProtocol
 import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.database.S3Protocol
+import com.xayah.core.model.database.AwsS3Extra
+import com.xayah.core.model.database.AwsS3Protocol
 import com.xayah.core.network.client.getCloud
 import com.xayah.core.ui.material3.SnackbarDuration
 import com.xayah.core.ui.material3.SnackbarType
@@ -199,6 +201,67 @@ class IndexViewModel @Inject constructor(
             IndexUiIntent.UpdateEntity(
                 name = name,
                 type = CloudType.S3,
+                url = bucket,
+                username = accessKeyId,
+                password = secretAccessKey,
+                extra = entity.extra,
+                remote = remote,
+            )
+        )
+        return entity
+    }
+
+    // 纯构造，字段映射必须与 onEvent(UpdateEntity) 完全一致
+    fun buildAwsS3CloudEntity(
+        name: String, remote: String, type: String,
+        accessKeyId: String, secretAccessKey: String,
+        bucket: String, region: String, endpoint: String,
+        protocol: AwsS3Protocol,
+        enableVirtualHostStyle: Boolean,
+        resticPassword: String,
+    ): CloudEntity {
+        val extra = GsonUtil().toJson(
+            AwsS3Extra(
+                type = type, accessKeyId = accessKeyId,
+                secretAccessKey = secretAccessKey, bucket = bucket,
+                region = region, endpoint = endpoint,
+                protocol = protocol,
+                enableVirtualHostStyle = enableVirtualHostStyle,
+                resticPassword = resticPassword,
+            )
+        )
+        return CloudEntity(
+            name = name,
+            type = CloudType.AWSS3,
+            host = bucket,
+            user = accessKeyId,
+            pass = secretAccessKey,
+            remote = remote,
+            extra = extra,
+            activated = false,
+        )
+    }
+
+    suspend fun updateAwsS3Entity(
+        name: String, remote: String, type: String,
+        accessKeyId: String, secretAccessKey: String,
+        bucket: String, region: String, endpoint: String,
+        protocol: AwsS3Protocol,
+        enableVirtualHostStyle: Boolean,
+        resticPassword: String,
+    ): CloudEntity {
+        val entity = buildAwsS3CloudEntity(
+            name = name, remote = remote, type = type,
+            accessKeyId = accessKeyId, secretAccessKey = secretAccessKey,
+            bucket = bucket, region = region, endpoint = endpoint,
+            protocol = protocol,
+            enableVirtualHostStyle = enableVirtualHostStyle,
+            resticPassword = resticPassword,
+        )
+        emitIntent(
+            IndexUiIntent.UpdateEntity(
+                name = name,
+                type = CloudType.AWSS3,
                 url = bucket,
                 username = accessKeyId,
                 password = secretAccessKey,
