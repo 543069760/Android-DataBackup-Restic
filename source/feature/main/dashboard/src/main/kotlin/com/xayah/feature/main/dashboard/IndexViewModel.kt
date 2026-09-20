@@ -9,15 +9,19 @@ import com.xayah.core.datastore.readUpdateChannel
 import com.xayah.core.model.database.DirectoryEntity
 import com.xayah.core.network.model.Release
 import com.xayah.core.network.retrofit.GitHubRepository
+import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.ui.viewmodel.BaseViewModel
 import com.xayah.core.ui.viewmodel.IndexUiEffect
 import com.xayah.core.ui.viewmodel.UiIntent
 import com.xayah.core.ui.viewmodel.UiState
+import com.xayah.core.util.localBackupSaveDir
 import com.xayah.core.util.toBrowser
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 
@@ -36,6 +40,7 @@ class IndexViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val directoryRepo: DirectoryRepository,
     private val githubRepo: GitHubRepository,
+    private val rootService: RemoteRootService,
 ) : BaseViewModel<IndexUiState, IndexUiIntent, IndexUiEffect>(IndexUiState(latestRelease = null)) {
     override suspend fun onEvent(state: IndexUiState, intent: IndexUiIntent) {
         when (intent) {
@@ -44,6 +49,10 @@ class IndexViewModel @Inject constructor(
                 // 使 querySelectedByDirectoryTypeFlow() 返回非空，directoryState 非空后存储卡片即显示，
                 // childUsedBytes 填为 rustic 仓库目录大小
                 directoryRepo.update()
+                // 计算临时缓存（恢复中转目录）大小，与设置页缓存管理一致
+                runCatching {
+                    _cacheSize.value = rootService.calculateSize("${context.localBackupSaveDir()}/restore")
+                }
                 runCatching {
                     // 0 = 正式版通道, 1 = 测试版通道
                     val channel = context.readUpdateChannel().first()
@@ -86,4 +95,8 @@ class IndexViewModel @Inject constructor(
 
     private val _directory: Flow<DirectoryEntity?> = directoryRepo.querySelectedByDirectoryTypeFlow().flowOnIO()
     val directoryState: StateFlow<DirectoryEntity?> = _directory.stateInScope(null)
+
+    // 临时缓存（恢复中转目录）大小，随 Update 刷新
+    private val _cacheSize: MutableStateFlow<Long> = MutableStateFlow(0L)
+    val cacheSizeState: StateFlow<Long> = _cacheSize.asStateFlow()
 }

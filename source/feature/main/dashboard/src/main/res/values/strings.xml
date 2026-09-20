@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="args_temp_cache">Temp cache %1$d%%</string>
+</resources>

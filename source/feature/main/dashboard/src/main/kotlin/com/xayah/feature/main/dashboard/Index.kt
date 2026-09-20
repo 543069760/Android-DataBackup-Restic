@@ -61,6 +61,7 @@ fun PageDashboard() {
     val navController = LocalNavController.current!!
     val lastBackupTime by viewModel.lastBackupTimeState.collectAsStateWithLifecycle()
     val directoryState by viewModel.directoryState.collectAsStateWithLifecycle()
+    val cacheSize by viewModel.cacheSizeState.collectAsStateWithLifecycle()
     // 引导第二步已完成 restic 仓库初始化，首页不再校验目录初始化状态，恒为已就绪
     val nullBackupDir = false
     val dialogState = LocalSlotScope.current!!.dialogSlot
@@ -136,6 +137,7 @@ fun PageDashboard() {
                     title = stringResource(id = directoryState!!.titleResId),
                     used = SegmentProgress(used = directoryState!!.usedBytes, total = directoryState!!.totalBytes),
                     backupUsed = SegmentProgress(used = directoryState!!.childUsedBytes, total = directoryState!!.totalBytes),
+                    cacheUsed = SegmentProgress(used = cacheSize, total = directoryState!!.totalBytes),
                 ) {
                     navController.navigateSingle(MainRoutes.Directory.route)
                 }

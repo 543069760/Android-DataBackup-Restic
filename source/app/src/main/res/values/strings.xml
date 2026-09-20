@@ -428,4 +428,5 @@
     <string name="endpoint">Endpoint</string>
     <string name="protocol">Protocol</string>
     <string name="protocol_desc">Select HTTP or HTTPS protocol</string>
+    <string name="args_temp_cache">Temp cache %1$d%%</string>
 </resources>

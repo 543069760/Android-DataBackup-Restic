@@ -51,6 +51,7 @@ fun StorageOverviewSection(
     title: String,
     used: SegmentProgress? = null,
     backupUsed: SegmentProgress? = null,
+    cacheUsed: SegmentProgress? = null,
     onClick: () -> Unit,
 ) {
     Card(
@@ -67,6 +68,7 @@ fun StorageOverviewSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // 左侧圆形图标
@@ -123,6 +125,23 @@ fun StorageOverviewSection(
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = "${stringResource(id = R.string.args_used_by_backups, (backupUsed.progress * 100).toInt())} (${backupUsed.usedFormat} / ${backupUsed.totalFormat})",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                if (cacheUsed != null && cacheUsed.progress.isNaN().not()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    SegmentProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = true,
+                        progress = cacheUsed.progress,
+                        color = ThemedColorSchemeKeyTokens.Error,
+                        trackColor = ThemedColorSchemeKeyTokens.ErrorL80D20,
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${stringResource(id = R.string.args_temp_cache, (cacheUsed.progress * 100).toInt())} (${cacheUsed.usedFormat} / ${cacheUsed.totalFormat})",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
