@@ -45,7 +45,7 @@
 | **WebDAV 协议**                 | ✅ 已支持 | ✅ **块级去重（JNI rustic，已完成）**                |  
 | **SMB/CIFS 协议**               | ✅ 已支持 | ❗ **块级去重（JNI rustic over librclone，待实现）** |  
 
-> 阿里云 OOS、华为云OB、SMB/CIFS：在逐步适配中，敬请期待.
+> 阿里云 OOS、华为云OBS、SMB/CIFS：在逐步适配中，敬请期待.
 
 ### 备份架构演进
 
