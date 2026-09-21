@@ -388,6 +388,12 @@ fun PageProcessing(
                     }
                 }
 
+                val displayItems = if (uiState.state == OperationState.DONE) {
+                    dataItems.sortedBy { if (it.state == OperationState.ERROR) 0 else 1 }
+                } else {
+                    dataItems
+                }
+
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     state = lazyListState,
@@ -396,9 +402,10 @@ fun PageProcessing(
                     item {
                         Spacer(modifier = Modifier.size(SizeTokens.Level12))
                     }
-                    items(count = dataItems.size) {
+                    items(count = displayItems.size) {
+                        // 完成后不再有"当前处理项"，展开态默认全部收起即可
                         var expanded by rememberSaveable(task, it) { mutableStateOf((task?.processingIndex?.minus(1) ?: -1) == it) }
-                        val item = dataItems.getOrNull(it)
+                        val item = displayItems.getOrNull(it)
                         if (item != null) {
                             ProcessingCard(
                                 modifier = Modifier

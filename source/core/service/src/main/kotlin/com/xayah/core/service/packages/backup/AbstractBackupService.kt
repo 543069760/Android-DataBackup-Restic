@@ -269,6 +269,10 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
         val killAppOption = mContext.readKillAppOption().first()
         log { "Kill app option: $killAppOption" }
 
+        // 每个 app 固定 7 个阶段：6 个 DataType + 1 个 config
+        val stagesPerApp = 7
+        val totalStages = mPkgEntities.size * stagesPerApp
+
         for (index in mPkgEntities.indices) {
             if (isCanceled()) {
                 log { "Backup canceled by user at index: $index" }
@@ -276,15 +280,23 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
             }
 
             val pkg = mPkgEntities[index]
-            executeAtLeast {
+
+            // 当前 app 内已完成阶段数（0..stagesPerApp）
+            var stageInApp = 0
+            fun notifyStage() {
                 NotificationUtil.notify(
                     mContext,
                     mNotificationBuilder,
                     mContext.getString(R.string.backing_up),
                     pkg.packageEntity.packageInfo.label,
-                    mPkgEntities.size,
-                    index
+                    totalStages,
+                    index * stagesPerApp + stageInApp
                 )
+            }
+
+            executeAtLeast {
+                // 进入该 app：进度 = index * 7 + 0
+                notifyStage()
                 log { "Current package: ${pkg.packageEntity}" }
 
                 killApp(killAppOption, pkg)
@@ -318,6 +330,9 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                             break
                         }
                         backup(type = type, p = p, r = restoreEntity, t = pkg, dstDir = dstDir)
+                        // 每完成一个 DataType（即使内部被跳过）都推进一个阶段
+                        stageInApp++
+                        notifyStage()
                     }
 
                     if (isCanceled()) {
@@ -375,6 +390,11 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                     mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
                 }
             }
+
+            // 无论成功/失败/取消/提前 break，都把该 app 的进度补齐到满阶段，保证单调不回退
+            stageInApp = stagesPerApp
+            notifyStage()
+
             mTaskEntity.update(processingIndex = mTaskEntity.processingIndex + 1)
         }
     }

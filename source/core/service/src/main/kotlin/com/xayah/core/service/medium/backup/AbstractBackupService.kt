@@ -388,6 +388,10 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
         mTaskEntity.update(rawBytes = mTaskRepo.getRawBytes(TaskType.MEDIA), availableBytes = mTaskRepo.getAvailableBytes(OpType.BACKUP), totalBytes = mTaskRepo.getTotalBytes(OpType.BACKUP), totalCount = mMediaEntities.size)
         log { "Task count: ${mMediaEntities.size}." }
 
+        // 每个文件固定 2 个阶段：tar + config
+        val stagesPerMedia = 2
+        val totalStages = mMediaEntities.size * stagesPerMedia
+
         for (index in mMediaEntities.indices) {
             if (isCanceled()) {
                 log { "Backup canceled by user at media index: $index" }
@@ -395,15 +399,22 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
             }
 
             val media = mMediaEntities[index]
-            executeAtLeast {
+
+            // 当前文件内已完成的阶段数，以及按阶段推进任务栏进度条的局部函数
+            var stageInMedia = 0
+            fun notifyStage() {
                 NotificationUtil.notify(
                     mContext,
                     mNotificationBuilder,
                     mContext.getString(R.string.backing_up),
                     media.mediaEntity.name,
-                    mMediaEntities.size,
-                    index
+                    totalStages,
+                    index * stagesPerMedia + stageInMedia
                 )
+            }
+
+            executeAtLeast {
+                notifyStage()
                 log { "Current media: ${media.mediaEntity}" }
 
                 media.update(state = OperationState.PROCESSING)
@@ -442,6 +453,8 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
 
                             // 备份tar文件 - 传入 media 以刷 UI 进度
                             val tarSuccess = backupWithRestic(m.name, tarFile, DataType.PACKAGE_MEDIA, media)
+                            stageInMedia++          // ★ tar 阶段完成
+                            notifyStage()
                             Log.d("ResticFlow", "tar文件Restic备份结果: $tarSuccess")
 
                             // ★ 取消检查：tar 备份因强杀失败后，不再对 config 发起任何 mRootService 调用（避免重建 root）
@@ -454,6 +467,8 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
 
                             // 备份配置文件 - 传入 media 以刷 UI 进度
                             val configSuccess = backupWithRestic(m.name, configFile, DataType.PACKAGE_CONFIG, media)
+                            stageInMedia++          // ★ config 阶段完成
+                            notifyStage()
                             Log.d("ResticFlow", "配置文件Restic备份结果: $configSuccess")
 
                             // 检查Restic备份是否都成功
@@ -498,6 +513,10 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                     media.update(state = OperationState.ERROR)
                 }
             }
+
+            // 补齐到满阶段：无论上面成功/失败/提前 return，都把本文件进度填满，保证任务栏进度条单调递增
+            stageInMedia = stagesPerMedia
+            notifyStage()
 
             if (isCanceled()) {
                 log { "Backup canceled after media backup, skipping remaining items" }

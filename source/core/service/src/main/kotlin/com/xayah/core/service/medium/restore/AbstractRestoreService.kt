@@ -87,22 +87,34 @@ internal abstract class AbstractRestoreService : AbstractMediumService() {
         mTaskEntity.update(rawBytes = mTaskRepo.getRawBytes(TaskType.MEDIA), availableBytes = mTaskRepo.getAvailableBytes(OpType.RESTORE), totalBytes = mTaskRepo.getTotalBytes(OpType.RESTORE), totalCount = mMediaEntities.size)
         log { "Task count: ${mMediaEntities.size}." }
 
+        // 每个文件固定 2 个阶段：开始 + 恢复完成（媒体恢复内部只有一次 restore 调用，无更细分的钩子）
+        val stagesPerMedia = 2
+        val totalStages = mMediaEntities.size * stagesPerMedia
+
         mMediaEntities.forEachIndexed { index, media ->
-            executeAtLeast {
+            // 当前文件内已完成的阶段数，以及按阶段推进任务栏进度条的局部函数
+            var stageInMedia = 0
+            fun notifyStage() {
                 NotificationUtil.notify(
                     mContext,
                     mNotificationBuilder,
                     mContext.getString(R.string.restoring),
                     media.mediaEntity.name,
-                    mMediaEntities.size,
-                    index
+                    totalStages,
+                    index * stagesPerMedia + stageInMedia
                 )
+            }
+
+            executeAtLeast {
+                notifyStage()
                 log { "Current media: ${media.mediaEntity}" }
 
                 media.update(state = OperationState.PROCESSING)
                 val m = media.mediaEntity
                 val srcDir = "${mFilesDir}/${m.archivesRelativeDir}"
                 restore(m = m, t = media, srcDir = srcDir)
+                stageInMedia++
+                notifyStage()
 
                 if (media.isSuccess) {
                     media.update(mediaEntity = m)
@@ -112,6 +124,11 @@ internal abstract class AbstractRestoreService : AbstractMediumService() {
                 }
                 media.update(state = if (media.isSuccess) OperationState.DONE else OperationState.ERROR)
             }
+
+            // 补齐到满阶段：即便中途异常也保证进度单调不回退
+            stageInMedia = stagesPerMedia
+            notifyStage()
+
             mTaskEntity.update(processingIndex = mTaskEntity.processingIndex + 1)
         }
     }

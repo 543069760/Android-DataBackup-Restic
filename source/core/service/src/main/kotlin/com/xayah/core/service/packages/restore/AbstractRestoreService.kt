@@ -135,16 +135,26 @@ internal abstract class AbstractRestoreService : AbstractPackagesService() {
         val killAppOption = mContext.readKillAppOption().first()
         log { "Kill app option: $killAppOption" }
 
+        // 每个 app 固定 6 个阶段（6 个 DataType）
+        val stagesPerApp = 6
+        val totalStages = mPkgEntities.size * stagesPerApp
+
         mPkgEntities.forEachIndexed { index, pkg ->
-            executeAtLeast {
+            // 当前 app 内已完成阶段数
+            var stageInApp = 0
+            fun notifyStage() {
                 NotificationUtil.notify(
                     mContext,
                     mNotificationBuilder,
                     mContext.getString(R.string.restoring),
                     pkg.packageEntity.packageInfo.label,
-                    mPkgEntities.size,
-                    index
+                    totalStages,
+                    index * stagesPerApp + stageInApp
                 )
+            }
+
+            executeAtLeast {
+                notifyStage()
                 log { "Current package: ${pkg.packageEntity}" }
 
                 killApp(killAppOption, pkg)
@@ -159,10 +169,8 @@ internal abstract class AbstractRestoreService : AbstractPackagesService() {
                 val srcDir = "${baseDir}/${p.archivesRelativeDir}"
                 val userId = if (restoreUser == -1) p.userId else restoreUser
 
-                // 批量恢复：先按队列从 restic 仓库解出该包的重型 tar 到中转目录（默认空实现）
                 onBeforeRestorePackage(p, pkg, userId)
 
-                // App 维度 fail-fast：任一 dataType 失败即跳过该 App 剩余步骤
                 var failedFast = false
                 val dataTypes = listOf(
                     DataType.PACKAGE_APK,
@@ -174,6 +182,9 @@ internal abstract class AbstractRestoreService : AbstractPackagesService() {
                 )
                 for (type in dataTypes) {
                     restore(type = type, userId = userId, p = p, t = pkg, srcDir = srcDir)
+                    // 每完成一个 DataType 推进一个阶段
+                    stageInApp++
+                    notifyStage()
                     if (pkg.get(type).state == OperationState.ERROR) {
                         log { "Fail-fast: ${p.packageName} 在 ${type.type} 步骤失败，跳过该 App 剩余恢复步骤。" }
                         failedFast = true
@@ -198,9 +209,13 @@ internal abstract class AbstractRestoreService : AbstractPackagesService() {
                 }
                 pkg.update(state = if (pkg.isSuccess) OperationState.DONE else OperationState.ERROR)
 
-                // 批量恢复：无论成败都清理该包中转目录，避免脏数据影响下次恢复（默认空实现）
                 onAfterRestorePackage(p, userId, pkg.isSuccess)
             }
+
+            // fail-fast break 等情况下补齐到满阶段，保证单调
+            stageInApp = stagesPerApp
+            notifyStage()
+
             mTaskEntity.update(processingIndex = mTaskEntity.processingIndex + 1)
         }
     }
