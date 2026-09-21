@@ -65,4 +65,7 @@
     <string name="restore_selected_count">Selected %1$d</string>
     <string name="restore_next_step">Next</string>
     <string name="processing">Processing</string>
+    <string name="restore_no_match">No matching results</string>
+    <!-- 搜索 -->
+    <string name="restore_search_hint">Search app name or package name</string>
 </resources>

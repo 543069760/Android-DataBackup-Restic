@@ -57,4 +57,7 @@
     <string name="restore_selected_count">已选 %1$d 个</string>
     <string name="restore_next_step">下一步</string>
     <string name="processing">处理中</string>
+    <string name="restore_no_match">没有匹配的结果</string>
+    <!-- 搜索 -->
+    <string name="restore_search_hint">搜索应用名或包名</string>
 </resources>
