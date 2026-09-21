@@ -139,7 +139,7 @@ fun PageDashboard() {
                     backupUsed = SegmentProgress(used = directoryState!!.childUsedBytes, total = directoryState!!.totalBytes),
                     cacheUsed = SegmentProgress(used = cacheSize, total = directoryState!!.totalBytes),
                 ) {
-                    navController.navigateSingle(MainRoutes.Directory.route)
+                    navController.navigateSingle(MainRoutes.StorageStats.route)
                 }
             }
 

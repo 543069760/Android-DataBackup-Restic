@@ -63,6 +63,10 @@ class ResticViewModel @Inject constructor(
     private val _initializationState = MutableStateFlow<InitializationState>(InitializationState.Idle)
     val initializationState: StateFlow<InitializationState> = _initializationState.asStateFlow()
 
+    // 纯 UI 状态：是否处于“重新初始化”模式（不触碰持久化数据）
+    private val _isReinitializing = MutableStateFlow(false)
+    val isReinitializing: StateFlow<Boolean> = _isReinitializing.asStateFlow()
+
     private val _resticErrorState = MutableStateFlow<String?>(null)
     val resticErrorState: StateFlow<String?> = _resticErrorState.asStateFlow()
 
@@ -185,6 +189,7 @@ class ResticViewModel @Inject constructor(
                         context.saveResticPassword(password)
 
                         _initializationState.value = InitializationState.ReadyToUse(repoPath)
+                        _isReinitializing.value = false   // 重新初始化流程完成
                         true
                     } else {
                         _initializationState.value = InitializationState.PasswordError(repoPath)
@@ -200,6 +205,7 @@ class ResticViewModel @Inject constructor(
                         _resticRepoPathState.value = repoPath
                         _resticSnapshotCountState.value = 0
                         _initializationState.value = InitializationState.ReadyToUse(repoPath)
+                        _isReinitializing.value = false   // 重新初始化流程完成
                     } else {
                         _initializationState.value = InitializationState.Error("Initialization failed")
                     }
@@ -291,6 +297,23 @@ class ResticViewModel @Inject constructor(
             _resticSnapshotCountState.value = 0
             _initializationState.value = InitializationState.Idle
         }
+    }
+
+    /**
+     * 进入“重新初始化”模式：仅切换 UI 显示，不清空已持久化的仓库路径/密码，
+     * 也不重置 _repoPathState / _resticInitializedState（保留已有路径）。
+     * 只有当新仓库真正初始化/校验成功后，才由 initializeOrValidateRepository 覆盖旧值。
+     */
+    fun enterReinitializeMode() {
+        _isReinitializing.value = true
+        _initializationState.value = InitializationState.Idle
+    }
+
+    /**
+     * 退出“重新初始化”模式（用户中途返回时重置标志），不改动任何持久化数据。
+     */
+    fun exitReinitializeMode() {
+        _isReinitializing.value = false
     }
 
     suspend fun deleteAndReinitializeRepository(repoPath: String): Boolean {

@@ -45,6 +45,7 @@ import com.xayah.feature.main.processing.packages.backup.PackagesBackupProcessin
 import com.xayah.feature.main.processing.packages.restore.PackagesRestoreProcessingGraph
 import com.xayah.feature.main.restore.PageRestore
 import com.xayah.feature.main.settings.PageSettings
+import com.xayah.feature.main.settings.storage.PageStorageStats
 import com.xayah.feature.main.settings.about.PageAboutSettings
 import com.xayah.feature.main.settings.about.PageTranslatorsSettings
 import com.xayah.feature.main.settings.backup.PageBackupSettings
@@ -388,7 +389,9 @@ class MainActivity : AppCompatActivity() {
                         composable(route = MainRoutes.Directory.route) {
                             PageDirectory()
                         }
-
+                        composable(MainRoutes.StorageStats.route) {
+                            PageStorageStats()
+                        }
                         composable(MainRoutes.ResticFilesRestore.route) {
                             ResticFilesRestorePage(navController = navController)
                         }

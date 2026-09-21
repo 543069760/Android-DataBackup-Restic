@@ -66,13 +66,9 @@ fun PageTwo() {
     val context = LocalContext.current
     val viewModel = hiltViewModel<IndexViewModel>()
     val backupSavePathSaved by context.readBackupSavePathSaved().collectAsStateWithLifecycle(initialValue = false)
-    val backupSavePath by context.readBackupSavePath().collectAsStateWithLifecycle(initialValue = "")
     val initializationState by viewModel.initializationState.collectAsStateWithLifecycle()
-    val notSelectedText = stringResource(id = R.string.not_selected)
-
     var password by rememberSaveable { mutableStateOf(IndexViewModel.DEFAULT_RESTIC_PASSWORD) }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
-
     val isInitialized = initializationState is IndexViewModel.InitializationState.ReadyToUse
     val isInitializing = initializationState is IndexViewModel.InitializationState.Preparing ||
             initializationState is IndexViewModel.InitializationState.Initializing
@@ -109,13 +105,6 @@ fun PageTwo() {
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(SizeTokens.Level24)
         ) {
-            // 备份目录 - 只读展示
-            Clickable(
-                title = stringResource(id = R.string.backup_dir),
-                value = if (backupSavePathSaved) backupSavePath else notSelectedText,
-                desc = if (backupSavePathSaved) null else stringResource(id = R.string.setup_backup_dir_desc),
-                enabled = false
-            ) {}
 
             // Restic 仓库路径 - 只读展示
             Clickable(

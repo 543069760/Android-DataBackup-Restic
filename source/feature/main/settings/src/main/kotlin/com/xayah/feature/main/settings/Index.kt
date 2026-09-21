@@ -137,24 +137,6 @@ fun PageSettings() {
                 }
             }
 
-            // --- 备份管理 ---
-            Title(title = stringResource(id = R.string.manage_backups)) {
-                Clickable(
-                    icon = Icons.Outlined.Block,
-                    title = stringResource(id = R.string.blacklist),
-                    value = stringResource(id = R.string.blacklist_desc),
-                ) {
-                    navController.navigateSingle(MainRoutes.BlackList.route)
-                }
-                Clickable(
-                    icon = ImageVector.vectorResource(id = R.drawable.ic_rounded_folder_open),
-                    title = stringResource(id = R.string.backup_dir),
-                    value = if (directoryState == null) null else stringResource(id = directoryState!!.titleResId),
-                ) {
-                    navController.navigateSingle(MainRoutes.Directory.route)
-                }
-            }
-
             // --- Restic 配置 ---
             Title(title = stringResource(id = R.string.restic_configuration)) {
                 Clickable(

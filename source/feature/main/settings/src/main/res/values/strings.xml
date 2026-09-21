@@ -7,7 +7,7 @@
     <string name="refresh">Refresh</string>
     <string name="clear_all">Clear Alls</string>
     <!-- Restic 配置字符串 -->
-    <string name="restic_configuration">Restic Configuration</string>
+    <string name="restic_configuration">Restic Backup Repository</string>
     <string name="restic_repo_path">Restic Repository Path(Local only)</string>
     <string name="restic_repo_path_desc">Set the storage path for Restic backup repository(Local only)</string>
     <string name="restic_password">Restic Password(Local only)</string>
@@ -62,4 +62,9 @@
     <string name="update_channel_beta">Beta</string>
     <string name="update_channel_beta_title">Switch to Beta Channel?</string>
     <string name="update_channel_beta_warning">Beta builds are unstable. Features may change or be adjusted at any time, and there may be data risks. Please use with caution.</string>
+    <string name="storage_stats_title">Storage &amp; Repository</string>
+    <string name="restic_repo_path_label">Restic repository path</string>
+    <string name="storage_reselect_and_reinit">Re-select a new repository path and reinitialize?</string>
+    <string name="storage_cache_title">Temporary cache</string>
+    <string name="storage_cache_hint">Temporary transit cache exists, tap to clear.</string>
 </resources>

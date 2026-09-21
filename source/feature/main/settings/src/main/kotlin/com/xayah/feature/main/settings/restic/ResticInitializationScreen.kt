@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,10 +48,40 @@ fun ResticInitializationScreen() {
     val initializationState by viewModel.initializationState.collectAsStateWithLifecycle()
     val resticInitialized by viewModel.resticInitializedState.collectAsStateWithLifecycle(initialValue = false)
     val repoPath by viewModel.repoPathState.collectAsStateWithLifecycle()
+    // 纯 UI 状态：是否处于“重新初始化”模式（不触碰持久化数据）
+    val isReinitializing by viewModel.isReinitializing.collectAsStateWithLifecycle(initialValue = false)
 
     var selectedPath by remember { mutableStateOf("") }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var repoPathToDelete by remember { mutableStateOf("") }
+
+    // 记录本次是否曾进入过“重新初始化”模式。
+    // 由于 ViewModel 在成功分支会把 _isReinitializing 置为 false，
+    // 且与 ReadyToUse 几乎同时发生，直接读 isReinitializing 可能已为 false，
+    // 因此用本地标志捕获“曾经进入过重新初始化”，成功后据此决定是否回退。
+    var wasReinitializing by remember { mutableStateOf(false) }
+    LaunchedEffect(isReinitializing) {
+        if (isReinitializing) {
+            wasReinitializing = true
+        }
+    }
+
+    // 成功后自动回退上一页：仅当此前处于重新初始化模式时才 popBackStack，
+    // 避免影响首次引导初始化流程（首次流程不会进入 reinit 模式）。
+    LaunchedEffect(initializationState) {
+        if (initializationState is ResticViewModel.InitializationState.ReadyToUse && wasReinitializing) {
+            wasReinitializing = false
+            navController.popBackStack()
+        }
+    }
+
+    // 离开屏幕时统一重置“重新初始化”模式标志，
+    // 确保中途返回后下次进入仍能正确显示已初始化界面且原路径保留。
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.exitReinitializeMode()
+        }
+    }
 
     val directoryLauncher = PickYouLauncher(
         checkPermission = false,
@@ -59,17 +90,17 @@ fun ResticInitializationScreen() {
         permissionType = PermissionType.ROOT,
     )
 
-    if (resticInitialized && repoPath != null) {
+    if (resticInitialized && repoPath != null && !isReinitializing) {
         // 已初始化状态：显示当前信息和重新初始化按钮
         InitializedView(
             repoPath = repoPath!!,
             onReinitialize = {
-                // 清除状态并重新初始化
-                viewModel.clearInitializationState()
+                // 进入“重新初始化”模式：仅切换 UI 显示，不清空已保存的路径/密码
+                viewModel.enterReinitializeMode()
             }
         )
     } else {
-        // 未初始化状态：显示初始化界面
+        // 未初始化状态（或处于重新初始化模式）：显示初始化界面
         InitializationView(
             viewModel = viewModel,
             initializationState = initializationState,
@@ -146,7 +177,11 @@ private fun InitializationView(
             TopAppBar(
                 title = { Text(stringResource(id = R.string.initialize_restic)) },
                 navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
+                    IconButton(onClick = {
+                        // 中途返回：先退出“重新初始化”模式再回退，保留原路径
+                        viewModel.exitReinitializeMode()
+                        navController.popBackStack()
+                    }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = null)
                     }
                 }
