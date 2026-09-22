@@ -70,6 +70,19 @@ pub fn repository_exists(
     Ok(repo.config_id()?.is_some())
 }
 
+pub fn repository_config_id(
+    repository_path: &str,
+    options: &HashMap<String, String>,
+) -> Result<Option<String>> {
+    let repo = Repository::new(
+        &RepositoryOptions::default(),
+        &backends(repository_path, options, no_cancel(), 0)?,
+    )?;
+
+    // config_id() -> Option<Id>；有 config 时转成 64 位十六进制字符串，无则 None
+    Ok(repo.config_id()?.map(|id| id.to_hex().as_str().to_string()))
+}
+
 pub fn validate_repository(
     repository_path: &str,
     password: &str,

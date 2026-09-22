@@ -62,6 +62,8 @@ fun PageDashboard() {
     val lastBackupTime by viewModel.lastBackupTimeState.collectAsStateWithLifecycle()
     val directoryState by viewModel.directoryState.collectAsStateWithLifecycle()
     val cacheSize by viewModel.cacheSizeState.collectAsStateWithLifecycle()
+    // OTG 仓库发现状态：None 不显示、Registered 显示 OTG 卡片、NeedsSetup 显示引导卡片
+    val otgDiscoveryState by viewModel.otgDiscoveryState.collectAsStateWithLifecycle()
     // 引导第二步已完成 restic 仓库初始化，首页不再校验目录初始化状态，恒为已就绪
     val nullBackupDir = false
     val dialogState = LocalSlotScope.current!!.dialogSlot
@@ -140,6 +142,29 @@ fun PageDashboard() {
                     cacheUsed = SegmentProgress(used = cacheSize, total = directoryState!!.totalBytes),
                 ) {
                     navController.navigateSingle(MainRoutes.StorageStats.route)
+                }
+            }
+
+            // 1b. OTG 卡片 / 引导卡片（仅插入 OTG 且发现仓库时显示，位于容量卡片正下方）
+            when (val otg = otgDiscoveryState) {
+                is IndexViewModel.OtgDiscoveryState.Registered -> {
+                    OtgStorageCard(
+                        used = SegmentProgress(used = otg.usedBytes, total = otg.totalBytes),
+                        backupUsed = SegmentProgress(used = otg.backupUsedBytes, total = otg.totalBytes),
+                    ) {
+                        navController.navigateSingle(MainRoutes.StorageStats.route)
+                    }
+                }
+
+                is IndexViewModel.OtgDiscoveryState.NeedsSetup -> {
+                    OtgSetupHintCard {
+                        // 发现 OTG 仓库但未登记身份：引导去设置页，由 bootstrap 编排接手密码/多盘交互
+                        navController.navigateSingle(MainRoutes.Settings.route)
+                    }
+                }
+
+                IndexViewModel.OtgDiscoveryState.None -> {
+                    // 未插 OTG 或未发现仓库：不显示任何 OTG UI
                 }
             }
 

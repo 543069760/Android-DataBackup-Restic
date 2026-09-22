@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-<string name="pre_backup_repository_check_failed">备份前仓库检查失败：仓库不存在、无法打开、已损坏或密码错误。</string>
+    <string name="pre_backup_repository_check_failed">备份前仓库检查失败：仓库不存在、无法打开、已损坏或密码错误。</string>
+    <string name="restic_otg_offline">未检测到 OTG 存储，请重新插入原 U 盘。</string>
+    <string name="restic_otg_ambiguous">检测到多个匹配的 OTG 仓库，请手动选择一个。</string>
 </resources>

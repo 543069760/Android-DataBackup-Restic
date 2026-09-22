@@ -556,6 +556,17 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         Rustic.repositoryExists(repositoryPath, options.toStringMap())
     }
 
+    override fun rusticRepositoryConfigId(
+        repositoryPath: String,
+        options: MutableMap<Any?, Any?>?,
+    ): String? {
+        val optionMap: Map<String, String> = options
+            ?.entries
+            ?.associate { (k, v) -> k.toString() to v.toString() }
+            ?: emptyMap()
+        return Rustic.repositoryConfigId(repositoryPath, optionMap)
+    }
+
     override fun validateRusticRepository(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?): Unit = synchronized(lock) {
         try {
             Rustic.validateRepository(repositoryPath, password, options.toStringMap())

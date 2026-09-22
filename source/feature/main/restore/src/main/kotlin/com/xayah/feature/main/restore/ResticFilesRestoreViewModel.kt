@@ -7,6 +7,10 @@ import androidx.lifecycle.viewModelScope
 import com.xayah.core.data.repository.FilesRepo
 import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.datastore.readResticRepoPath
+import com.xayah.core.datastore.readResticRepoConfigId
+import com.xayah.core.datastore.saveResticRepoPath
+import com.xayah.core.datastore.saveResticRepoConfigId
+import com.xayah.core.data.repository.ResticRepoLocator
 import com.xayah.core.model.restic.ResticBackupFiles
 import com.xayah.core.restic.ResticRepository
 import com.xayah.feature.main.restore.ResticFileBackupGroup
@@ -42,6 +46,7 @@ class ResticFilesRestoreViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val resticRepo: ResticRepository,
     private val rootService: RemoteRootService,
+    private val resticRepoLocator: ResticRepoLocator,
     private val mediaDao: MediaDao,
     private val filesRepo: FilesRepo
 ) : ViewModel() {
@@ -61,16 +66,42 @@ class ResticFilesRestoreViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<ResticFilesRestoreUiState>(ResticFilesRestoreUiState.Loading)
     val uiState: StateFlow<ResticFilesRestoreUiState> = _uiState.asStateFlow()
 
+    private suspend fun resolveAndAlignResticRepo(): String? {
+        val savedPath = context.readResticRepoPath()
+        if (savedPath.isNullOrEmpty()) return savedPath
+        val savedConfigId = context.readResticRepoConfigId()
+        return when (val r = resticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
+            is ResticRepoLocator.ResolveResult.Passthrough -> r.path
+            is ResticRepoLocator.ResolveResult.Matched -> {
+                if (r.changed) {
+                    context.saveResticRepoPath(r.path)
+                }
+                r.path
+            }
+            is ResticRepoLocator.ResolveResult.NotFound -> {
+                Log.e(TAG, "未检测到 OTG 仓库，无法恢复")
+                _uiState.value = ResticFilesRestoreUiState.Error("未检测到 OTG 仓库，请插入 U 盘后重试")
+                null
+            }
+            is ResticRepoLocator.ResolveResult.Ambiguous -> {
+                Log.e(TAG, "检测到多个 OTG 仓库候选: ${r.candidates}")
+                _uiState.value = ResticFilesRestoreUiState.Error("检测到多个匹配的 OTG 仓库，请手动选择")
+                null
+            }
+        }
+    }
+
     // 添加恢复方法
     suspend fun restoreFromResticSnapshots(group: ResticFileBackupGroup): Boolean {
         Log.d("ResticFilesRestore", "开始文件快照恢复流程，媒体名称: ${group.mediaName}")
         return try {
             Log.d("ResticFilesRestore", "读取 Restic 配置")
-            val repoPath = context.readResticRepoPath()
+            // ===== 新增：前置对齐（仅 OTG 生效）=====
+            val repoPath = resolveAndAlignResticRepo() ?: return false
             val password = context.readResticPassword()
             Log.d("ResticFilesRestore", "仓库路径: $repoPath")
 
-            if (repoPath.isNullOrEmpty() || password.isNullOrEmpty()) {
+            if (password.isNullOrEmpty()) {
                 Log.e("ResticFilesRestore", "Restic 配置不完整")
                 return false
             }

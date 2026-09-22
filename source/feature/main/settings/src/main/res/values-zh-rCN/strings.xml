@@ -66,4 +66,8 @@
     <string name="storage_reselect_and_reinit">重新选择新的仓库路径并重新初始化？</string>
     <string name="storage_cache_title">临时缓存</string>
     <string name="storage_cache_hint">存在临时中转缓存，可点击清理。</string>
+    <string name="restic_otg_offline">未检测到 OTG 存储，请重新插入原 U 盘。</string>
+    <string name="restic_otg_rescan">重新扫描并连接 OTG 仓库</string>
+    <string name="restic_otg_enter_password">请输入仓库密码</string>
+    <string name="restic_otg_select_repository">检测到多个 OTG 仓库，请选择一个</string>
 </resources>

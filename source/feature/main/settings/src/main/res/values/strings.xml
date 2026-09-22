@@ -67,4 +67,9 @@
     <string name="storage_reselect_and_reinit">Re-select a new repository path and reinitialize?</string>
     <string name="storage_cache_title">Temporary cache</string>
     <string name="storage_cache_hint">Temporary transit cache exists, tap to clear.</string>
+    <!-- OTG bootstrap 字符串 -->
+    <string name="restic_otg_offline">OTG storage not connected. Please reinsert the original USB drive.</string>
+    <string name="restic_otg_rescan">Rescan and connect OTG repository</string>
+    <string name="restic_otg_enter_password">Enter repository password</string>
+    <string name="restic_otg_select_repository">Select an OTG repository</string>
 </resources>

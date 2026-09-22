@@ -1,5 +1,6 @@
 package com.xayah.feature.main.settings.restic
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,6 +11,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -56,9 +58,6 @@ fun ResticInitializationScreen() {
     var repoPathToDelete by remember { mutableStateOf("") }
 
     // 记录本次是否曾进入过“重新初始化”模式。
-    // 由于 ViewModel 在成功分支会把 _isReinitializing 置为 false，
-    // 且与 ReadyToUse 几乎同时发生，直接读 isReinitializing 可能已为 false，
-    // 因此用本地标志捕获“曾经进入过重新初始化”，成功后据此决定是否回退。
     var wasReinitializing by remember { mutableStateOf(false) }
     LaunchedEffect(isReinitializing) {
         if (isReinitializing) {
@@ -66,8 +65,7 @@ fun ResticInitializationScreen() {
         }
     }
 
-    // 成功后自动回退上一页：仅当此前处于重新初始化模式时才 popBackStack，
-    // 避免影响首次引导初始化流程（首次流程不会进入 reinit 模式）。
+    // 成功后自动回退上一页：仅当此前处于重新初始化模式时才 popBackStack
     LaunchedEffect(initializationState) {
         if (initializationState is ResticViewModel.InitializationState.ReadyToUse && wasReinitializing) {
             wasReinitializing = false
@@ -75,8 +73,6 @@ fun ResticInitializationScreen() {
         }
     }
 
-    // 离开屏幕时统一重置“重新初始化”模式标志，
-    // 确保中途返回后下次进入仍能正确显示已初始化界面且原路径保留。
     DisposableEffect(Unit) {
         onDispose {
             viewModel.exitReinitializeMode()
@@ -95,7 +91,6 @@ fun ResticInitializationScreen() {
         InitializedView(
             repoPath = repoPath!!,
             onReinitialize = {
-                // 进入“重新初始化”模式：仅切换 UI 显示，不清空已保存的路径/密码
                 viewModel.enterReinitializeMode()
             }
         )
@@ -178,7 +173,6 @@ private fun InitializationView(
                 title = { Text(stringResource(id = R.string.initialize_restic)) },
                 navigationIcon = {
                     IconButton(onClick = {
-                        // 中途返回：先退出“重新初始化”模式再回退，保留原路径
                         viewModel.exitReinitializeMode()
                         navController.popBackStack()
                     }) {
@@ -211,7 +205,30 @@ private fun InitializationView(
                         color = MaterialTheme.colorScheme.error
                     )
                 }
+                // 新增：OTG 离线态（扫不到原盘/未插盘）——不清空配置，提示重新插入
+                is ResticViewModel.InitializationState.Offline -> {
+                    Text(
+                        text = stringResource(id = R.string.restic_otg_offline),
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
                 else -> {}
+            }
+
+            // 新增：OTG 离线态下提供“重新扫描并连接”按钮，触发一次发现流程
+            if (initializationState is ResticViewModel.InitializationState.Offline) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = {
+                        viewModel.launchOnIO {
+                            viewModel.scanOtgRepositories()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(id = R.string.restic_otg_rescan))
+                }
+                Spacer(modifier = Modifier.height(16.dp))
             }
 
             // 文件选择器
@@ -284,6 +301,81 @@ private fun InitializationView(
             },
             dismissButton = {
                 TextButton(onClick = { onDeleteDialogChange(false) }) {
+                    Text(stringResource(id = R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // 新增：OTG bootstrap —— 默认密码不可解，弹密码框
+    if (initializationState is ResticViewModel.InitializationState.NeedsPassword) {
+        val state = initializationState as ResticViewModel.InitializationState.NeedsPassword
+        var passwordInput by remember(state.repoPath) { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { viewModel.cancelOtgBootstrap() },
+            title = { Text(stringResource(id = R.string.restic_otg_enter_password)) },
+            text = {
+                Column {
+                    Text(
+                        text = stringResource(id = R.string.restic_repo_will_be_created_at, state.repoPath),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = passwordInput,
+                        onValueChange = { passwordInput = it },
+                        label = { Text(stringResource(id = R.string.restic_password)) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = passwordInput.isNotEmpty(),
+                    onClick = {
+                        viewModel.launchOnIO {
+                            viewModel.submitOtgPassword(passwordInput)
+                        }
+                    }
+                ) {
+                    Text(stringResource(id = R.string.save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.cancelOtgBootstrap() }) {
+                    Text(stringResource(id = R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // 新增：OTG bootstrap —— 发现多个仓库，弹选择列表
+    if (initializationState is ResticViewModel.InitializationState.SelectRepository) {
+        val state = initializationState as ResticViewModel.InitializationState.SelectRepository
+        AlertDialog(
+            onDismissRequest = { viewModel.cancelOtgBootstrap() },
+            title = { Text(stringResource(id = R.string.restic_otg_select_repository)) },
+            text = {
+                Column {
+                    state.candidates.forEach { repo ->
+                        Text(
+                            text = repo.path,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.launchOnIO {
+                                        viewModel.selectOtgRepository(repo)
+                                    }
+                                }
+                                .padding(vertical = 12.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { viewModel.cancelOtgBootstrap() }) {
                     Text(stringResource(id = R.string.cancel))
                 }
             }

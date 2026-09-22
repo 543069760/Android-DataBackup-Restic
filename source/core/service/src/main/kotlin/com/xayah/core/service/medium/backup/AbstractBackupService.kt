@@ -29,6 +29,10 @@ import com.xayah.core.restic.ResticRepository
 import com.xayah.core.restic.ResticRepository.ResticProgressCallback
 import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.datastore.readResticPassword
+import com.xayah.core.datastore.readResticRepoConfigId
+import com.xayah.core.datastore.saveResticRepoPath
+import com.xayah.core.datastore.saveResticRepoConfigId
+import com.xayah.core.data.repository.ResticRepoLocator
 import dagger.hilt.android.AndroidEntryPoint
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CoroutineScope
@@ -45,6 +49,9 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
 
     @Inject
     lateinit var resticRepo: ResticRepository
+
+    @Inject
+    lateinit var resticRepoLocator: ResticRepoLocator
 
     // rustic 上传进度共享状态：写自 native 上传线程，读自轮询协程线程，必须 @Volatile 保证可见性
     @Volatile
@@ -359,6 +366,38 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
     abstract val mMediumBackupUtil: MediumBackupUtil
 
     /**
+     * 备份前置对齐:仅 OTG(/mnt/media_rw/ 前缀)执行扫描重对齐。
+     * 返回 true 放行(路径已对齐/非 OTG 直通),false 中止本次备份。
+     * 备份是写入操作,匹配不到务必保守中止,绝不猜路径继续写。
+     */
+    protected suspend fun resolveAndAlignResticRepo(): Boolean {
+        val savedPath = mContext.readResticRepoPath()
+            ?: File(mFilesDir, "restic_repo").absolutePath
+        val savedConfigId = mContext.readResticRepoConfigId()
+
+        return when (val r = resticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
+            is ResticRepoLocator.ResolveResult.Passthrough -> true          // 非 OTG(内部存储/云端),直通
+            is ResticRepoLocator.ResolveResult.Matched -> {
+                if (r.changed) {
+                    // OTG 挂载点变了但 config_id 命中 → 更新 DataStore 后放行
+                    Log.i(mTAG, "OTG 路径变动,已重对齐: $savedPath -> ${r.path}")
+                    mContext.saveResticRepoPath(r.path)
+                    savedConfigId?.let { mContext.saveResticRepoConfigId(it) }
+                }
+                true
+            }
+            is ResticRepoLocator.ResolveResult.NotFound -> {
+                Log.e(mTAG, "备份前置对齐失败:未找到匹配 config_id 的 OTG 仓库(未插盘/换盘),中止备份")
+                false
+            }
+            is ResticRepoLocator.ResolveResult.Ambiguous -> {
+                Log.e(mTAG, "备份前置对齐失败:多个候选命中,需用户手动选择,中止备份 candidates=${r.candidates}")
+                false
+            }
+        }
+    }
+
+    /**
      * 备份前仓库可用性前置检查挂钩。默认放行；子类可重写。
      * 返回 false 表示仓库不可用，应终止本次备份。
      */
@@ -385,6 +424,13 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
     }
 
     override suspend fun onProcessing() {
+        // 前置对齐:OTG 挂载点可能变动,进入主流程前先重对齐当前仓库路径;
+        // 对齐失败(未插盘/多盘歧义)直接中止,不进入备份循环。
+        if (!resolveAndAlignResticRepo()) {
+            log { "onProcessing: 前置对齐失败,终止本次文件备份" }
+            return
+        }
+
         mTaskEntity.update(rawBytes = mTaskRepo.getRawBytes(TaskType.MEDIA), availableBytes = mTaskRepo.getAvailableBytes(OpType.BACKUP), totalBytes = mTaskRepo.getTotalBytes(OpType.BACKUP), totalCount = mMediaEntities.size)
         log { "Task count: ${mMediaEntities.size}." }
 

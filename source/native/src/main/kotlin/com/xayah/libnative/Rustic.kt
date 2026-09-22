@@ -24,6 +24,15 @@ object Rustic {
         return nativeRepositoryExists(repositoryPath, optionKeys, optionValues)
     }
 
+    fun repositoryConfigId(
+        repositoryPath: String,
+        options: Map<String, String> = emptyMap(),
+    ): String? {
+        val (optionKeys, optionValues) = options.toKeyValueArrays()
+        return nativeRepositoryConfigId(repositoryPath, optionKeys, optionValues)
+            .takeIf { it.isNotEmpty() }
+    }
+
     fun validateRepository(
         repositoryPath: String,
         password: String,
@@ -161,6 +170,12 @@ object Rustic {
         optionKeys: Array<String>,
         optionValues: Array<String>,
     )
+
+    private external fun nativeRepositoryConfigId(
+        repositoryPath: String,
+        optionKeys: Array<String>,
+        optionValues: Array<String>,
+    ): String
 
     private external fun nativeRepositoryExists(
         repositoryPath: String,

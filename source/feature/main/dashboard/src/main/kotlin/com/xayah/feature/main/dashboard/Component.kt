@@ -42,6 +42,157 @@ import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
 import com.xayah.core.util.DateUtil
 
 /**
+ * OTG 外接存储容量卡片 - 与 StorageOverviewSection 同风格
+ */
+@SuppressLint("StringFormatInvalid")
+@ExperimentalMaterial3Api
+@Composable
+fun OtgStorageCard(
+    used: SegmentProgress? = null,
+    backupUsed: SegmentProgress? = null,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        ),
+        onClick = onClick,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.tertiaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = ImageVector.vectorResource(id = R.drawable.ic_rounded_folder_open),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(id = R.string.otg_usb_storage),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                if (used != null && used.progress.isNaN().not()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    SegmentProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = true,
+                        progress = used.progress,
+                        color = ThemedColorSchemeKeyTokens.Secondary,
+                        trackColor = ThemedColorSchemeKeyTokens.SecondaryL80D20,
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${stringResource(id = R.string.args_used, (used.progress * 100).toInt())} (${used.usedFormat} / ${used.totalFormat})",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                if (backupUsed != null && backupUsed.progress.isNaN().not()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    SegmentProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = true,
+                        progress = backupUsed.progress,
+                        color = ThemedColorSchemeKeyTokens.Primary,
+                        trackColor = ThemedColorSchemeKeyTokens.SecondaryL80D20,
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${stringResource(id = R.string.args_used_by_backups, (backupUsed.progress * 100).toInt())} (${backupUsed.usedFormat} / ${backupUsed.totalFormat})",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * OTG 仓库引导卡片 - 发现仓库但未登记身份，点击去设置页
+ */
+@ExperimentalMaterial3Api
+@Composable
+fun OtgSetupHintCard(onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+        ),
+        onClick = onClick,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.tertiary),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = ImageVector.vectorResource(id = R.drawable.ic_rounded_folder_open),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onTertiary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(id = R.string.otg_repo_found_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+                Text(
+                    text = stringResource(id = R.string.otg_repo_found_go_settings),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+            }
+
+            Icon(
+                imageVector = Icons.Rounded.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+    }
+}
+
+/**
  * 存储信息胶囊卡片 - 与 LastBackupChip 同风格
  */
 @SuppressLint("StringFormatInvalid")

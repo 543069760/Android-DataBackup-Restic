@@ -36,6 +36,11 @@ import com.xayah.core.restic.ResticRepository
 import com.xayah.core.restic.ResticRepository.ResticProgressCallback
 import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.datastore.readResticPassword
+import com.xayah.core.datastore.readResticRepoConfigId
+import com.xayah.core.datastore.saveResticRepoPath
+import com.xayah.core.datastore.saveResticRepoConfigId
+import com.xayah.core.data.repository.ResticRepoLocator
+import com.xayah.core.data.repository.ResticRepoLocator.ResolveResult
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
@@ -54,6 +59,9 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
 
     @Inject
     lateinit var resticRepo: ResticRepository
+
+    @Inject
+    lateinit var resticRepoLocator: ResticRepoLocator
 
     override suspend fun onInitializingPreprocessingEntities(entities: MutableList<ProcessingInfoEntity>) {
         entities.apply {
@@ -257,12 +265,46 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
     }
 
     /**
+     * 备份前对 restic 仓库路径做前置对齐（OTG 场景）。
+     * 备份是写入操作，匹配不到务必保守中止，绝不猜路径继续写。
+     * 返回 true=可继续备份；false=中止。
+     */
+    protected suspend fun resolveAndAlignResticRepo(): Boolean {
+        val savedPath = mContext.readResticRepoPath() ?: return true // 无配置=内部默认，放行
+        val savedConfigId = mContext.readResticRepoConfigId()
+        return when (val r = resticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
+            is ResolveResult.Passthrough -> true                 // 非 OTG（内部/云端）：透明放行
+            is ResolveResult.Matched -> {
+                if (r.changed) {
+                    // 挂载点变了但 config_id 命中同一仓库：更新路径后放行
+                    mContext.saveResticRepoPath(r.path)
+                }
+                true
+            }
+            is ResolveResult.NotFound -> {
+                log { "onPreBackupRepositoryCheck: 未检测到目标 OTG 仓库（未插盘/无此 config_id），中止备份" }
+                false                                            // 写入操作，保守中止
+            }
+            is ResolveResult.Ambiguous -> {
+                log { "onPreBackupRepositoryCheck: OTG 多仓库歧义（${r.candidates.size} 个候选），中止备份" }
+                false
+            }
+        }
+    }
+
+    /**
      * 备份前仓库可用性前置检查挂钩。默认放行；子类可重写。
      * 返回 false 表示仓库不可用，应终止本次备份。
      */
     protected open suspend fun onPreBackupRepositoryCheck(): Boolean = true
 
     override suspend fun onProcessing() {
+        // === 新增：备份前仓库前置检查（OTG 路径对齐 / 不可用即中止）===
+        if (!onPreBackupRepositoryCheck()) {
+            log { "Pre-backup repository check failed, aborting backup." }
+            mTaskEntity.update(isProcessing = false)
+            return
+        }
         mTaskEntity.update(rawBytes = mTaskRepo.getRawBytes(TaskType.PACKAGE), availableBytes = mTaskRepo.getAvailableBytes(OpType.BACKUP), totalBytes = mTaskRepo.getTotalBytes(OpType.BACKUP), totalCount = mPkgEntities.size)
         log { "Task count: ${mPkgEntities.size}." }
 

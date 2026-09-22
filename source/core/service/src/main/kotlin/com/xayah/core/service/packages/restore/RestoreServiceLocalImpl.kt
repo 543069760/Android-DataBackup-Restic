@@ -4,12 +4,16 @@ import android.util.Log
 import android.content.Intent
 import com.xayah.core.data.repository.CloudRepository
 import com.xayah.core.data.repository.PackageRepository
+import com.xayah.core.data.repository.ResticRepoLocator
 import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.database.dao.PackageDao
 import com.xayah.core.database.dao.TaskDao
 import com.xayah.core.datastore.readBackupDirectory
 import com.xayah.core.datastore.readResticPassword
+import com.xayah.core.datastore.readResticRepoConfigId
 import com.xayah.core.datastore.readResticRepoPath
+import com.xayah.core.datastore.saveResticRepoConfigId
+import com.xayah.core.datastore.saveResticRepoPath
 import com.xayah.core.model.CloudType
 import com.xayah.core.model.DataType
 import com.xayah.core.model.OpType
@@ -76,6 +80,10 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
     // 本地 restic 仓库（core:restic，core:service 已依赖）
     @Inject
     lateinit var mResticRepo: ResticRepository
+
+    // 新增：OTG 前置对齐解析器（第 7 步 core/data）
+    @Inject
+    lateinit var mResticRepoLocator: ResticRepoLocator
 
     // 云端 restic 后端注册表：Hilt 多绑定 Map<CloudType, CloudResticBackend>
     // 注意 @JvmSuppressWildcards，否则 Dagger 生成 Map<CloudType, ? extends CloudResticBackend> 找不到绑定
@@ -402,7 +410,30 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
         return try {
             if (item.accountName.isEmpty()) {
                 // 本地
-                val repoPath = mContext.readResticRepoPath()
+                // ===== 新增：OTG 前置对齐（仅 /mnt/media_rw/ 前缀生效，内部存储/云端不受影响）=====
+                val savedPath = mContext.readResticRepoPath()
+                val repoPath: String? = if (savedPath.isNullOrEmpty()) {
+                    savedPath
+                } else {
+                    val savedConfigId = mContext.readResticRepoConfigId()
+                    when (val r = mResticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
+                        is ResticRepoLocator.ResolveResult.Passthrough -> r.path
+                        is ResticRepoLocator.ResolveResult.Matched -> {
+                            if (r.changed) {
+                                mContext.saveResticRepoPath(r.path)
+                            }
+                            r.path
+                        }
+                        is ResticRepoLocator.ResolveResult.NotFound -> {
+                            Log.e(mTAG, "未检测到 OTG 仓库，无法解出")
+                            return false   // 保守中止，绝不猜路径
+                        }
+                        is ResticRepoLocator.ResolveResult.Ambiguous -> {
+                            Log.e(mTAG, "检测到多个 OTG 仓库候选，无法自动确定: ${r.candidates}")
+                            return false
+                        }
+                    }
+                }
                 val password = mContext.readResticPassword()
                 if (repoPath.isNullOrEmpty() || password.isNullOrEmpty()) {
                     Log.e(mTAG, "本地 restic 配置不完整，无法解出")

@@ -3,4 +3,6 @@
     <string name="args_backup">Backup %1$s</string>
     <string name="args_restore">Restore %1$s</string>
     <string name="pre_backup_repository_check_failed">Pre-backup repository check failed. The repository is missing, unreadable, corrupted, or the password is incorrect.</string>
+    <string name="restic_otg_offline">OTG storage not connected. Please reinsert the original USB drive.</string>
+    <string name="restic_otg_ambiguous">Multiple matching OTG repositories detected. Please select one manually.</string>
 </resources>

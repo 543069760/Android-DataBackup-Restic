@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="args_temp_cache">Temp cache %1$d%%</string>
+    <string name="otg_usb_storage">OTG USB Storage</string>
+    <string name="otg_repo_found_title">OTG backup repository found</string>
+    <string name="otg_repo_found_go_settings">Tap to go to Settings to connect this repository</string>
 </resources>

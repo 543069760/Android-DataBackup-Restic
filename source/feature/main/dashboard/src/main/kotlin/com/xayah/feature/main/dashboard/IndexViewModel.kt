@@ -4,11 +4,18 @@ import android.content.Context
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.xayah.core.common.util.BuildConfigUtil
 import com.xayah.core.data.repository.DirectoryRepository
+import com.xayah.core.data.repository.ResticRepoLocator
 import com.xayah.core.datastore.readLastBackupTime
+import com.xayah.core.datastore.readResticPassword
+import com.xayah.core.datastore.readResticRepoConfigId
 import com.xayah.core.datastore.readUpdateChannel
+import com.xayah.core.datastore.saveResticPassword
+import com.xayah.core.datastore.saveResticRepoConfigId
+import com.xayah.core.datastore.saveResticRepoPath
 import com.xayah.core.model.database.DirectoryEntity
 import com.xayah.core.network.model.Release
 import com.xayah.core.network.retrofit.GitHubRepository
+import com.xayah.core.restic.ResticRepository
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.ui.viewmodel.BaseViewModel
 import com.xayah.core.ui.viewmodel.IndexUiEffect
@@ -41,7 +48,26 @@ class IndexViewModel @Inject constructor(
     private val directoryRepo: DirectoryRepository,
     private val githubRepo: GitHubRepository,
     private val rootService: RemoteRootService,
+    private val resticRepoLocator: ResticRepoLocator,
+    private val resticRepo: ResticRepository,
 ) : BaseViewModel<IndexUiState, IndexUiIntent, IndexUiEffect>(IndexUiState(latestRelease = null)) {
+
+    /**
+     * 首页 OTG 仓库发现状态：
+     *  - None：未插 OTG / 未发现仓库 / 已登记设备（DataStore 非空，不走首页发现），不显示任何 OTG UI。
+     *  - Registered：默认密码可解、已静默登记身份，显示 OTG 容量卡片。
+     *  - NeedsSetup：发现了仓库但默认密码不可解或多盘歧义，显示引导卡片，点击去设置页由 bootstrap 编排接手。
+     */
+    sealed class OtgDiscoveryState {
+        data object None : OtgDiscoveryState()
+        data class Registered(
+            val usedBytes: Long,
+            val totalBytes: Long,
+            val backupUsedBytes: Long,
+        ) : OtgDiscoveryState()
+        data object NeedsSetup : OtgDiscoveryState()
+    }
+
     override suspend fun onEvent(state: IndexUiState, intent: IndexUiIntent) {
         when (intent) {
             is IndexUiIntent.Update -> {
@@ -53,14 +79,16 @@ class IndexViewModel @Inject constructor(
                 runCatching {
                     _cacheSize.value = rootService.calculateSize("${context.localBackupSaveDir()}/restore")
                 }
+                // OTG 仓库发现（仅在 DataStore 为空、无 savedConfigId 时触发；已登记设备完全跳过）
+                runCatching {
+                    detectOtgRepository()
+                }
                 runCatching {
                     // 0 = 正式版通道, 1 = 测试版通道
                     val channel = context.readUpdateChannel().first()
                     val release: Release? = if (channel == 1) {
-                        // 测试版：全部 release（含 pre-release 与正式版）中取 build code 最大的
                         githubRepo.getReleases().maxByOrNull { parseReleaseCode(it) }
                     } else {
-                        // 正式版：releases/latest 本身排除 pre-release
                         githubRepo.getLatestRelease()
                     }
                     val remoteCode = release?.let { parseReleaseCode(it) } ?: Long.MIN_VALUE
@@ -79,11 +107,55 @@ class IndexViewModel @Inject constructor(
     }
 
     /**
-     * 从 release 中解析出 CI 生成的 build code。
-     * 优先取 tagName（形如 v3.0.0-S3-revived.30000）中最后一个 "." 之后的数字；
-     * 否则从 name（形如 v3.0.0-S3-revived (Build 30000)）中用正则提取。
-     * 解析失败返回 Long.MIN_VALUE，避免对不含 code 的旧 release 误报升级。
+     * 首页 OTG 探测 + 默认密码静默登记。
+     *  - 已登记（readResticRepoConfigId 非空）→ 直接置 None，不做任何发现（自愈交给备份/恢复前置对齐）。
+     *  - 发现 0 个 → None。
+     *  - 发现 1 个且默认密码可解 → 静默保存 path/configId/默认密码，置 Registered（含容量）。
+     *  - 发现 1 个但默认密码不可解，或发现多个 → NeedsSetup，引导去设置页。
+     * 全程无任何 saveResticRepoPath("")，发现失败/异常不清空既有配置。
      */
+    private suspend fun detectOtgRepository() {
+        // 已登记设备不走首页发现
+        val savedConfigId = context.readResticRepoConfigId()
+        if (!savedConfigId.isNullOrEmpty()) {
+            _otgDiscoveryState.value = OtgDiscoveryState.None
+            return
+        }
+
+        val discovered = resticRepoLocator.discoverOtgRepositories()
+        when {
+            discovered.isEmpty() -> {
+                _otgDiscoveryState.value = OtgDiscoveryState.None
+            }
+
+            discovered.size == 1 -> {
+                val repo = discovered.first()
+                val defaultPassword = context.readResticPassword() ?: "databackup_default"
+                val valid = resticRepo.validateRepository(repo.path, defaultPassword)
+                if (valid) {
+                    // 默认密码可解：零交互静默登记
+                    context.saveResticRepoPath(repo.path)
+                    context.saveResticRepoConfigId(repo.configId)
+                    context.saveResticPassword(defaultPassword)
+                    val total = runCatching { rootService.calculateSize(repo.path) }.getOrDefault(0L)
+                    _otgDiscoveryState.value = OtgDiscoveryState.Registered(
+                        usedBytes = total,
+                        totalBytes = total,
+                        backupUsedBytes = total,
+                    )
+                } else {
+                    // 默认密码不可解（用了自定义密码）：引导去设置页输入密码
+                    _otgDiscoveryState.value = OtgDiscoveryState.NeedsSetup
+                }
+            }
+
+            else -> {
+                // 多盘歧义：首页不弹选择框，引导去设置页
+                _otgDiscoveryState.value = OtgDiscoveryState.NeedsSetup
+            }
+        }
+    }
+
     private fun parseReleaseCode(release: Release): Long {
         release.tagName.substringAfterLast('.', "").toLongOrNull()?.let { return it }
         Regex("Build\\s+(\\d+)").find(release.name)?.groupValues?.getOrNull(1)?.toLongOrNull()?.let { return it }
@@ -99,4 +171,8 @@ class IndexViewModel @Inject constructor(
     // 临时缓存（恢复中转目录）大小，随 Update 刷新
     private val _cacheSize: MutableStateFlow<Long> = MutableStateFlow(0L)
     val cacheSizeState: StateFlow<Long> = _cacheSize.asStateFlow()
+
+    // OTG 仓库发现状态，供首页 Index.kt 消费
+    private val _otgDiscoveryState: MutableStateFlow<OtgDiscoveryState> = MutableStateFlow(OtgDiscoveryState.None)
+    val otgDiscoveryState: StateFlow<OtgDiscoveryState> = _otgDiscoveryState.asStateFlow()
 }

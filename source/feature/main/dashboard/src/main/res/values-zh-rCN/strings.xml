@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="args_temp_cache">临时中转缓存 %1$d%%</string>
+    <string name="otg_usb_storage">OTG USB 设备存储</string>
+    <string name="otg_repo_found_title">发现 OTG 备份仓库</string>
+    <string name="otg_repo_found_go_settings">点击前往设置连接该仓库</string>
 </resources>

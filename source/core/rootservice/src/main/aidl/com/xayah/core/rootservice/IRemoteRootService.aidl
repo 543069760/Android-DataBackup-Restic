@@ -54,6 +54,7 @@ interface IRemoteRootService {
     String getRusticVersion();
     void initRusticRepository(String repositoryPath, String password, in Map options);
     boolean rusticRepositoryExists(String repositoryPath, in Map options);
+    String rusticRepositoryConfigId(String repositoryPath, in Map options);
     void validateRusticRepository(String repositoryPath, String password, in Map options);
     String createRusticSnapshot(String repositoryPath, String password, in List<String> sourcePaths, in List<String> tags, in Map options, ICallback callback, long cancelId);
             void cancelRusticBackup(long cancelId);

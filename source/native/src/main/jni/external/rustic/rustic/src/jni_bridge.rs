@@ -11,8 +11,8 @@ use crate::error::NativeError;
 use crate::jni_progress::JniProgressCallback;
 use crate::repository::{
     check_repository, create_snapshot, create_snapshot_with_progress, forget_snapshot,
-    get_version, init_repository, list_snapshots_db, prune_repository, repository_exists,
-    restore_snapshot, restore_snapshot_with_progress, validate_repository,
+    get_version, init_repository, list_snapshots_db, prune_repository, repository_config_id,
+    repository_exists, restore_snapshot, restore_snapshot_with_progress, validate_repository,
 };
 use crate::opendal_ops::{opendal_create_dir, opendal_list};
 
@@ -81,6 +81,26 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeRepositoryExists<'l
             let options = string_arrays_to_map(env, &option_keys, &option_values)?;
             repository_exists(&repository_path.to_string(), &options)
                 .map(jboolean::from)
+                .map_err(NativeError::from)
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeRepositoryConfigId<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    repository_path: JString<'local>,
+    option_keys: JObjectArray<'local, JString<'local>>,
+    option_values: JObjectArray<'local, JString<'local>>,
+) -> JString<'local> {
+    unowned_env
+        .with_env(|env| -> Result<JString<'local>, NativeError> {
+            let options = string_arrays_to_map(env, &option_keys, &option_values)?;
+            let id = repository_config_id(&repository_path.to_string(), &options)
+                .map_err(NativeError::from)?;
+            // None -> ""，Kotlin 侧用 takeIf { isNotEmpty() } 还原为 null
+            env.new_string(id.unwrap_or_default())
                 .map_err(NativeError::from)
         })
         .resolve::<ThrowRuntimeExAndDefault>()

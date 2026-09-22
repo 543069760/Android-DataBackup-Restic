@@ -2,7 +2,6 @@ package com.xayah.core.restic
 
 import android.content.Context
 import android.util.Log
-import com.topjohnwu.superuser.Shell
 import com.xayah.core.model.DataType
 import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.model.restic.ResticBackupFiles
@@ -35,60 +34,6 @@ class ResticShared @Inject constructor(
             ignoreUnknownKeys = true
             coerceInputValues = true
         }
-    }
-
-    val resticPath: String by lazy {
-        resticNative.getResticBinaryPath(context)
-    }
-
-    /**
-     * 核心执行方法:使用 libsu 执行 Root 命令
-     */
-    suspend fun executeRestic(
-        vararg args: String,
-        env: Map<String, String> = emptyMap(),
-        usePty: Boolean = false
-    ): Shell.Result = withContext(Dispatchers.IO) {
-        val defaultEnv = mutableMapOf(
-            "HOME" to context.filesDir.absolutePath,
-            "XDG_CACHE_HOME" to File(context.cacheDir, "restic").absolutePath
-        )
-
-        if (usePty) {
-            defaultEnv["TERM"] = "xterm-256color"
-        }
-
-        defaultEnv.putAll(env)
-
-        val envExports = defaultEnv.map { "export ${it.key}=\"${it.value}\"" }
-        val resticCommand = "$resticPath ${args.joinToString(" ")}"
-
-        val finalCommand = if (usePty) {
-            val busyboxPath = "${context.filesDir.absolutePath}/bin/busybox"
-            envExports.joinToString(" && ") +
-                    " && $busyboxPath script -qc \"$resticCommand 2>&1\" /dev/null < /dev/null 2>&1"
-        } else {
-            envExports.joinToString(" && ") + " && $resticCommand"
-        }
-
-        Log.d(TAG, "=== Restic Command Debug ===")
-        Log.d(TAG, "Command: restic ${args.joinToString(" ")}")
-        Log.d(TAG, "Use PTY: $usePty")
-        Log.d(TAG, "Environment: ${defaultEnv.entries.joinToString(", ") { "${it.key}=${it.value}" }}")
-        Log.d(TAG, "Full command: $finalCommand")
-
-        val result = Shell.cmd(finalCommand).exec()
-
-        Log.d(TAG, "Exit code: ${result.code}")
-        if (result.out.isNotEmpty()) {
-            Log.d(TAG, "STDOUT:\n${result.out.joinToString("\n")}")
-        }
-        if (result.err.isNotEmpty()) {
-            Log.e(TAG, "STDERR:\n${result.err.joinToString("\n")}")
-        }
-        Log.d(TAG, "==============================")
-
-        result
     }
 
     /** 格式化 OpenDAL Root 路径,确保以 / 开头以 / 结尾 */

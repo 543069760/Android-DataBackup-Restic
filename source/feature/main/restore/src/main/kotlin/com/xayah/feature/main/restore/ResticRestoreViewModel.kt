@@ -7,6 +7,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.datastore.readResticRepoPath
+import com.xayah.core.datastore.readResticRepoConfigId
+import com.xayah.core.datastore.saveResticRepoPath
+import com.xayah.core.datastore.saveResticRepoConfigId
+import com.xayah.core.data.repository.ResticRepoLocator
 import com.xayah.core.model.DataType
 import com.xayah.core.model.ResticProgressState
 import com.xayah.core.model.restic.ResticBackupApp
@@ -52,7 +56,8 @@ class ResticRestoreViewModel @Inject constructor(
     private val resticRepo: ResticRepository,
     private val shared: ResticShared,
     private val appsRepo: AppsRepo,
-    private val rootService: RemoteRootService,  // 添加
+    private val rootService: RemoteRootService,
+    private val resticRepoLocator: ResticRepoLocator,
     private val appsDao: PackageDao
 ) : ViewModel() {
 
@@ -547,16 +552,49 @@ class ResticRestoreViewModel @Inject constructor(
             Log.e("ResticRestore", "激活应用失败: ${e.message}", e)
         }
     }
+
+    /**
+     * 恢复前前置对齐：仅 OTG 前缀执行扫描重对齐。
+     * 返回对齐后的 repoPath；返回 null 表示应中止（已设置 UI 错误态）。
+     * 非 OTG（内部存储/云端读不到该路径）走 Passthrough，行为与改造前一致。
+     */
+    private suspend fun resolveAndAlignResticRepo(): String? {
+        val savedPath = context.readResticRepoPath()
+        if (savedPath.isNullOrEmpty()) return savedPath   // 交由后续 isNullOrEmpty 分支处理
+        val savedConfigId = context.readResticRepoConfigId()
+        return when (val r = resticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
+            is ResticRepoLocator.ResolveResult.Passthrough -> r.path        // 非 OTG，原样返回
+            is ResticRepoLocator.ResolveResult.Matched -> {
+                if (r.changed) {
+                    // 路径变了（同一 config_id），更新 DataStore
+                    context.saveResticRepoPath(r.path)
+                }
+                r.path
+            }
+            is ResticRepoLocator.ResolveResult.NotFound -> {
+                Log.e(TAG, "未检测到 OTG 仓库，无法恢复")
+                _uiState.value = ResticRestoreUiState.Error("未检测到 OTG 仓库，请插入 U 盘后重试")
+                null
+            }
+            is ResticRepoLocator.ResolveResult.Ambiguous -> {
+                Log.e(TAG, "检测到多个 OTG 仓库候选，需用户选择: ${r.candidates}")
+                _uiState.value = ResticRestoreUiState.Error("检测到多个匹配的 OTG 仓库，请手动选择")
+                null
+            }
+        }
+    }
+
     // 添加恢复方法
     suspend fun restoreFromResticSnapshots(group: ResticBackupGroup): Boolean {
         Log.d("ResticRestore", "开始快照恢复流程，包名: ${group.packageName}")
         return try {
             Log.d("ResticRestore", "读取 Restic 配置")
-            val repoPath = context.readResticRepoPath()
+            // ===== 新增：前置对齐（仅 OTG 生效）=====
+            val repoPath = resolveAndAlignResticRepo() ?: return false
             val password = context.readResticPassword()
             Log.d("ResticRestore", "仓库路径: $repoPath")
 
-            if (repoPath.isNullOrEmpty() || password.isNullOrEmpty()) {
+            if (password.isNullOrEmpty()) {   // repoPath 已由前置对齐保证非空
                 Log.e("ResticRestore", "Restic 配置不完整")
                 _uiState.value = ResticRestoreUiState.Error("Restic not configured")
                 return false

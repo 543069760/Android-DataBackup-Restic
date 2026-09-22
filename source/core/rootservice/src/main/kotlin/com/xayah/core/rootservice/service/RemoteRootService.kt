@@ -427,6 +427,14 @@ class RemoteRootService(private val context: Context) {
     suspend fun rusticRepositoryExists(repositoryPath: String, options: Map<String, String> = emptyMap()): Boolean =
         runCatching { getService().rusticRepositoryExists(repositoryPath, options) }.onFailure(onFailure).getOrElse { false }
 
+    suspend fun rusticRepositoryConfigId(
+        repositoryPath: String,
+        options: Map<String, String> = emptyMap(),
+    ): String? = tryOnScope(
+        block = { getService().rusticRepositoryConfigId(repositoryPath, options) },
+        onException = { null },
+    )
+
     suspend fun validateRusticRepository(repositoryPath: String, password: String, options: Map<String, String> = emptyMap()) =
         runCatching { getService().validateRusticRepository(repositoryPath, password, options) }.onFailure(onFailure)
 

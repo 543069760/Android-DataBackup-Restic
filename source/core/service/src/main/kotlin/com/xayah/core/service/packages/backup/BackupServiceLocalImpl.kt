@@ -178,6 +178,13 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
     }
 
     override suspend fun onPreBackupRepositoryCheck(): Boolean {
+        // 1. OTG 前置对齐：非 OTG(内部存储/云端)直接放行；OTG 命中(必要时更新 repoPath)放行；
+        //    扫不到目标 config_id 的挂载点(NotFound)或多盘歧义(Ambiguous)→ 保守中止，不猜路径写入
+        if (!resolveAndAlignResticRepo()) {
+            Log.e(mTAG, "备份前 OTG 仓库对齐失败：未匹配到目标 config_id 的挂载点或存在歧义，终止备份")
+            return false
+        }
+        // 2. 对齐通过后再做原有的仓库可用性校验（仓库存在 / 密码正确 / config 可读）
         val repoPath = getResticRepoPath()
         val password = getResticPassword()
         val ok = resticRepo.verifyRepository(repoPath, password)
