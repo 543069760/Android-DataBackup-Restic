@@ -87,9 +87,19 @@ fun PageRestore() {
             )
 
             var enabled by remember { mutableStateOf(true) }
+            val hasOtg by viewModel.hasOtgState.collectAsStateWithLifecycle()
             val localText = stringResource(id = R.string.local)
+            val otgText = stringResource(id = R.string.otg_usb)
             val cloudText = stringResource(id = R.string.cloud)
-            val storageOptions = remember { listOf(localText, cloudText) }
+            // 有 OTG → [本地, OTG USB, 云端]；否则 [本地, 云端]
+            val storageModes = remember(hasOtg) {
+                if (hasOtg) listOf(StorageMode.Local, StorageMode.Otg, StorageMode.Cloud)
+                else listOf(StorageMode.Local, StorageMode.Cloud)
+            }
+            val storageOptions = remember(hasOtg) {
+                if (hasOtg) listOf(localText, otgText, cloudText)
+                else listOf(localText, cloudText)
+            }
             SingleChoiceSegmentedButtonRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -103,7 +113,8 @@ fun PageRestore() {
                         onClick = {
                             viewModel.launchOnIO {
                                 enabled = false
-                                viewModel.emitState(state = uiState.copy(storageIndex = index, storageType = if (index == 0) StorageMode.Local else StorageMode.Cloud))
+                                // index → StorageMode 动态映射，不再写死 if(index==0)
+                                viewModel.emitState(state = uiState.copy(storageIndex = index, storageType = storageModes[index]))
                                 viewModel.emitIntent(IndexUiIntent.UpdateApps)
                                 viewModel.emitIntent(IndexUiIntent.UpdateFiles)
                                 enabled = true
@@ -116,7 +127,7 @@ fun PageRestore() {
                 }
             }
 
-            AnimatedVisibility(uiState.storageIndex == 1) {
+            AnimatedVisibility(uiState.storageType == StorageMode.Cloud) {
                 if (accounts.isEmpty()) {
                     Clickable(
                         title = stringResource(id = R.string.account),
@@ -172,11 +183,11 @@ fun PageRestore() {
                 interactionSource = filesInteractionSource,
             ) {
                 // 根据存储类型选择不同的导航路径
-                val route = if (uiState.storageIndex == 1) {
+                val route = if (uiState.storageType == StorageMode.Cloud) {
                     // 云端文件恢复
                     MainRoutes.CloudFilesRestore.getRoute(uiState.cloudEntity?.name ?: "")
                 } else {
-                    // 本地文件恢复
+                    // 本地 / OTG 文件恢复（都走本地 restic）
                     MainRoutes.ResticFilesRestore.route
                 }
                 navController.navigateSingle(route)

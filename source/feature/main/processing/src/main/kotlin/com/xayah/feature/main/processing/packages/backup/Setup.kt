@@ -93,7 +93,9 @@ fun PagePackagesBackupProcessingSetup(localNavController: NavHostController, vie
                 horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level12, Alignment.End),
             ) {
                 Button(
-                    enabled = uiState.storageType == StorageMode.Local || (uiState.cloudEntity != null && isTesting.not()),
+                    enabled = uiState.storageType == StorageMode.Local
+                            || uiState.storageType == StorageMode.Otg
+                            || (uiState.cloudEntity != null && isTesting.not()),
                     onClick = {
                         viewModel.emitIntentOnIO(FinishSetup(navController = localNavController))
                     }) {
@@ -107,7 +109,24 @@ fun PagePackagesBackupProcessingSetup(localNavController: NavHostController, vie
                 .verticalScroll(rememberScrollState())
                 .fillMaxSize(),
         ) {
-            val storageOptions = listOf(stringResource(R.string.local), stringResource(R.string.cloud))
+            val hasOtg by viewModel.hasOtgState.collectAsStateWithLifecycle()
+            val localText = stringResource(R.string.local)
+            val otgText = stringResource(R.string.otg_usb)
+            val cloudText = stringResource(R.string.cloud)
+            // 有 OTG → [本地, OTG USB, 云端]；否则 [本地, 云端]
+            val storageModes = remember(hasOtg) {
+                if (hasOtg) listOf(StorageMode.Local, StorageMode.Otg, StorageMode.Cloud)
+                else listOf(StorageMode.Local, StorageMode.Cloud)
+            }
+            val storageOptions = remember(hasOtg, localText, otgText, cloudText) {
+                storageModes.map { mode ->
+                    when (mode) {
+                        StorageMode.Local -> localText
+                        StorageMode.Otg -> otgText
+                        StorageMode.Cloud -> cloudText
+                    }
+                }
+            }
             SingleChoiceSegmentedButtonRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -118,7 +137,11 @@ fun PagePackagesBackupProcessingSetup(localNavController: NavHostController, vie
                     SegmentedButton(
                         shape = SegmentedButtonDefaults.itemShape(index = index, count = storageOptions.size),
                         onClick = {
-                            viewModel.emitStateOnMain(state = uiState.copy(storageIndex = index, storageType = if (index == 0) StorageMode.Local else StorageMode.Cloud))
+                            val mode = storageModes[index]
+                            viewModel.emitStateOnMain(state = uiState.copy(storageIndex = index, storageType = mode))
+                            if (mode == StorageMode.Otg) {
+                                viewModel.bootstrapOtg()
+                            }
                         },
                         selected = index == uiState.storageIndex
                     ) {
@@ -128,7 +151,7 @@ fun PagePackagesBackupProcessingSetup(localNavController: NavHostController, vie
             }
 
             Title(title = stringResource(id = R.string.storage)) {
-                AnimatedVisibility(uiState.storageIndex == 1) {
+                AnimatedVisibility(uiState.storageType == StorageMode.Cloud) {
                     if (accounts.isEmpty()) {
                         Clickable(
                             title = stringResource(id = R.string.account),

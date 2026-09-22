@@ -44,6 +44,7 @@ enum class TaskType {
 
 enum class StorageMode {
     Local,
+    Otg,
     Cloud
 }
 

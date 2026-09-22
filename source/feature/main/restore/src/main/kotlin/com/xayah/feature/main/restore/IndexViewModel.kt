@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.navigation.NavHostController
 import com.xayah.core.data.repository.CloudRepository
+import com.xayah.core.data.repository.ResticRepoLocator
+import com.xayah.core.data.repository.DirectoryRepository
 import com.xayah.core.data.repository.MediaRepository
 import com.xayah.core.data.repository.PackageRepository
 import com.xayah.core.datastore.readLastRestoreTime
@@ -29,6 +31,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
@@ -57,6 +60,8 @@ class IndexViewModel @Inject constructor(
     private val pkgRepo: PackageRepository,
     private val mediaRepo: MediaRepository,
     private val cloudRepo: CloudRepository,
+    private val directoryRepo: DirectoryRepository,
+    private val resticRepoLocator: ResticRepoLocator,
 ) : BaseViewModel<IndexUiState, IndexUiIntent, IndexUiEffect>(
     IndexUiState(
         storageIndex = 0,
@@ -72,16 +77,13 @@ class IndexViewModel @Inject constructor(
         when (intent) {
             is IndexUiIntent.UpdateApps -> {
                 val packages = (when (state.storageType) {
-                    StorageMode.Local -> pkgRepo.queryPackages(OpType.RESTORE, "", context.localBackupSaveDir())
+                    // Otg 与 Local 都走本地 restic：仓库路径已由恢复入口前置对齐指到 OTG
+                    StorageMode.Local, StorageMode.Otg ->
+                        pkgRepo.queryPackages(OpType.RESTORE, "", context.localBackupSaveDir())
 
-                    else -> when {
-                        (state.cloudEntity == null) -> {
-                            listOf()
-                        }
-
-                        else -> {
-                            pkgRepo.queryPackages(OpType.RESTORE, state.cloudEntity.name, state.cloudEntity.remote)
-                        }
+                    StorageMode.Cloud -> when {
+                        (state.cloudEntity == null) -> listOf()
+                        else -> pkgRepo.queryPackages(OpType.RESTORE, state.cloudEntity.name, state.cloudEntity.remote)
                     }
                 })
                 var bytes = 0.0
@@ -91,16 +93,13 @@ class IndexViewModel @Inject constructor(
 
             is IndexUiIntent.UpdateFiles -> {
                 val medium = (when (state.storageType) {
-                    StorageMode.Local -> mediaRepo.query(OpType.RESTORE, "", context.localBackupSaveDir())
+                    // Otg 与 Local 都走本地 restic
+                    StorageMode.Local, StorageMode.Otg ->
+                        mediaRepo.query(OpType.RESTORE, "", context.localBackupSaveDir())
 
-                    else -> when {
-                        (state.cloudEntity == null) -> {
-                            listOf()
-                        }
-
-                        else -> {
-                            mediaRepo.query(OpType.RESTORE, state.cloudEntity.name, state.cloudEntity.remote)
-                        }
+                    StorageMode.Cloud -> when {
+                        (state.cloudEntity == null) -> listOf()
+                        else -> mediaRepo.query(OpType.RESTORE, state.cloudEntity.name, state.cloudEntity.remote)
                     }
                 })
                 var bytes = 0.0
@@ -118,7 +117,8 @@ class IndexViewModel @Inject constructor(
             is IndexUiIntent.ToAppList -> {
                 withMainContext {
                     when (state.storageType) {
-                        StorageMode.Local -> {
+                        // Otg 复用本地 restic 恢复路由（仓库在 OTG，路径已前置对齐）
+                        StorageMode.Local, StorageMode.Otg -> {
                             intent.navController.navigateSingle(
                                 MainRoutes.ResticRestore.route  // 本地Restic恢复
                             )
@@ -139,7 +139,8 @@ class IndexViewModel @Inject constructor(
             is IndexUiIntent.ToFileList -> {
                 withMainContext {
                     when (state.storageType) {
-                        StorageMode.Local -> {
+                        // Otg 复用本地文件恢复路由
+                        StorageMode.Local, StorageMode.Otg -> {
                             intent.navController.navigateSingle(
                                 MainRoutes.List.getRoute(
                                     target = Target.Files,
@@ -181,4 +182,12 @@ class IndexViewModel @Inject constructor(
 
     }.flowOnIO()
     val accounts: StateFlow<List<DialogRadioItem<Any>>> = _accounts.stateInScope(listOf())
+
+    // 是否发现可用的 OTG restic 仓库（决定段选择是否出现「OTG USB」段）
+    // 与备份页语义一致：仅当 discoverOtgRepositories() 发现非空仓库才为 true，
+    // 全新盘（插了盘但无仓库）不显示 OTG 段。
+    val hasOtgState: StateFlow<Boolean> =
+        flow { emit(resticRepoLocator.discoverOtgRepositories().isNotEmpty()) }
+            .flowOnIO()
+            .stateInScope(false)
 }

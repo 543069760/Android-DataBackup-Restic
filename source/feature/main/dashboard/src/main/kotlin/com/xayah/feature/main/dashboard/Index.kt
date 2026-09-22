@@ -40,6 +40,7 @@ import com.xayah.core.ui.component.IconButton
 import com.xayah.core.ui.component.LocalSlotScope
 import com.xayah.core.ui.component.MainIndexSubScaffold
 import com.xayah.core.ui.component.paddingTop
+import com.xayah.core.ui.component.SetOnResume
 import com.xayah.core.ui.model.SegmentProgress
 import com.xayah.core.ui.route.MainRoutes
 import com.xayah.core.ui.token.SizeTokens
@@ -77,7 +78,15 @@ fun PageDashboard() {
         uiState.latestRelease?.name ?: ""
     )
 
+    // 首次进入：刷新目录/容量/缓存等首页数据。
+    // OTG 的初始刷新由 IndexViewModel.init 里订阅的 otgMountEvents() 初始 trySend 承担，不依赖此处。
     LaunchedEffect(null) {
+        viewModel.emitIntentOnIO(IndexUiIntent.Update)
+    }
+
+    // 回到前台：刷新目录/容量/缓存。OTG 已改为事件驱动（otgMountEvents 广播→重跑 detectOtgRepository），
+    // 此处 Update 仅作为其它首页数据刷新，并作为收不到 OTG 挂载广播机型的兜底。
+    SetOnResume {
         viewModel.emitIntentOnIO(IndexUiIntent.Update)
     }
 
@@ -145,7 +154,7 @@ fun PageDashboard() {
                 }
             }
 
-            // 1b. OTG 卡片 / 引导卡片（仅插入 OTG 且发现仓库时显示，位于容量卡片正下方）
+            // 1b. OTG 卡片 / 引导卡片（仅插入 OTG 时显示，位于容量卡片正下方）
             when (val otg = otgDiscoveryState) {
                 is IndexViewModel.OtgDiscoveryState.Registered -> {
                     OtgStorageCard(
@@ -163,8 +172,15 @@ fun PageDashboard() {
                     }
                 }
 
+                IndexViewModel.OtgDiscoveryState.NotInitialized -> {
+                    // 插了盘但盘上没有 restic 仓库：显示未初始化胶囊卡，点击去初始化页选路径建库
+                    OtgNotInitializedCard {
+                        navController.navigateSingle(MainRoutes.ResticInitialization.route)
+                    }
+                }
+
                 IndexViewModel.OtgDiscoveryState.None -> {
-                    // 未插 OTG 或未发现仓库：不显示任何 OTG UI
+                    // 未插 OTG：不显示任何 OTG UI
                 }
             }
 

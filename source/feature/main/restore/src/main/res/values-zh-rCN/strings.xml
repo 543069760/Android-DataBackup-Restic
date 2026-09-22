@@ -60,4 +60,5 @@
     <string name="restore_no_match">没有匹配的结果</string>
     <!-- 搜索 -->
     <string name="restore_search_hint">搜索应用名或包名</string>
+    <string name="otg_usb">OTG USB</string>
 </resources>

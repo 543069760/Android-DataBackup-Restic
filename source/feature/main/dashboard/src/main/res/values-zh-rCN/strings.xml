@@ -4,4 +4,5 @@
     <string name="otg_usb_storage">OTG USB 设备存储</string>
     <string name="otg_repo_found_title">发现 OTG 备份仓库</string>
     <string name="otg_repo_found_go_settings">点击前往设置连接该仓库</string>
+    <string name="otg_repo_not_initialized">未找到备份仓库，点击初始化</string>
 </resources>

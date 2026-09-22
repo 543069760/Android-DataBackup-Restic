@@ -131,6 +131,73 @@ fun OtgStorageCard(
 }
 
 /**
+ * OTG 未初始化提示卡 —— 插了盘但盘上没有 restic 仓库时显示。
+ * 样式参考备份列表「不完整」胶囊：errorContainer 红色系 + error 半透明边框。
+ * 整卡可点，点击回调跳转到 restic 初始化页选择路径建库。
+ */
+@ExperimentalMaterial3Api
+@Composable
+fun OtgNotInitializedCard(onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer
+        ),
+        onClick = onClick,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // 左侧圆形图标
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.error),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = ImageVector.vectorResource(id = R.drawable.ic_rounded_folder_open),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onError,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            // 标题 + 副标题
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(id = R.string.otg_usb_storage),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+                Text(
+                    text = stringResource(id = R.string.otg_repo_not_initialized),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+
+            // 右箭头
+            Icon(
+                imageVector = Icons.Rounded.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+    }
+}
+
+/**
  * OTG 仓库引导卡片 - 发现仓库但未登记身份，点击去设置页
  */
 @ExperimentalMaterial3Api

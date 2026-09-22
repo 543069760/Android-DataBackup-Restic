@@ -7,4 +7,10 @@
     <string name="cancel_restore">Cancel restore</string>
     <string name="cleaning_up_incomplete_backups">Cleaning up canceled backups ..</string>
     <string name="backup_canceled">Backup successfully cancelled</string>
+    <!-- OTG bootstrap 提示 -->
+    <string name="restic_otg_not_found">No OTG backup repository found. Please insert the USB drive and try again.</string>
+    <string name="restic_otg_go_settings">Multiple OTG repositories found. Please go to Settings to select one.</string>
+    <string name="otg_usb">OTG USB</string>
+    <!-- OTG 操作中提示 -->
+    <string name="otg_do_not_remove_storage">Do not remove the storage device during the operation, otherwise backup data may be corrupted.</string>
 </resources>

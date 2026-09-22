@@ -72,4 +72,5 @@
     <string name="restic_otg_rescan">Rescan and connect OTG repository</string>
     <string name="restic_otg_enter_password">Enter repository password</string>
     <string name="restic_otg_select_repository">Select an OTG repository</string>
+    <string name="restic_otg_external_storage_hint">This repository is on external storage. Keep the device plugged in during backup and restore.</string>
 </resources>

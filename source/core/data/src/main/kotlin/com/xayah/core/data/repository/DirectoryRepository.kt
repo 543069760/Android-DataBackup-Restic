@@ -20,6 +20,8 @@ import com.xayah.core.util.command.PreparationUtil
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
 class DirectoryRepository @Inject constructor(
@@ -29,6 +31,32 @@ class DirectoryRepository @Inject constructor(
     private val rootService: RemoteRootService,
 ) {
     fun queryActiveDirectoriesFlow(storageType: StorageType) = directoryDao.queryActiveDirectoriesFlow(storageType).distinctUntilChanged()
+
+    /**
+     * OTG 存在性检测统一入口：是否存在外接存储（U 盘）挂载点。
+     *
+     * 判据：存在 storageType == StorageType.EXTERNAL 的目录记录即可。
+     * 注意 update() 里 EXTERNAL 目录虽以 active = true 插入，但随后
+     * updateActive(excludeType = EXTERNAL, ...) 把 EXTERNAL 排除在批量激活外，
+     * 其 active 语义与其它类型不一致，故这里不用 active 过滤，否则会漏判。
+     *
+     * 本方法只回答"有没有插盘"，不回答"盘里有没有 restic 仓库"——
+     * 后者由 ResticRepoLocator.discoverOtgRepositories() / resolveCurrentResticRepoPath() 负责。
+     *
+     * 前提：数据库里的 EXTERNAL 记录由 update() 刷新写入，调用方应确保
+     * 需要最新结果时先触发过 update()（dashboard 的 Update intent 已会调 update()）。
+     */
+    suspend fun hasExternalStorage(): Boolean = withIOContext {
+        directoryDao.countByStorageType(StorageType.EXTERNAL) > 0
+    }
+
+    /**
+     * hasExternalStorage 的 Flow 版本，供 UI 需要响应式显隐 OTG 段/卡片时使用。
+     */
+    fun hasExternalStorageFlow(): Flow<Boolean> =
+        directoryDao.countByStorageTypeFlow(StorageType.EXTERNAL)
+            .map { it > 0 }
+            .distinctUntilChanged()
 
     /**
      * 解析用于"备份已使用"统计的 rustic 仓库目录。

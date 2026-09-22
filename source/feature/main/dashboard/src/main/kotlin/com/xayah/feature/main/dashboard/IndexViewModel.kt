@@ -1,13 +1,16 @@
 package com.xayah.feature.main.dashboard
 
+import android.util.Log
 import android.content.Context
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.xayah.core.common.util.BuildConfigUtil
 import com.xayah.core.data.repository.DirectoryRepository
 import com.xayah.core.data.repository.ResticRepoLocator
+import com.xayah.core.data.repository.ResticRepoLocator.ResolveResult
 import com.xayah.core.datastore.readLastBackupTime
 import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.datastore.readResticRepoConfigId
+import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.datastore.readUpdateChannel
 import com.xayah.core.datastore.saveResticPassword
 import com.xayah.core.datastore.saveResticRepoConfigId
@@ -30,6 +33,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import java.io.File
 import javax.inject.Inject
 
 data class IndexUiState(
@@ -54,9 +58,10 @@ class IndexViewModel @Inject constructor(
 
     /**
      * 首页 OTG 仓库发现状态：
-     *  - None：未插 OTG / 未发现仓库 / 已登记设备（DataStore 非空，不走首页发现），不显示任何 OTG UI。
-     *  - Registered：默认密码可解、已静默登记身份，显示 OTG 容量卡片。
+     *  - None：未插 OTG / 已登记但当前未插该盘，不显示任何 OTG UI。
+     *  - Registered：仓库已就绪（已登记盘已插入，或未登记盘默认密码可解已静默登记），显示 OTG 容量卡片。
      *  - NeedsSetup：发现了仓库但默认密码不可解或多盘歧义，显示引导卡片，点击去设置页由 bootstrap 编排接手。
+     *  - NotInitialized：插了 OTG 盘但盘上没有 restic 仓库，显示"未初始化"胶囊卡，点击去设置页选路径初始化。
      */
     sealed class OtgDiscoveryState {
         data object None : OtgDiscoveryState()
@@ -66,6 +71,18 @@ class IndexViewModel @Inject constructor(
             val backupUsedBytes: Long,
         ) : OtgDiscoveryState()
         data object NeedsSetup : OtgDiscoveryState()
+        data object NotInitialized : OtgDiscoveryState()
+    }
+
+    init {
+        // 事件驱动:OTG 插拔 / 存储挂载变化时自动重扫,替代回前台重触发 Update
+        launchOnIO {
+            resticRepoLocator.otgMountEvents()
+                .flowOnIO()
+                .collect {
+                    runCatching { detectOtgRepository() }
+                }
+        }
     }
 
     override suspend fun onEvent(state: IndexUiState, intent: IndexUiIntent) {
@@ -79,7 +96,7 @@ class IndexViewModel @Inject constructor(
                 runCatching {
                     _cacheSize.value = rootService.calculateSize("${context.localBackupSaveDir()}/restore")
                 }
-                // OTG 仓库发现（仅在 DataStore 为空、无 savedConfigId 时触发；已登记设备完全跳过）
+                // OTG 仓库发现 / 已登记盘重定位
                 runCatching {
                     detectOtgRepository()
                 }
@@ -107,25 +124,58 @@ class IndexViewModel @Inject constructor(
     }
 
     /**
-     * 首页 OTG 探测 + 默认密码静默登记。
-     *  - 已登记（readResticRepoConfigId 非空）→ 直接置 None，不做任何发现（自愈交给备份/恢复前置对齐）。
-     *  - 发现 0 个 → None。
-     *  - 发现 1 个且默认密码可解 → 静默保存 path/configId/默认密码，置 Registered（含容量）。
-     *  - 发现 1 个但默认密码不可解，或发现多个 → NeedsSetup，引导去设置页。
+     * 首页 OTG 探测。分两种情形：
+     *
+     * A. 已登记（readResticRepoConfigId 非空）：按 config_id 重定位当前挂载点。
+     *    - Matched：插着目标盘 → 路径漂移则静默改指 → 显示 Registered 容量卡（本次预期核心）。
+     *    - NotFound / Ambiguous / Passthrough：当前没插该 OTG 盘（或配置在内部存储）→ None，不显示。
+     *
+     * B. 未登记（换新机/全新安装，configId 为空）：无差别发现 + 默认密码静默登记。
+     *    - 0 个 → None；1 个且默认密码可解 → 静默登记 + Registered；
+     *      1 个但默认密码不可解 / 多盘 → NeedsSetup，引导去设置页。
+     *
      * 全程无任何 saveResticRepoPath("")，发现失败/异常不清空既有配置。
      */
     private suspend fun detectOtgRepository() {
-        // 已登记设备不走首页发现
+        // 每次刷新丢弃上一批扫描缓存，确保拔插状态实时反映
+        resticRepoLocator.invalidateCache()
+
         val savedConfigId = context.readResticRepoConfigId()
+
+        // 情形 A：已登记设备——插上目标盘即常驻显示 OTG 容量卡
         if (!savedConfigId.isNullOrEmpty()) {
-            _otgDiscoveryState.value = OtgDiscoveryState.None
+            val savedPath = context.readResticRepoPath().orEmpty()
+            when (val result = resticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
+                is ResolveResult.Matched -> {
+                    // 挂载点漂移（换盘/重插导致 UUID 变化）时静默改指，不改身份
+                    if (result.changed) {
+                        context.saveResticRepoPath(result.path)
+                    }
+                    _otgDiscoveryState.value = buildRegisteredState(result.path)
+                }
+                // 当前未插目标 OTG 盘 / 多盘歧义 / 配置在内部存储 → 首页不显示 OTG 卡
+                is ResolveResult.Ambiguous,
+                ResolveResult.NotFound,
+                is ResolveResult.Passthrough -> {
+                    _otgDiscoveryState.value = OtgDiscoveryState.None
+                }
+            }
             return
         }
 
+        // 情形 B：未登记设备——无差别发现 + 默认密码静默登记
         val discovered = resticRepoLocator.discoverOtgRepositories()
         when {
             discovered.isEmpty() -> {
-                _otgDiscoveryState.value = OtgDiscoveryState.None
+                // 扫不到仓库，再判是否插了盘：插了盘但无仓库 → 引导初始化；没插盘 → 不显示
+                val hasDisk = runCatching { directoryRepo.hasExternalStorage() }.getOrDefault(false)
+                if (hasDisk) {
+                    Log.d("DashboardOtg", "detectOtgRepository: 插了 OTG 盘但无仓库 → NotInitialized")
+                    _otgDiscoveryState.value = OtgDiscoveryState.NotInitialized
+                } else {
+                    Log.d("DashboardOtg", "detectOtgRepository: 未插 OTG 盘 → None")
+                    _otgDiscoveryState.value = OtgDiscoveryState.None
+                }
             }
 
             discovered.size == 1 -> {
@@ -137,12 +187,7 @@ class IndexViewModel @Inject constructor(
                     context.saveResticRepoPath(repo.path)
                     context.saveResticRepoConfigId(repo.configId)
                     context.saveResticPassword(defaultPassword)
-                    val total = runCatching { rootService.calculateSize(repo.path) }.getOrDefault(0L)
-                    _otgDiscoveryState.value = OtgDiscoveryState.Registered(
-                        usedBytes = total,
-                        totalBytes = total,
-                        backupUsedBytes = total,
-                    )
+                    _otgDiscoveryState.value = buildRegisteredState(repo.path)
                 } else {
                     // 默认密码不可解（用了自定义密码）：引导去设置页输入密码
                     _otgDiscoveryState.value = OtgDiscoveryState.NeedsSetup
@@ -154,6 +199,27 @@ class IndexViewModel @Inject constructor(
                 _otgDiscoveryState.value = OtgDiscoveryState.NeedsSetup
             }
         }
+    }
+
+    /**
+     * 构造 Registered 容量数据：
+     *  - 整盘容量：readStatFs(挂载点)，与 DirectoryRepository.update() 一致；
+     *    usedBytes = totalBytes - availableBytes。
+     *  - 仓库占用：calculateSize(repoPath)，只统计 restic_repo 目录本身。
+     * repoPath 形如 <挂载点>/restic_repo，取其父目录作为整盘挂载点。
+     */
+    private suspend fun buildRegisteredState(repoPath: String): OtgDiscoveryState.Registered {
+        val mountPoint = File(repoPath).parent ?: repoPath
+        val statFs = runCatching { rootService.readStatFs(mountPoint) }.getOrNull()
+        val totalBytes = statFs?.totalBytes ?: 0L
+        val availableBytes = statFs?.availableBytes ?: 0L
+        val usedBytes = (totalBytes - availableBytes).coerceAtLeast(0L)
+        val backupUsedBytes = runCatching { rootService.calculateSize(repoPath) }.getOrDefault(0L)
+        return OtgDiscoveryState.Registered(
+            usedBytes = usedBytes,
+            totalBytes = totalBytes,
+            backupUsedBytes = backupUsedBytes,
+        )
     }
 
     private fun parseReleaseCode(release: Release): Long {

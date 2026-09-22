@@ -1,9 +1,19 @@
 package com.xayah.core.data.repository
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.hardware.usb.UsbManager
+import android.os.Build
 import android.util.Log
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.rootservice.util.withIOContext
 import com.xayah.core.util.command.PreparationUtil
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,6 +35,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class ResticRepoLocator @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val rootService: RemoteRootService,
 ) {
     companion object {
@@ -196,5 +207,58 @@ class ResticRepoLocator @Inject constructor(
 
         Log.d(TAG, "discoverOtgRepositories: discovered=$discovered")
         discovered
+    }
+
+    /**
+     * OTG 挂载/拔插事件流，只负责"发信号"，不做扫描。
+     *
+     * 订阅方（如首页 IndexViewModel）收到 Unit 后自行触发 detectOtgRepository() 重扫，
+     * 从而摆脱"回到前台才刷新"的被动模式，实现插盘/拔盘即时更新 UI。
+     *
+     * 注册两组广播：
+     *  (a) 存储介质挂载/卸载/弹出 —— MEDIA_* 系受保护系统广播，需 addDataScheme("file")。
+     *  (b) USB 设备插拔 —— UsbManager.ACTION_USB_DEVICE_ATTACHED/DETACHED，
+     *      USB 广播不能带 dataScheme，必须单独用一个 IntentFilter 注册。
+     *
+     * 进入时先 trySend(Unit) 发一次初始信号，保证首次订阅即触发一轮扫描。
+     */
+    fun otgMountEvents(): Flow<Unit> = callbackFlow {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: Intent?) {
+                Log.d(TAG, "otgMountEvents: received ${intent?.action}")
+                trySend(Unit)
+            }
+        }
+
+        // (a) 存储介质挂载/卸载/弹出，需带 file scheme
+        val mediaFilter = IntentFilter().apply {
+            addAction(Intent.ACTION_MEDIA_MOUNTED)
+            addAction(Intent.ACTION_MEDIA_UNMOUNTED)
+            addAction(Intent.ACTION_MEDIA_EJECT)
+            addDataScheme("file")
+        }
+        // (b) USB 设备插拔，不能带 dataScheme，单独注册
+        val usbFilter = IntentFilter().apply {
+            addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+            addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+        }
+
+        if (Build.VERSION.SDK_INT >= 33) {
+            // Android 13+：显式指定不导出，避免隐式广播注册异常。
+            // MEDIA_* 为受保护系统广播，USB 自定义 filter 也统一带上该标志。
+            context.registerReceiver(receiver, mediaFilter, Context.RECEIVER_NOT_EXPORTED)
+            context.registerReceiver(receiver, usbFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            context.registerReceiver(receiver, mediaFilter)
+            context.registerReceiver(receiver, usbFilter)
+        }
+
+        // 首次订阅即发一次初始信号，触发首轮扫描。
+        trySend(Unit)
+
+        awaitClose {
+            runCatching { context.unregisterReceiver(receiver) }
+                .onFailure { Log.w(TAG, "otgMountEvents: unregisterReceiver failed: ${it.message}") }
+        }
     }
 }

@@ -70,4 +70,5 @@
     <string name="restic_otg_rescan">重新扫描并连接 OTG 仓库</string>
     <string name="restic_otg_enter_password">请输入仓库密码</string>
     <string name="restic_otg_select_repository">检测到多个 OTG 仓库，请选择一个</string>
+    <string name="restic_otg_external_storage_hint">此仓库位于外接存储，备份/恢复时需保持插入</string>
 </resources>

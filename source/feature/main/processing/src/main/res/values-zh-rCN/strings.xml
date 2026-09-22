@@ -7,4 +7,9 @@
     <string name="cancel_restore">取消恢复</string>
     <string name="cleaning_up_incomplete_backups">正在清理已取消的备份...</string>
     <string name="backup_canceled">备份已取消</string>
+    <!-- OTG bootstrap 提示 -->
+    <string name="restic_otg_not_found">未检测到 OTG 仓库，请插入 U 盘后重试</string>
+    <string name="restic_otg_go_settings">发现多个 OTG 仓库，请前往设置页选择</string>
+    <string name="otg_usb">OTG USB</string>
+    <string name="otg_do_not_remove_storage">操作期间请勿拔出存储介质,否则可能导致备份数据损坏</string>
 </resources>

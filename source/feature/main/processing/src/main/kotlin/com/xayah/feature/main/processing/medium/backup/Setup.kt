@@ -72,6 +72,8 @@ fun PageMediumBackupProcessingSetup(localNavController: NavHostController, viewM
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
     val isTesting by viewModel.isTesting.collectAsStateWithLifecycle()
     val mediumSize by viewModel.mediumSize.collectAsStateWithLifecycle()
+    // 是否检测到 OTG 外接存储（决定段选择是否出现「OTG USB」段）
+    val hasOtg by viewModel.hasOtgState.collectAsStateWithLifecycle()
 
     LaunchedEffect(null) {
         viewModel.emitIntentOnIO(UpdateFiles)
@@ -90,7 +92,7 @@ fun PageMediumBackupProcessingSetup(localNavController: NavHostController, viewM
                 horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level12, Alignment.End),
             ) {
                 Button(
-                    enabled = uiState.storageType == StorageMode.Local || (uiState.cloudEntity != null && isTesting.not()),
+                    enabled = uiState.storageType == StorageMode.Local || uiState.storageType == StorageMode.Otg || (uiState.cloudEntity != null && isTesting.not()),
                     onClick = {
                         viewModel.emitIntentOnIO(FinishSetup(navController = localNavController))
                     }) {
@@ -104,7 +106,21 @@ fun PageMediumBackupProcessingSetup(localNavController: NavHostController, viewM
                 .verticalScroll(rememberScrollState())
                 .fillMaxSize(),
         ) {
-            val storageOptions = listOf(stringResource(R.string.local), stringResource(R.string.cloud))
+            // 有 OTG → [本地, OTG USB, 云端]；否则 [本地, 云端]
+            val storageModes = remember(hasOtg) {
+                if (hasOtg) listOf(StorageMode.Local, StorageMode.Otg, StorageMode.Cloud)
+                else listOf(StorageMode.Local, StorageMode.Cloud)
+            }
+            val localText = stringResource(R.string.local)
+            val otgText = stringResource(R.string.otg_usb)
+            val cloudText = stringResource(R.string.cloud)
+            val storageOptions = storageModes.map { mode ->
+                when (mode) {
+                    StorageMode.Local -> localText
+                    StorageMode.Otg -> otgText
+                    StorageMode.Cloud -> cloudText
+                }
+            }
             SingleChoiceSegmentedButtonRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -115,7 +131,12 @@ fun PageMediumBackupProcessingSetup(localNavController: NavHostController, viewM
                     SegmentedButton(
                         shape = SegmentedButtonDefaults.itemShape(index = index, count = storageOptions.size),
                         onClick = {
-                            viewModel.emitStateOnMain(state = uiState.copy(storageIndex = index, storageType = if (index == 0) StorageMode.Local else StorageMode.Cloud))
+                            val mode = storageModes[index]
+                            viewModel.emitStateOnMain(state = uiState.copy(storageIndex = index, storageType = mode))
+                            // 选中 OTG 段 → 触发发现 + 默认密码静默登记 / 引导去设置页
+                            if (mode == StorageMode.Otg) {
+                                viewModel.bootstrapOtg()
+                            }
                         },
                         selected = index == uiState.storageIndex
                     ) {
@@ -125,7 +146,7 @@ fun PageMediumBackupProcessingSetup(localNavController: NavHostController, viewM
             }
 
             Title(title = stringResource(id = R.string.storage)) {
-                AnimatedVisibility(uiState.storageIndex == 1) {
+                AnimatedVisibility(uiState.storageType == StorageMode.Cloud) {
                     if (accounts.isEmpty()) {
                         Clickable(
                             title = stringResource(id = R.string.account),

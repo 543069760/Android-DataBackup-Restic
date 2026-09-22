@@ -3,11 +3,16 @@ package com.xayah.feature.main.processing.packages.backup
 import android.content.Context
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.xayah.core.data.repository.CloudRepository
+import com.xayah.core.data.repository.DirectoryRepository
 import com.xayah.core.data.repository.PackageRepository
+import com.xayah.core.data.repository.ResticRepoLocator
 import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.datastore.saveCloudActivatedAccountName
+import com.xayah.core.datastore.saveResticPassword
+import com.xayah.core.datastore.saveResticRepoConfigId
+import com.xayah.core.datastore.saveResticRepoPath
 import com.xayah.core.model.CloudType
 import com.xayah.core.model.OpType
 import com.xayah.core.model.StorageMode
@@ -55,6 +60,8 @@ class BackupViewModelImpl @Inject constructor(
     mLocalService: ProcessingServiceProxyLocalImpl,
     mCloudService: ProcessingServiceProxyCloudImpl,
     private val resticRepo: ResticRepository,
+    private val mDirectoryRepo: DirectoryRepository,
+    private val resticRepoLocator: ResticRepoLocator,
     private val resticBackends: Map<CloudType, @JvmSuppressWildcards CloudResticBackend>,
 ) : AbstractPackagesProcessingViewModel(mContext, mRootService, mTaskRepo, mLocalService, mCloudService) {
 
@@ -70,6 +77,7 @@ class BackupViewModelImpl @Inject constructor(
                 }
                 _packages.value = packages
                 _packagesSize.value = bytes.formatSize()
+                _hasOtg.value = resticRepoLocator.discoverOtgRepositories().isNotEmpty()
             }
 
             is SetCloudEntity -> {
@@ -161,6 +169,59 @@ class BackupViewModelImpl @Inject constructor(
         }
     }
 
+    /**
+     * 首次选择 OTG 段时触发：发现 OTG restic 仓库并（默认密码可解时）静默登记。
+     * 走 discoverOtgRepositories()（只读 config、不需密码）而非 resolveCurrentResticRepoPath()
+     * （后者首次无 savedConfigId 会 NotFound）。首页/Setup 不弹密码框/多盘选择框，
+     * 自定义密码或多盘一律引导去设置页 ResticViewModel 承载交互式 bootstrap。
+     */
+    fun bootstrapOtg() = launchOnIO {
+        val discovered = resticRepoLocator.discoverOtgRepositories()
+        when {
+            discovered.isEmpty() -> {
+                // 没插盘 / 空盘 / 盘里无仓库 —— 提示去设置页初始化
+                emitEffectOnIO(
+                    IndexUiEffect.ShowSnackbar(
+                        type = SnackbarType.Error,
+                        message = mContext.getString(R.string.restic_otg_not_found),
+                        duration = SnackbarDuration.Long,
+                    )
+                )
+            }
+
+            discovered.size == 1 -> {
+                val repo = discovered.first()
+                val defaultPwd = mContext.readResticPassword() ?: "databackup_default"
+                if (resticRepo.validateRepository(repo.path, defaultPwd)) {
+                    // 默认密码可解 → 零交互静默登记
+                    mContext.saveResticRepoPath(repo.path)
+                    mContext.saveResticRepoConfigId(repo.configId)
+                    mContext.saveResticPassword(defaultPwd)
+                } else {
+                    // 自定义密码 → 引导去设置页 bootstrap
+                    emitEffectOnIO(
+                        IndexUiEffect.ShowSnackbar(
+                            type = SnackbarType.Error,
+                            message = mContext.getString(R.string.restic_otg_go_settings),
+                            duration = SnackbarDuration.Long,
+                        )
+                    )
+                }
+            }
+
+            else -> {
+                // 多盘 → 引导去设置页选择
+                emitEffectOnIO(
+                    IndexUiEffect.ShowSnackbar(
+                        type = SnackbarType.Error,
+                        message = mContext.getString(R.string.restic_otg_go_settings),
+                        duration = SnackbarDuration.Long,
+                    )
+                )
+            }
+        }
+    }
+
     private val _accounts: Flow<List<DialogRadioItem<Any>>> = mCloudRepo.clouds.map { entities ->
         entities.map {
             DialogRadioItem(
@@ -173,9 +234,11 @@ class BackupViewModelImpl @Inject constructor(
     private val _isTesting: MutableStateFlow<Boolean> = MutableStateFlow(false)
     private val _packages: MutableStateFlow<List<PackageEntity>> = MutableStateFlow(listOf())
     private val _packagesSize: MutableStateFlow<String> = MutableStateFlow("")
+    private val _hasOtg: MutableStateFlow<Boolean> = MutableStateFlow(false)
 
     val accounts: StateFlow<List<DialogRadioItem<Any>>> = _accounts.stateInScope(listOf())
     val isTesting: StateFlow<Boolean> = _isTesting.stateInScope(false)
     val packages: StateFlow<List<PackageEntity>> = _packages.stateInScope(listOf())
     val packagesSize: StateFlow<String> = _packages.let { _ -> _packagesSize }.stateInScope("")
+    val hasOtgState: StateFlow<Boolean> = _hasOtg.stateInScope(false)
 }

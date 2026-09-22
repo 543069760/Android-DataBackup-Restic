@@ -24,8 +24,16 @@ interface DirectoryDao {
     suspend fun queryActiveDirectories(): List<DirectoryEntity>
 
     /**
-     * Get the directory id of the smallest userId
+     * 统计指定 storageType 的目录记录数（不按 active 过滤）。
+     * 用于 OTG 存在性检测：EXTERNAL 目录在 update() 里被排除在批量激活之外，
+     * active 语义与其它类型不一致，故只按"是否存在该类型记录"判断。
      */
+    @Query("SELECT COUNT(*) FROM DirectoryEntity WHERE storageType = :storageType")
+    suspend fun countByStorageType(storageType: StorageType): Int
+
+    @Query("SELECT COUNT(*) FROM DirectoryEntity WHERE storageType = :storageType")
+    fun countByStorageTypeFlow(storageType: StorageType): Flow<Int>
+
     @Query("SELECT id FROM DirectoryEntity WHERE storageType = :storageType ORDER BY parent LIMIT 1")
     suspend fun queryDefaultDirectoryId(storageType: StorageType): Long?
 
