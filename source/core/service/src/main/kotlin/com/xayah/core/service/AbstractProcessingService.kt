@@ -35,12 +35,26 @@ import kotlinx.coroutines.sync.withLock
 
 internal abstract class AbstractProcessingService : Service() {
     override fun onBind(intent: Intent): IBinder {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(1, NotificationUtil.getForegroundNotification(applicationContext), FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(1, NotificationUtil.getForegroundNotification(applicationContext))
-        }
+        startForegroundCompat()
         return mBinder
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // startForegroundService 会触发 onStartCommand，需在此处及时调用 startForeground
+        startForegroundCompat()
+        return START_STICKY
+    }
+
+    private fun startForegroundCompat() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(1, NotificationUtil.getForegroundNotification(applicationContext), FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(1, NotificationUtil.getForegroundNotification(applicationContext))
+            }
+        } catch (e: Exception) {
+            LogUtil.log { mTAG to "startForeground failed: ${e.message}" }
+        }
     }
 
     inner class OperationLocalBinder : Binder() {

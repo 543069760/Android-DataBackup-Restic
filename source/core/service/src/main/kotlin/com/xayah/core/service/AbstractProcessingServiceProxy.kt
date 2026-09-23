@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
+import android.os.Build
 import android.os.RemoteException
 import com.xayah.core.util.NotificationUtil
 import com.xayah.core.util.withMainContext
@@ -52,6 +53,17 @@ abstract class AbstractProcessingServiceProxy {
                     val msg = "Null binding."
                     continuation.resumeWithException(RemoteException(msg))
                 }
+            }
+            // 先以前台服务方式启动，获取合法调用 startForeground() 的时间窗口，
+            // 避免 Android 12+ 在后台绑定时抛 ForegroundServiceStartNotAllowedException
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("AbstractProcessingServiceProxy", "startForegroundService failed: ${e.message}")
             }
             context.bindService(intent, mConnection!!, Context.BIND_AUTO_CREATE)
         } else {

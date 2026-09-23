@@ -66,7 +66,7 @@ object NotificationUtil {
         }
 
         createChannelIfNecessary(context)
-        NotificationCompat.Builder(context, ForegroundServiceChannelId).setContentIntent(pendingIntent).build()
+        NotificationCompat.Builder(context, ForegroundServiceChannelId).setSmallIcon(R.mipmap.ic_launcher).setContentIntent(pendingIntent).build()
     }
 
     fun getProgressNotificationBuilder(context: Context) =
