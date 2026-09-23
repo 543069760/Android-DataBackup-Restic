@@ -7,23 +7,27 @@ class FileParcelable() : Parcelable {
     var name: String = ""
     var creationTime: Long = 0
     var link: String? = null
+    var subtitle: String? = null
 
     constructor(parcel: Parcel) : this() {
         name = parcel.readString()!!
         creationTime = parcel.readLong()
         link = parcel.readString()
+        subtitle = parcel.readString()
     }
 
-    constructor(path: String, creationTime: Long, link: String? = null) : this() {
+    constructor(path: String, creationTime: Long, link: String? = null, subtitle: String? = null) : this() {
         this.name = path
         this.creationTime = creationTime
         this.link = link
+        this.subtitle = subtitle
     }
 
     override fun writeToParcel(parcel: Parcel, flags: Int) {
         parcel.writeString(name)
         parcel.writeLong(creationTime)
         parcel.writeString(link)
+        parcel.writeString(subtitle)
     }
 
     override fun describeContents(): Int {

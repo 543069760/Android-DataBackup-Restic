@@ -84,4 +84,9 @@
     <string name="restic_otg_no_snapshots">OTG没有快照</string>
     <string name="otg_backup_apps">备份应用到 OTG</string>
     <string name="otg_backup_files">备份文件到 OTG</string>
+    <!-- OTG 分区选择 -->
+    <string name="otg_select_partition">选择 OTG 分区</string>
+    <string name="otg_no_storage_detected">未检测到 OTG 存储</string>
+    <string name="otg_partition_capacity">可用 %1$s / 共 %2$s</string>
+    <string name="otg_partition_fs_type">文件系统：%1$s</string>
 </resources>

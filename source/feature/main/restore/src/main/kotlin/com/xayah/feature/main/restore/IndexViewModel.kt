@@ -10,6 +10,7 @@ import com.xayah.core.data.repository.MediaRepository
 import com.xayah.core.data.repository.PackageRepository
 import com.xayah.core.datastore.readLastRestoreTime
 import com.xayah.core.datastore.saveCloudActivatedAccountName
+import com.xayah.core.datastore.readResticOtgRepoPath
 import com.xayah.core.model.OpType
 import com.xayah.core.model.StorageMode
 import com.xayah.core.model.Target
@@ -186,11 +187,11 @@ class IndexViewModel @Inject constructor(
     }.flowOnIO()
     val accounts: StateFlow<List<DialogRadioItem<Any>>> = _accounts.stateInScope(listOf())
 
-    // 是否发现可用的 OTG restic 仓库（决定段选择是否出现「OTG USB」段）
-    // 与备份页语义一致：仅当 discoverOtgRepositories() 发现非空仓库才为 true，
-    // 全新盘（插了盘但无仓库）不显示 OTG 段。
+    // 是否存在已初始化的 OTG restic 仓库（决定段选择是否出现「OTG USB」段）
+    // 与备份页语义一致：按已保存的 OTG 仓库身份键（restic_otg_repo_path）判定，
+    // 不再依赖固定层级 <mount>/restic_repo 扫描，嵌套子目录的仓库也不会漏。
     val hasOtgState: StateFlow<Boolean> =
-        flow { emit(resticRepoLocator.discoverOtgRepositories().isNotEmpty()) }
+        flow { emit(!context.readResticOtgRepoPath().isNullOrEmpty()) }
             .flowOnIO()
             .stateInScope(false)
 }

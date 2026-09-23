@@ -42,6 +42,8 @@ import com.xayah.core.datastore.readResticOtgPassword
 import com.xayah.core.datastore.readResticRepoConfigId
 import com.xayah.core.datastore.saveResticRepoPath
 import com.xayah.core.datastore.saveResticRepoConfigId
+import com.xayah.core.datastore.readResticOtgRepoConfigId
+import com.xayah.core.datastore.saveResticOtgRepoPath
 import com.xayah.core.data.repository.ResticRepoLocator
 import com.xayah.core.data.repository.ResticRepoLocator.ResolveResult
 import dagger.hilt.android.AndroidEntryPoint
@@ -282,20 +284,22 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
      * 返回 true=可继续备份；false=中止。
      */
     protected suspend fun resolveAndAlignResticRepo(): Boolean {
-        val savedPath = mContext.readResticRepoPath() ?: return true // 无配置=内部默认，放行
-        val savedConfigId = mContext.readResticRepoConfigId()
+        val isOtg = mContext.readResticActiveIsOtg()
+        val savedPath = (if (isOtg) mContext.readResticOtgRepoPath() else mContext.readResticRepoPath())
+            ?: return true // 无配置=内部默认，放行
+        val savedConfigId = if (isOtg) mContext.readResticOtgRepoConfigId() else mContext.readResticRepoConfigId()
         return when (val r = resticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
-            is ResolveResult.Passthrough -> true                 // 非 OTG（内部/云端）：透明放行
+            is ResolveResult.Passthrough -> true
             is ResolveResult.Matched -> {
                 if (r.changed) {
-                    // 挂载点变了但 config_id 命中同一仓库：更新路径后放行
-                    mContext.saveResticRepoPath(r.path)
+                    // 挂载点变了但 config_id 命中同一仓库：更新路径后放行（OTG 写 OTG 键）
+                    if (isOtg) mContext.saveResticOtgRepoPath(r.path) else mContext.saveResticRepoPath(r.path)
                 }
                 true
             }
             is ResolveResult.NotFound -> {
                 log { "onPreBackupRepositoryCheck: 未检测到目标 OTG 仓库（未插盘/无此 config_id），中止备份" }
-                false                                            // 写入操作，保守中止
+                false
             }
             is ResolveResult.Ambiguous -> {
                 log { "onPreBackupRepositoryCheck: OTG 多仓库歧义（${r.candidates.size} 个候选），中止备份" }

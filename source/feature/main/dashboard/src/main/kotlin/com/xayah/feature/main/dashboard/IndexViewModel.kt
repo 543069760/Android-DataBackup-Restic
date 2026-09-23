@@ -208,15 +208,22 @@ class IndexViewModel @Inject constructor(
     }
 
     /**
-     * 构造 Registered 容量数据：
-     *  - 整盘容量：readStatFs(挂载点)，与 DirectoryRepository.update() 一致；
+     * 构造 Registered 容量数据（分区维度）：
+     *  - 分区容量：readStatFs(OTG 分区根 /mnt/media_rw/<UUID>)；
      *    usedBytes = totalBytes - availableBytes。
-     *  - 仓库占用：calculateSize(repoPath)，只统计 restic_repo 目录本身。
-     * repoPath 形如 <挂载点>/restic_repo，取其父目录作为整盘挂载点。
+     *  - 仓库占用：calculateSize(repoPath)，只统计 restic 仓库目录本身。
+     * repoPath 是在 /mnt/media_rw/<UUID> 内任意层级选出的仓库路径，
+     * 因此不能用 File(repoPath).parent（可能落到 /mnt/media_rw 系统层或某个子目录），
+     * 而是稳定截出 /mnt/media_rw/ 之后的第一段作为分区根。
      */
     private suspend fun buildRegisteredState(repoPath: String): OtgDiscoveryState.Registered {
-        val mountPoint = File(repoPath).parent ?: repoPath
-        val statFs = runCatching { rootService.readStatFs(mountPoint) }.getOrNull()
+        // 分区根：/mnt/media_rw/<UUID>；非 OTG/异常路径回退到原 parent 逻辑，保证零回归
+        val partitionRoot = if (repoPath.startsWith("/mnt/media_rw/")) {
+            "/mnt/media_rw/" + repoPath.removePrefix("/mnt/media_rw/").substringBefore('/')
+        } else {
+            File(repoPath).parent ?: repoPath
+        }
+        val statFs = runCatching { rootService.readStatFs(partitionRoot) }.getOrNull()
         val totalBytes = statFs?.totalBytes ?: 0L
         val availableBytes = statFs?.availableBytes ?: 0L
         val usedBytes = (totalBytes - availableBytes).coerceAtLeast(0L)

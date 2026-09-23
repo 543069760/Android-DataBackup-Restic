@@ -173,9 +173,8 @@ fun PageDashboard() {
                 }
 
                 IndexViewModel.OtgDiscoveryState.NotInitialized -> {
-                    // 插了盘但盘上没有 restic 仓库：显示未初始化胶囊卡，点击去初始化页选路径建库
                     OtgNotInitializedCard {
-                        navController.navigateSingle(MainRoutes.ResticInitialization.route)
+                        navController.navigateSingle(MainRoutes.ResticInitialization.getRoute(isOtg = true))
                     }
                 }
 

@@ -17,6 +17,9 @@ import com.xayah.core.datastore.saveCloudActivatedAccountName
 import com.xayah.core.datastore.saveResticPassword
 import com.xayah.core.datastore.saveResticRepoConfigId
 import com.xayah.core.datastore.saveResticRepoPath
+import com.xayah.core.datastore.saveResticOtgRepoConfigId
+import com.xayah.core.datastore.saveResticOtgPassword
+import com.xayah.core.datastore.saveResticOtgRepoPath
 import com.xayah.core.model.CloudType
 import com.xayah.core.model.OpType
 import com.xayah.core.model.StorageMode
@@ -83,7 +86,7 @@ class BackupViewModelImpl @Inject constructor(
                 }
                 _medium.value = medium
                 _mediumSize.value = bytes.formatSize()
-                _hasOtg.value = resticRepoLocator.discoverOtgRepositories().isNotEmpty()
+                _hasOtg.value = !mContext.readResticOtgRepoPath().isNullOrEmpty()
             }
 
             is SetCloudEntity -> {
@@ -216,11 +219,13 @@ class BackupViewModelImpl @Inject constructor(
 
             discovered.size == 1 -> {
                 val repo = discovered.first()
-                val defaultPwd = mContext.readResticPassword() ?: "databackup_default"
+                // 默认密码回退读 OTG 键（与本地键隔离）
+                val defaultPwd = mContext.readResticOtgPassword() ?: "databackup_default"
                 if (resticRepo.validateRepository(repo.path, defaultPwd)) {
-                    mContext.saveResticRepoPath(repo.path)
-                    mContext.saveResticRepoConfigId(repo.configId)
-                    mContext.saveResticPassword(defaultPwd)
+                    // 静默登记只写 OTG 独立键，不污染本地仓库身份
+                    mContext.saveResticOtgRepoPath(repo.path)
+                    mContext.saveResticOtgRepoConfigId(repo.configId)
+                    mContext.saveResticOtgPassword(defaultPwd)
                 } else {
                     emitEffectOnIO(
                         IndexUiEffect.ShowSnackbar(

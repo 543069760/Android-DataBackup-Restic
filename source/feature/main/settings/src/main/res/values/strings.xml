@@ -86,4 +86,9 @@
     <string name="restic_otg_no_snapshots">No OTG snapshots</string>
     <string name="otg_backup_apps">Backup Apps to OTG</string>
     <string name="otg_backup_files">Backup Files to OTG</string>
+    <!-- OTG 分区选择 -->
+    <string name="otg_select_partition">Select OTG partition</string>
+    <string name="otg_no_storage_detected">No OTG storage detected</string>
+    <string name="otg_partition_capacity">Available %1$s / Total %2$s</string>
+    <string name="otg_partition_fs_type">Filesystem: %1$s</string>
 </resources>

@@ -22,6 +22,7 @@ import com.xayah.core.datastore.saveResticOtgPassword
 import com.xayah.core.datastore.saveResticOtgRepoConfigId
 import com.xayah.core.datastore.saveResticOtgRepoPath
 import com.xayah.core.model.restic.ResticBackupApp
+import com.xayah.core.model.util.formatSize
 import com.xayah.core.restic.ResticNative
 import com.xayah.core.restic.ResticRepository
 import com.xayah.core.rootservice.service.RemoteRootService
@@ -31,6 +32,8 @@ import com.xayah.core.ui.viewmodel.UiIntent
 import com.xayah.core.ui.viewmodel.UiState
 import com.xayah.core.util.command.SELinux
 import com.xayah.core.util.command.PreparationUtil
+import com.xayah.libpickyou.parcelables.DirChildrenParcelable
+import com.xayah.libpickyou.parcelables.FileParcelable
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +49,15 @@ import javax.inject.Inject
 data object ResticUiState : UiState
 
 sealed class ResticUiIntent : UiIntent
+
+// OTG 分区信息：供初始化页渲染分区卡片
+data class OtgPartition(
+    val uuid: String,        // 卷叶子名，如 E7F9-FA61
+    val path: String,        // 完整挂载路径 /mnt/media_rw/E7F9-FA61
+    val availableBytes: Long,
+    val totalBytes: Long,
+    val fsType: String?      // 文件系统类型，如 vfat/exfat/ext4，取不到为 null
+)
 
 @ExperimentalMaterial3Api
 @HiltViewModel
@@ -719,6 +731,56 @@ class ResticViewModel @Inject constructor(
         return runCatching {
             PreparationUtil.listExternalStorage().out.firstOrNull { it.isNotBlank() }?.trimEnd('/')
         }.getOrNull()
+    }
+
+    /**
+     * 供 libpickyou 的 mkdirsBackend 使用：用主工程 core RemoteRootService
+     * （mount-master 全局命名空间，能看到 /mnt/media_rw/<UUID> 挂载）创建目录，
+     * 绕过 libpickyou 自身 RootService binder 进程看不到 OTG 挂载导致的创建失败。
+     * mkdirsBackend 传入 parent 与 child 两段，此处拼成完整路径交给 core mkdirs。
+     */
+    suspend fun mkdirsOtg(parent: String, child: String): Boolean = withContext(Dispatchers.IO) {
+        rootService.mkdirs("$parent/$child")
+    }
+
+    /**
+     * 列出当前所有已挂载的 OTG 分区（口径与首页/备份一致：mount 过滤 /mnt/media_rw/<UUID>），
+     * 每个分区带可用/总容量与文件系统类型，供初始化页用卡片展示、辅助用户选分区。
+     * 只列真实挂载卷，不会把 /mnt/media_rw 下未挂载的残留目录列进来。
+     */
+    suspend fun listOtgPartitions(): List<OtgPartition> = withContext(Dispatchers.IO) {
+        val paths = runCatching {
+            PreparationUtil.listExternalStorage().out.filter { it.isNotBlank() }
+        }.getOrElse { emptyList() }
+
+        paths.map { raw ->
+            val path = raw.trimEnd('/')
+            val stat = runCatching { rootService.readStatFs(path) }.getOrNull()
+            val fsType = runCatching {
+                PreparationUtil.getExternalStorageType(path).out.firstOrNull { it.isNotBlank() }
+            }.getOrNull()
+            OtgPartition(
+                uuid = path.substringAfterLast('/'),
+                path = path,
+                availableBytes = stat?.availableBytes ?: 0L,
+                totalBytes = stat?.totalBytes ?: 0L,
+                fsType = fsType
+            )
+        }
+    }
+
+    /**
+     * 供 libpickyou 的 traverseBackend 使用：用主工程 core RemoteRootService（mount-master 全局命名空间，
+     * 能看到 vold 挂在 /mnt/media_rw/<UUID> 的 OTG 盘）列目录，绕过 libpickyou 自身 RootService binder
+     * 进程看不到 OTG 挂载导致的空白问题。
+     * 注意：listFilePaths 返回全路径，FileParcelable.name 需要叶子名，故 substringAfterLast('/')。
+     */
+    suspend fun listOtgChildren(pathString: String): DirChildrenParcelable = withContext(Dispatchers.IO) {
+        val dirs = rootService.listFilePaths(pathString, listFiles = false, listDirs = true)
+            .map { FileParcelable(it.substringAfterLast('/'), 0L) }
+        val files = rootService.listFilePaths(pathString, listFiles = true, listDirs = false)
+            .map { FileParcelable(it.substringAfterLast('/'), 0L) }
+        DirChildrenParcelable(files = files, directories = dirs)
     }
 
     // --- OTG / 本地 读写分流辅助 ---

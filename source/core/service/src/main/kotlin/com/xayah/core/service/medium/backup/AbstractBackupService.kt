@@ -32,6 +32,9 @@ import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.datastore.readResticActiveIsOtg
 import com.xayah.core.datastore.readResticOtgRepoPath
 import com.xayah.core.datastore.readResticOtgPassword
+import com.xayah.core.datastore.readResticOtgRepoConfigId
+import com.xayah.core.datastore.saveResticOtgRepoPath
+import com.xayah.core.datastore.saveResticOtgRepoConfigId
 import com.xayah.core.datastore.readResticRepoConfigId
 import com.xayah.core.datastore.saveResticRepoPath
 import com.xayah.core.datastore.saveResticRepoConfigId
@@ -384,18 +387,21 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
      * 备份是写入操作,匹配不到务必保守中止,绝不猜路径继续写。
      */
     protected suspend fun resolveAndAlignResticRepo(): Boolean {
-        val savedPath = mContext.readResticRepoPath()
+        val isOtg = mContext.readResticActiveIsOtg()
+        val savedPath = (if (isOtg) mContext.readResticOtgRepoPath() else mContext.readResticRepoPath())
             ?: File(mFilesDir, "restic_repo").absolutePath
-        val savedConfigId = mContext.readResticRepoConfigId()
+        val savedConfigId = if (isOtg) mContext.readResticOtgRepoConfigId() else mContext.readResticRepoConfigId()
 
         return when (val r = resticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
             is ResticRepoLocator.ResolveResult.Passthrough -> true          // 非 OTG(内部存储/云端),直通
             is ResticRepoLocator.ResolveResult.Matched -> {
                 if (r.changed) {
-                    // OTG 挂载点变了但 config_id 命中 → 更新 DataStore 后放行
+                    // OTG 挂载点变了但 config_id 命中 → 更新 DataStore 后放行（OTG 写 OTG 键）
                     Log.i(mTAG, "OTG 路径变动,已重对齐: $savedPath -> ${r.path}")
-                    mContext.saveResticRepoPath(r.path)
-                    savedConfigId?.let { mContext.saveResticRepoConfigId(it) }
+                    if (isOtg) mContext.saveResticOtgRepoPath(r.path) else mContext.saveResticRepoPath(r.path)
+                    savedConfigId?.let {
+                        if (isOtg) mContext.saveResticOtgRepoConfigId(it) else mContext.saveResticRepoConfigId(it)
+                    }
                 }
                 true
             }

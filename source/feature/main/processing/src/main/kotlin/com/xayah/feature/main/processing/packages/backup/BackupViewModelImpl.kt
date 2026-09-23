@@ -17,6 +17,10 @@ import com.xayah.core.datastore.saveCloudActivatedAccountName
 import com.xayah.core.datastore.saveResticPassword
 import com.xayah.core.datastore.saveResticRepoConfigId
 import com.xayah.core.datastore.saveResticRepoPath
+import com.xayah.core.datastore.saveResticOtgPassword
+import com.xayah.core.datastore.saveResticOtgRepoConfigId
+import com.xayah.core.datastore.saveResticOtgRepoPath
+import com.xayah.core.datastore.readResticOtgRepoConfigId
 import com.xayah.core.model.CloudType
 import com.xayah.core.model.OpType
 import com.xayah.core.model.StorageMode
@@ -85,7 +89,7 @@ class BackupViewModelImpl @Inject constructor(
                 }
                 _packages.value = packages
                 _packagesSize.value = bytes.formatSize()
-                _hasOtg.value = resticRepoLocator.discoverOtgRepositories().isNotEmpty()
+                _hasOtg.value = !mContext.readResticOtgRepoPath().isNullOrEmpty()
             }
 
             is SetCloudEntity -> {
@@ -200,6 +204,7 @@ class BackupViewModelImpl @Inject constructor(
      * 走 discoverOtgRepositories()（只读 config、不需密码）而非 resolveCurrentResticRepoPath()
      * （后者首次无 savedConfigId 会 NotFound）。首页/Setup 不弹密码框/多盘选择框，
      * 自定义密码或多盘一律引导去设置页 ResticViewModel 承载交互式 bootstrap。
+     * 登记只写 OTG 独立键（restic_otg_*），不污染本地仓库身份。
      */
     fun bootstrapOtg() = launchOnIO {
         val discovered = resticRepoLocator.discoverOtgRepositories()
@@ -217,12 +222,12 @@ class BackupViewModelImpl @Inject constructor(
 
             discovered.size == 1 -> {
                 val repo = discovered.first()
-                val defaultPwd = mContext.readResticPassword() ?: "databackup_default"
+                val defaultPwd = mContext.readResticOtgPassword() ?: "databackup_default"
                 if (resticRepo.validateRepository(repo.path, defaultPwd)) {
-                    // 默认密码可解 → 零交互静默登记
-                    mContext.saveResticRepoPath(repo.path)
-                    mContext.saveResticRepoConfigId(repo.configId)
-                    mContext.saveResticPassword(defaultPwd)
+                    // 默认密码可解 → 零交互静默登记（只写 OTG 独立键）
+                    mContext.saveResticOtgRepoPath(repo.path)
+                    mContext.saveResticOtgRepoConfigId(repo.configId)
+                    mContext.saveResticOtgPassword(defaultPwd)
                 } else {
                     // 自定义密码 → 引导去设置页 bootstrap
                     emitEffectOnIO(

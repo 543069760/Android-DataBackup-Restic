@@ -1,6 +1,7 @@
 package com.xayah.feature.main.settings.restic
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
+import com.xayah.core.model.util.formatSize
 import com.xayah.libpickyou.PickYouLauncher
 import com.xayah.libpickyou.ui.model.PickerType
 import com.xayah.libpickyou.ui.model.PermissionType
@@ -47,11 +50,28 @@ fun ResticInitializationScreen(isOtg: Boolean = false) {
     val viewModel = hiltViewModel<ResticViewModel>()
     val navController = LocalNavController.current!!
     val context = LocalContext.current
-    val initializationState by viewModel.initializationState.collectAsStateWithLifecycle()
-    val resticInitialized by viewModel.resticInitializedState.collectAsStateWithLifecycle(initialValue = false)
-    val repoPath by viewModel.repoPathState.collectAsStateWithLifecycle()
+
+    // 按 isOtg 选择状态流：OTG 走 ViewModel 已提供的独立状态流，本地保持原状态流（零回归）
+    val localInitializationState by viewModel.initializationState.collectAsStateWithLifecycle()
+    val otgInitializationState by viewModel.otgInitializationState.collectAsStateWithLifecycle()
+    val localResticInitialized by viewModel.resticInitializedState.collectAsStateWithLifecycle(initialValue = false)
+    val otgResticInitialized by viewModel.otgInitializedState.collectAsStateWithLifecycle(initialValue = false)
+    val localRepoPath by viewModel.repoPathState.collectAsStateWithLifecycle()
+    val otgRepoPath by viewModel.otgRepoPathState.collectAsStateWithLifecycle()
+
+    val initializationState = if (isOtg) otgInitializationState else localInitializationState
+    val resticInitialized = if (isOtg) otgResticInitialized else localResticInitialized
+    // 注意：otgRepoPathState 是非空 String（空串=未登记），本地 repoPathState 是 String?；
+    //       统一收敛为 String?，把空串视作「未初始化」，保持下方 repoPath != null 判定语义一致
+    val repoPath: String? = if (isOtg) otgRepoPath.ifEmpty { null } else localRepoPath
+
     // 纯 UI 状态：是否处于“重新初始化”模式（不触碰持久化数据）
     val isReinitializing by viewModel.isReinitializing.collectAsStateWithLifecycle(initialValue = false)
+
+    // 进入 OTG 界面时触发一次 OTG 刷新，确保直接进入该页也能读到最新 OTG 状态
+    LaunchedEffect(isOtg) {
+        if (isOtg) viewModel.refreshOtgStatus()
+    }
 
     var selectedPath by remember { mutableStateOf("") }
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -77,26 +97,13 @@ fun ResticInitializationScreen(isOtg: Boolean = false) {
         }
     }
 
-    // 按 OTG/本地分别构造目录选择器
-    val directoryLauncher = if (isOtg) {
-        // OTG 场景：起始/根路径放开到 /mnt/media_rw，用户在该目录下选择 <UUID> 子目录
-        PickYouLauncher(
-            checkPermission = false,
-            title = stringResource(id = R.string.select_directory),
-            pickerType = PickerType.DIRECTORY,
-            permissionType = PermissionType.ROOT,
-            rootPathList = listOf("/mnt/media_rw"),
-            defaultPathList = listOf("/mnt/media_rw"),
-        )
-    } else {
-        // 本地场景：完全保持原样，起始路径不变
-        PickYouLauncher(
-            checkPermission = false,
-            title = stringResource(id = R.string.select_directory),
-            pickerType = PickerType.DIRECTORY,
-            permissionType = PermissionType.ROOT,
-        )
-    }
+    // 本地目录选择器：完全保持原样（零回归）。OTG 场景改为按分区卡片各自构造 launcher，不用这个。
+    val directoryLauncher = PickYouLauncher(
+        checkPermission = false,
+        title = stringResource(id = R.string.select_directory),
+        pickerType = PickerType.DIRECTORY,
+        permissionType = PermissionType.ROOT,
+    )
 
     if (resticInitialized && repoPath != null && !isReinitializing) {
         // 已初始化状态：显示当前信息和重新初始化按钮
@@ -181,6 +188,15 @@ private fun InitializationView(
     val context = LocalContext.current
     val navController = LocalNavController.current!!
 
+    // 选目录器标题（在 composable 作用域取好，供 OTG 分区卡片点击时构造 launcher 使用）
+    val directoryTitle = stringResource(id = R.string.select_directory)
+
+    // OTG 分区列表：进入界面时异步加载
+    var otgPartitions by remember { mutableStateOf<List<OtgPartition>>(emptyList()) }
+    LaunchedEffect(isOtg) {
+        if (isOtg) otgPartitions = viewModel.listOtgPartitions()
+    }
+
     // OTG 模式下预览路径需异步解析（读取挂载点补全 UUID），用状态承接
     var resolvedRepoPath by remember { mutableStateOf("") }
     LaunchedEffect(selectedPath, isOtg) {
@@ -191,6 +207,10 @@ private fun InitializationView(
             else -> File(selectedPath, "restic_repo").absolutePath
         }
     }
+
+    val pickerBusy = initializationState is ResticViewModel.InitializationState.Checking ||
+            initializationState is ResticViewModel.InitializationState.Validating ||
+            initializationState is ResticViewModel.InitializationState.Initializing
 
     Scaffold(
         topBar = {
@@ -233,19 +253,89 @@ private fun InitializationView(
                 else -> {}
             }
 
-            // 文件选择器
-            Button(
-                onClick = {
-                    directoryLauncher.launch(context) { pathString ->
-                        onPathSelected(pathString)
+            if (isOtg) {
+                // ===== OTG：先用卡片选分区，点卡片后进入该分区内部的 libpickyou =====
+                Text(
+                    text = stringResource(id = R.string.otg_select_partition),
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (otgPartitions.isEmpty()) {
+                    // 空态：未检测到 OTG 存储
+                    Text(
+                        text = stringResource(id = R.string.otg_no_storage_detected),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        otgPartitions.forEach { partition ->
+                            ElevatedCard(
+                                onClick = {
+                                    // 以该分区路径为起始/边界锁定，一进 libpickyou 就在分区内部，
+                                    // 无法上溯到 /mnt/media_rw 或 /
+                                    val launcher = PickYouLauncher(
+                                        checkPermission = false,
+                                        title = directoryTitle,
+                                        pickerType = PickerType.DIRECTORY,
+                                        permissionType = PermissionType.ROOT,
+                                        rootPathList = listOf(partition.path),
+                                        defaultPathList = listOf(partition.path),
+                                        // 用主工程 root 通道列目录，绕过 libpickyou binder 进程命名空间问题
+                                        traverseBackend = { path -> viewModel.listOtgChildren(path) },
+                                        // 同理用 root 通道创建目录，否则 checkPermission=false → sIsRootMode=false 会落到进程内无 root 的 PathUtil.mkdirs 而失败
+                                        mkdirsBackend = { parent, child -> viewModel.mkdirsOtg(parent, child) },
+                                    )
+                                    launcher.launch(context) { pathString ->
+                                        onPathSelected(pathString)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !pickerBusy
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Text(
+                                        text = partition.uuid,
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = stringResource(
+                                            id = R.string.otg_partition_capacity,
+                                            partition.availableBytes.toDouble().formatSize(),
+                                            partition.totalBytes.toDouble().formatSize()
+                                        ),
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    if (partition.fsType != null) {
+                                        Text(
+                                            text = stringResource(
+                                                id = R.string.otg_partition_fs_type,
+                                                partition.fsType
+                                            ),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = initializationState !is ResticViewModel.InitializationState.Checking &&
-                        initializationState !is ResticViewModel.InitializationState.Validating &&
-                        initializationState !is ResticViewModel.InitializationState.Initializing
-            ) {
-                Text(stringResource(id = R.string.select_directory))
+                }
+            } else {
+                // ===== 本地：保持原「选择目录」按钮完全不变（零回归） =====
+                Button(
+                    onClick = {
+                        directoryLauncher.launch(context) { pathString ->
+                            onPathSelected(pathString)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !pickerBusy
+                ) {
+                    Text(stringResource(id = R.string.select_directory))
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -277,10 +367,7 @@ private fun InitializationView(
                         }
                     }
                 },
-                enabled = selectedPath.isNotEmpty() &&
-                        initializationState !is ResticViewModel.InitializationState.Checking &&
-                        initializationState !is ResticViewModel.InitializationState.Validating &&
-                        initializationState !is ResticViewModel.InitializationState.Initializing,
+                enabled = selectedPath.isNotEmpty() && !pickerBusy,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(stringResource(id = R.string.initialize))
