@@ -193,6 +193,8 @@ class ResticRepoLocator @Inject constructor(
                     Log.w(TAG, "discoverOtgRepositories: rusticRepositoryExists threw for $candidate: ${e.message}")
                     false
                 }
+            // 逐候选打印：区分“盘上无 restic_repo(exists=false)” vs “有仓库但 config_id 读不出”
+            Log.d(TAG, "discoverOtgRepositories: candidate=$candidate exists=$exists")
             if (!exists) continue
 
             val configId = runCatching { rootService.rusticRepositoryConfigId(candidate) }
@@ -200,6 +202,8 @@ class ResticRepoLocator @Inject constructor(
                     Log.w(TAG, "discoverOtgRepositories: rusticRepositoryConfigId threw for $candidate: ${e.message}")
                     null
                 }
+            // 打印原始 config_id：为空/null=读取失败；全 0=native 返回退化值
+            Log.d(TAG, "discoverOtgRepositories: candidate=$candidate configId=$configId")
             if (configId.isNullOrEmpty()) continue
 
             discovered.add(DiscoveredRepo(path = candidate, configId = configId))

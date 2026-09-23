@@ -622,13 +622,17 @@ class ResticViewModel @Inject constructor(
     private suspend fun saveRepoConfigId(repoPath: String) {
         try {
             val id = rootService.rusticRepositoryConfigId(repoPath)
-            if (!id.isNullOrEmpty()) {
-                if (isOtgPath(repoPath)) context.saveResticOtgRepoConfigId(id)
-                else context.saveResticRepoConfigId(id)
-                Log.d(TAG, "saveRepoConfigId: 已保存 config_id=$id for $repoPath")
-            } else {
-                Log.w(TAG, "saveRepoConfigId: config_id 为空，跳过保存: $repoPath")
+            // 原始返回值：null/空=native 读取失败；全 0=native 返回退化值；正常=随机十六进制
+            Log.d(TAG, "saveRepoConfigId: repoPath=$repoPath rawConfigId=$id")
+
+            // 防污染：空或全 0 都不是合法身份锚点，拒绝登记，避免后续 OTG 重对齐用全 0 误判
+            if (id.isNullOrEmpty() || id.all { it == '0' }) {
+                Log.w(TAG, "saveRepoConfigId: 非法 config_id（空或全 0），拒绝登记 repoPath=$repoPath")
+                return
             }
+
+            context.saveResticRepoConfigId(id)
+            Log.d(TAG, "saveRepoConfigId: 已保存 config_id=$id for $repoPath")
         } catch (e: Exception) {
             Log.e(TAG, "saveRepoConfigId: 读取 config_id 失败", e)
         }

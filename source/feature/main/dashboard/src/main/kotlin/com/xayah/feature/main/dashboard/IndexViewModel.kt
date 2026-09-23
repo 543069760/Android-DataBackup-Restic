@@ -71,6 +71,7 @@ class IndexViewModel @Inject constructor(
      */
     sealed class OtgDiscoveryState {
         data object None : OtgDiscoveryState()
+        data object NeedsReconnect : OtgDiscoveryState()
         data class Registered(
             val usedBytes: Long,
             val totalBytes: Long,
@@ -146,30 +147,35 @@ class IndexViewModel @Inject constructor(
         // 每次刷新丢弃上一批扫描缓存，确保拔插状态实时反映
         resticRepoLocator.invalidateCache()
 
-        val savedConfigId = context.readResticOtgRepoConfigId()
-
-        // 情形 A：已登记设备——插上目标盘即常驻显示 OTG 容量卡
-        if (!savedConfigId.isNullOrEmpty()) {
-            val savedPath = context.readResticOtgRepoPath().orEmpty()
-            when (val result = resticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
-                is ResolveResult.Matched -> {
-                    // 挂载点漂移（换盘/重插导致 UUID 变化）时静默改指，不改身份（写 OTG 键，不污染本地）
-                    if (result.changed) {
-                        context.saveResticOtgRepoPath(result.path)
-                    }
-                    _otgDiscoveryState.value = buildRegisteredState(result.path)
-                }
-                // 当前未插目标 OTG 盘 / 多盘歧义 / 配置在内部存储 → 首页不显示 OTG 卡
-                is ResolveResult.Ambiguous,
-                ResolveResult.NotFound,
-                is ResolveResult.Passthrough -> {
-                    _otgDiscoveryState.value = OtgDiscoveryState.None
+        // 情形 A：已登记 OTG 仓库——直接读独立 OTG 路径键，对精确路径校验，
+        // 与设置页 refreshOtgStatus 完全一致（不依赖 config_id，因 native 恒返回全 0）
+        val otgPath = context.readResticOtgRepoPath().orEmpty()
+        if (otgPath.isNotEmpty()) {
+            val password = context.readResticOtgPassword() ?: "databackup_default"
+            val ok = runCatching {
+                resticRepo.checkRepository(otgPath, password)
+            }.getOrDefault(false)
+            if (ok) {
+                // 仓库在场且可校验 → 显示容量卡（buildRegisteredState 按分区根取 statFs，嵌套路径正确）
+                Log.d("DashboardOtg", "detectOtgRepository[A]: otgPath=$otgPath checkOk=true → Registered")
+                _otgDiscoveryState.value = buildRegisteredState(otgPath)
+            } else {
+                // 校验失败要区分"盘不在场"与"盘在场但仓库被删/密码不符"，
+                // 否则未插/拔盘也会弹红条，且红条文案"发现OTG设备中存在仓库"此时语义矛盾。
+                val hasDisk = runCatching { directoryRepo.hasLiveExternalStorage() }.getOrDefault(false)
+                Log.d("DashboardOtg", "detectOtgRepository[A]: otgPath=$otgPath checkOk=false hasDisk=$hasDisk")
+                _otgDiscoveryState.value = if (hasDisk) {
+                    // 盘在场但仓库不可校验（被删/换盘/密码不符）→ 红条引导重连/重选
+                    OtgDiscoveryState.NeedsReconnect
+                } else {
+                    // 盘不在场 → 首页不显示任何 OTG UI（红条消失，歧义解决）
+                    OtgDiscoveryState.None
                 }
             }
             return
         }
 
-        // 情形 B：未登记设备——无差别发现 + 默认密码静默登记
+        // 情形 B：未登记设备——无差别发现 + 默认密码静默登记（保持原逻辑）
         val discovered = resticRepoLocator.discoverOtgRepositories()
         when {
             discovered.isEmpty() -> {

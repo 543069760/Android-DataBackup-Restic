@@ -167,8 +167,13 @@ fun PageDashboard() {
 
                 is IndexViewModel.OtgDiscoveryState.NeedsSetup -> {
                     OtgSetupHintCard {
-                        // 发现 OTG 仓库但未登记身份：引导去设置页，由 bootstrap 编排接手密码/多盘交互
                         navController.navigateSingle(MainRoutes.Settings.route)
+                    }
+                }
+
+                IndexViewModel.OtgDiscoveryState.NeedsReconnect -> {
+                    OtgReconnectHintCard {
+                        navController.navigateSingle(MainRoutes.ResticInitialization.getRoute(isOtg = true))
                     }
                 }
 
