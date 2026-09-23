@@ -22,7 +22,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 @ExperimentalFoundationApi
 @ExperimentalMaterial3Api
 @Composable
-fun PackagesRestoreProcessingGraph(packageNameFilter: String = "") {
+fun PackagesRestoreProcessingGraph(packageNameFilter: String = "", isOtg: Boolean = false) {
     val localNavController = rememberNavController()
     val viewModel = hiltViewModel<RestoreViewModelImpl>()
 

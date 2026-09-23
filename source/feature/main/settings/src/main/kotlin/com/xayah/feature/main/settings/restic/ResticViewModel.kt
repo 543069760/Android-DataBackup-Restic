@@ -15,6 +15,12 @@ import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.datastore.saveResticPassword
 import com.xayah.core.datastore.saveResticRepoConfigId
 import com.xayah.core.datastore.saveResticRepoPath
+import com.xayah.core.datastore.readResticOtgPassword
+import com.xayah.core.datastore.readResticOtgRepoConfigId
+import com.xayah.core.datastore.readResticOtgRepoPath
+import com.xayah.core.datastore.saveResticOtgPassword
+import com.xayah.core.datastore.saveResticOtgRepoConfigId
+import com.xayah.core.datastore.saveResticOtgRepoPath
 import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.restic.ResticNative
 import com.xayah.core.restic.ResticRepository
@@ -24,6 +30,7 @@ import com.xayah.core.ui.viewmodel.IndexUiEffect
 import com.xayah.core.ui.viewmodel.UiIntent
 import com.xayah.core.ui.viewmodel.UiState
 import com.xayah.core.util.command.SELinux
+import com.xayah.core.util.command.PreparationUtil
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -76,6 +83,29 @@ class ResticViewModel @Inject constructor(
     private val _resticErrorState = MutableStateFlow<String?>(null)
     val resticErrorState: StateFlow<String?> = _resticErrorState.asStateFlow()
 
+    // --- OTG 独立状态流（与本地/云端互不干扰，供设置页 OTG 项使用）---
+    private val _otgInitializedState = MutableStateFlow(false)
+    val otgInitializedState: StateFlow<Boolean> = _otgInitializedState.asStateFlow()
+
+    private val _otgRepoPathState = MutableStateFlow("")
+    val otgRepoPathState: StateFlow<String> = _otgRepoPathState.asStateFlow()
+
+    private val _otgSnapshotCountState = MutableStateFlow(0)
+    val otgSnapshotCountState: StateFlow<Int> = _otgSnapshotCountState.asStateFlow()
+
+    // OTG 专属初始化状态与错误提示（与本地 _initializationState/_resticErrorState 隔离，
+    // 避免 OTG 刷新/bootstrap 覆盖本地/云端的初始化状态与 error 提示，导致设置页状态串台）
+    private val _otgInitializationState = MutableStateFlow<InitializationState>(InitializationState.Idle)
+    val otgInitializationState: StateFlow<InitializationState> = _otgInitializationState.asStateFlow()
+
+    private val _otgErrorState = MutableStateFlow<String?>(null)
+    val otgErrorState: StateFlow<String?> = _otgErrorState.asStateFlow()
+
+    // OTG 当前挂载路径（第一个 /mnt/media_rw/<UUID> 挂载点，无盘为 null）
+    // 由 otgMountEvents 订阅实时刷新，设置页 OTG 分组用它判定插拔与显示 UUID
+    private val _otgMountPathState = MutableStateFlow<String?>(null)
+    val otgMountPathState: StateFlow<String?> = _otgMountPathState.asStateFlow()
+
     sealed class InitializationState {
         object Idle : InitializationState()
         object Checking : InitializationState()
@@ -94,10 +124,29 @@ class ResticViewModel @Inject constructor(
         viewModelScope.launch {
             checkResticStatus()
         }
+
+        // 订阅 OTG 挂载/拔插/换盘事件，事件一到即刷新挂载路径与 OTG 独立状态。
+        // otgMountEvents() 进入即 trySend(Unit) 首发，故此订阅本身完成 OTG 首刷，
+        // 无需在设置页再写 delay 轮询。仅读写 OTG 键，绝不触碰本地/云端配置。
+        launchOnIO {
+            resticRepoLocator.otgMountEvents()
+                .flowOnIO()
+                .collect {
+                    runCatching {
+                        // 实时取第一个挂载点，换盘后 UUID 随之更新
+                        _otgMountPathState.value = PreparationUtil.listExternalStorage().out
+                            .firstOrNull { it.isNotBlank() }
+                        // 刷新 OTG 独立状态（读 OTG 键）
+                        refreshOtgStatus()
+                    }.onFailure {
+                        Log.e(TAG, "otgMountEvents collect 异常", it)
+                    }
+                }
+        }
     }
 
     /**
-     * 核心逻辑：状态检查
+     * 核心逻辑：状态检查（仅本地/内部存储 + 云端；OTG 由 refreshOtgStatus 独立处理）
      * 合并为一个支持 withContext 的挂起函数，确保 init 块时序正确
      *
      * 迁移说明：getVersion 已改走 JNI（librustic.so，经 RootService），
@@ -126,19 +175,12 @@ class ResticViewModel @Inject constructor(
                     return@withContext
                 }
 
-                // 3. 获取并同步仓库路径
+                // 3. 获取并同步仓库路径（仅本地键）
                 val repoPath = getRepoPath()
                 _repoPathState.value = repoPath
 
-                // 3.5 换新机 bootstrap：DataStore 里没有 config_id（从未登记过）时，
-                //     尝试用 root 自动发现 OTG 仓库并零交互登记。
-                //     仅当 bootstrap 已接管（进入 NeedsPassword/SelectRepository/成功登记）时提前返回，
-                //     否则继续走常规校验。
-                if (context.readResticRepoConfigId() == null) {
-                    if (bootstrapFromOtgIfEmpty()) {
-                        return@withContext
-                    }
-                }
+                // 说明：OTG 的发现/重对齐/状态回显已完全独立到 refreshOtgStatus()，
+                //      本函数只负责本地/内部存储，绝不读写任何 OTG 键，避免覆盖本地配置。
 
                 // 4. 仓库校验 / 快照数
                 val password = getResticPassword()
@@ -148,27 +190,22 @@ class ResticViewModel @Inject constructor(
                 Log.w(TAG, "checkResticStatus: repoPath=$repoPath, checkOk=$isInitialized")
 
                 if (!isInitialized) {
-                    // OTG 前缀走“保留 + 离线态/重对齐”，内部存储保持原清空逻辑
-                    if (repoPath.startsWith(OTG_PREFIX)) {
-                        handleOtgStatus(repoPath)
+                    val exists = rootService.rusticRepositoryExists(repoPath)
+                    if (!exists) {
+                        // 内部存储：仓库确实不存在/未初始化，清除已保存的路径
+                        Log.w(TAG, "checkResticStatus: 仓库不存在/未初始化，清空 repoPath: $repoPath")
+                        context.saveResticRepoPath("")
+                        _resticRepoPathState.value = ""
+                        _resticSnapshotCountState.value = 0
+                        _resticErrorState.value = null
+                        _initializationState.value = InitializationState.Idle
                     } else {
-                        val exists = rootService.rusticRepositoryExists(repoPath)
-                        if (!exists) {
-                            // 内部存储：仓库确实不存在/未初始化，清除已保存的路径
-                            Log.w(TAG, "checkResticStatus: 仓库不存在/未初始化，清空 repoPath: $repoPath")
-                            context.saveResticRepoPath("")
-                            _resticRepoPathState.value = ""
-                            _resticSnapshotCountState.value = 0
-                            _resticErrorState.value = null
-                            _initializationState.value = InitializationState.Idle
-                        } else {
-                            // 仓库存在但校验失败 —— 密码错误，不能清空已保存的路径
-                            Log.w(TAG, "checkResticStatus: 仓库存在但校验失败（密码错误），保留 repoPath: $repoPath")
-                            _resticRepoPathState.value = repoPath
-                            _resticSnapshotCountState.value = 0
-                            _resticErrorState.value = context.getString(com.xayah.core.data.R.string.pre_backup_repository_check_failed)
-                            _initializationState.value = InitializationState.PasswordError(repoPath)
-                        }
+                        // 仓库存在但校验失败 —— 密码错误，不能清空已保存的路径
+                        Log.w(TAG, "checkResticStatus: 仓库存在但校验失败（密码错误），保留 repoPath: $repoPath")
+                        _resticRepoPathState.value = repoPath
+                        _resticSnapshotCountState.value = 0
+                        _resticErrorState.value = context.getString(com.xayah.core.data.R.string.pre_backup_repository_check_failed)
+                        _initializationState.value = InitializationState.PasswordError(repoPath)
                     }
                 } else {
                     _resticRepoPathState.value = repoPath
@@ -187,70 +224,128 @@ class ResticViewModel @Inject constructor(
     }
 
     /**
+     * OTG 独立状态刷新：读写全部走 OTG 独立键，绝不触碰本地键。
+     * 由设置页 OTG 项进入时（LaunchedEffect）或 otgMountEvents 订阅触发。
+     * 逻辑与 checkResticStatus 对称，但作用于 OTG 键与 OTG 状态流：
+     * - 无 config_id（从未登记）→ bootstrapFromOtgIfEmpty 自动发现登记（走 OTG 键）
+     * - 有路径但校验失败 → handleOtgStatus 重对齐（走 OTG 键）
+     */
+    suspend fun refreshOtgStatus() {
+        withContext(Dispatchers.IO) {
+            try {
+                val version = resticRepo.getVersion()
+                if (version == null) {
+                    _otgInitializedState.value = false
+                    _otgRepoPathState.value = ""
+                    _otgSnapshotCountState.value = 0
+                    return@withContext
+                }
+
+                // 换新机 bootstrap：OTG 从未登记（OTG config_id 为空）时自动发现登记
+                if (context.readResticOtgRepoConfigId() == null) {
+                    if (bootstrapFromOtgIfEmpty()) {
+                        return@withContext
+                    }
+                }
+
+                val repoPath = context.readResticOtgRepoPath()
+                if (repoPath.isNullOrEmpty()) {
+                    // 未登记 OTG 仓库
+                    _otgInitializedState.value = false
+                    _otgRepoPathState.value = ""
+                    _otgSnapshotCountState.value = 0
+                    return@withContext
+                }
+                _otgRepoPathState.value = repoPath
+
+                val password = context.readResticOtgPassword() ?: "databackup_default"
+                val isInitialized = resticRepo.checkRepository(repoPath, password)
+                _otgInitializedState.value = isInitialized
+
+                Log.w(TAG, "refreshOtgStatus: repoPath=$repoPath, checkOk=$isInitialized")
+
+                if (!isInitialized) {
+                    // OTG 校验失败：按 config_id 身份扫描重对齐（保留旧配置，绝不清空）
+                    handleOtgStatus(repoPath)
+                } else {
+                    _otgRepoPathState.value = repoPath
+                    _otgErrorState.value = null
+                    _otgInitializationState.value = InitializationState.ReadyToUse(repoPath)
+                    val snapshots = resticRepo.listSnapshots(repoPath, password)
+                    _otgSnapshotCountState.value = snapshots.size
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "refreshOtgStatus 异常", e)
+                _otgInitializedState.value = false
+            }
+        }
+    }
+
+    /**
      * OTG 已登记设备：checkRepository 失败时按 config_id 身份扫描重对齐。
-     * - Matched（一致）：直接放行；Matched（不一致）：更新 DataStore 路径后放行。
+     * - Matched（一致）：直接放行；Matched（不一致）：更新 OTG DataStore 路径后放行。
      * - NotFound：没插盘/无此仓库 —— 保留旧配置，不清空，置为离线态。
      * - Ambiguous：多盘命中 —— 交给用户选择。
+     * 全程只读写 OTG 键与 OTG 状态流。
      */
     private suspend fun handleOtgStatus(repoPath: String) {
-        val savedConfigId = context.readResticRepoConfigId()
+        val savedConfigId = context.readResticOtgRepoConfigId()
         when (val r = resticRepoLocator.resolveCurrentResticRepoPath(repoPath, savedConfigId)) {
             is ResolveResult.Matched -> {
                 if (r.changed) {
-                    context.saveResticRepoPath(r.path)
-                    _repoPathState.value = r.path
+                    context.saveResticOtgRepoPath(r.path)
                 }
                 // 路径已对齐，重新校验一次
-                val password = getResticPassword()
+                val password = context.readResticOtgPassword() ?: "databackup_default"
                 val ok = resticRepo.checkRepository(r.path, password)
                 if (ok) {
-                    _resticInitializedState.value = true
-                    _resticRepoPathState.value = r.path
-                    _resticErrorState.value = null
-                    _initializationState.value = InitializationState.ReadyToUse(r.path)
+                    _otgInitializedState.value = true
+                    _otgRepoPathState.value = r.path
+                    _otgErrorState.value = null
+                    _otgInitializationState.value = InitializationState.ReadyToUse(r.path)
                     val snapshots = resticRepo.listSnapshots(r.path, password)
-                    _resticSnapshotCountState.value = snapshots.size
+                    _otgSnapshotCountState.value = snapshots.size
                 } else {
-                    _resticRepoPathState.value = r.path
-                    _resticSnapshotCountState.value = 0
-                    _resticErrorState.value = context.getString(com.xayah.core.data.R.string.pre_backup_repository_check_failed)
-                    _initializationState.value = InitializationState.PasswordError(r.path)
+                    _otgRepoPathState.value = r.path
+                    _otgSnapshotCountState.value = 0
+                    _otgErrorState.value = context.getString(com.xayah.core.data.R.string.pre_backup_repository_check_failed)
+                    _otgInitializationState.value = InitializationState.PasswordError(r.path)
                 }
             }
             is ResolveResult.NotFound -> {
                 // 没插盘/换了空盘：保留旧配置，绝不清空，置离线态
                 Log.w(TAG, "handleOtgStatus: 未扫到目标 OTG 仓库，保留配置并置离线: $repoPath")
-                _resticRepoPathState.value = repoPath
-                _resticSnapshotCountState.value = 0
-                _resticErrorState.value = context.getString(com.xayah.core.data.R.string.restic_otg_offline)
-                _initializationState.value = InitializationState.Offline(repoPath)
+                _otgRepoPathState.value = repoPath
+                _otgSnapshotCountState.value = 0
+                _otgErrorState.value = context.getString(com.xayah.core.data.R.string.restic_otg_offline)
+                _otgInitializationState.value = InitializationState.Offline(repoPath)
             }
             is ResolveResult.Ambiguous -> {
                 Log.w(TAG, "handleOtgStatus: 多个 OTG 仓库命中，需用户选择")
-                _resticErrorState.value = context.getString(com.xayah.core.data.R.string.restic_otg_ambiguous)
-                _initializationState.value = InitializationState.SelectRepository(
+                _otgErrorState.value = context.getString(com.xayah.core.data.R.string.restic_otg_ambiguous)
+                _otgInitializationState.value = InitializationState.SelectRepository(
                     r.candidates.map { DiscoveredRepo(path = it, configId = savedConfigId ?: "") }
                 )
             }
             is ResolveResult.Passthrough -> {
                 // 理论上不会走到（前缀已判过），保守置离线
-                _initializationState.value = InitializationState.Offline(repoPath)
+                _otgInitializationState.value = InitializationState.Offline(repoPath)
             }
         }
     }
 
-    // ================= 换新机自动 bootstrap =================
+    // ================= 换新机自动 bootstrap（OTG 专属，全走 OTG 键）=================
 
     /**
-     * 换新机/全新安装（DataStore 无 config_id）时的自动发现登记。
-     * 由 checkResticStatus 在 config_id == null 时调用。
+     * 换新机/全新安装（OTG DataStore 无 config_id）时的自动发现登记。
+     * 由 refreshOtgStatus 在 OTG config_id == null 时调用。
      *
      * @return true 表示 bootstrap 已接管本次流程（登记成功 / 已置 NeedsPassword / SelectRepository / 未发现），
      *         调用方应提前返回，不再走常规校验；false 表示无需 bootstrap（非首次或异常），继续常规流程。
      */
     private suspend fun bootstrapFromOtgIfEmpty(): Boolean {
-        // 双保险：仅在 DataStore 为空时执行
-        if (context.readResticRepoConfigId() != null) return false
+        // 双保险：仅在 OTG DataStore 为空时执行
+        if (context.readResticOtgRepoConfigId() != null) return false
 
         val discovered = try {
             resticRepoLocator.discoverOtgRepositories()
@@ -272,7 +367,7 @@ class ResticViewModel @Inject constructor(
             else -> {
                 // 多盘：交给用户选择
                 Log.d(TAG, "bootstrapFromOtgIfEmpty: 发现多个 OTG 仓库，需用户选择")
-                _initializationState.value = InitializationState.SelectRepository(discovered)
+                _otgInitializationState.value = InitializationState.SelectRepository(discovered)
                 true
             }
         }
@@ -283,7 +378,7 @@ class ResticViewModel @Inject constructor(
      */
     private suspend fun tryRegisterDiscovered(repo: DiscoveredRepo) {
         val defaultPassword = "databackup_default"
-        _initializationState.value = InitializationState.Validating
+        _otgInitializationState.value = InitializationState.Validating
         val valid = try {
             resticRepo.validateRepository(repo.path, defaultPassword)
         } catch (e: Exception) {
@@ -296,7 +391,7 @@ class ResticViewModel @Inject constructor(
         } else {
             // 用了自定义密码：弹密码框，记住待登记的候选
             Log.d(TAG, "tryRegisterDiscovered: 默认密码不可解，需用户输入密码: ${repo.path}")
-            _initializationState.value = InitializationState.NeedsPassword(repo.path, repo.configId)
+            _otgInitializationState.value = InitializationState.NeedsPassword(repo.path, repo.configId)
         }
     }
 
@@ -305,9 +400,9 @@ class ResticViewModel @Inject constructor(
      */
     fun submitOtgPassword(password: String) {
         viewModelScope.launch {
-            val state = _initializationState.value
+            val state = _otgInitializationState.value
             if (state !is InitializationState.NeedsPassword) return@launch
-            _initializationState.value = InitializationState.Validating
+            _otgInitializationState.value = InitializationState.Validating
             withContext(Dispatchers.IO) {
                 val valid = try {
                     resticRepo.validateRepository(state.repoPath, password)
@@ -318,8 +413,8 @@ class ResticViewModel @Inject constructor(
                 if (valid) {
                     persistBootstrapResult(state.repoPath, state.configId, password)
                 } else {
-                    _resticErrorState.value = context.getString(com.xayah.core.data.R.string.pre_backup_repository_check_failed)
-                    _initializationState.value = InitializationState.NeedsPassword(state.repoPath, state.configId)
+                    _otgErrorState.value = context.getString(com.xayah.core.data.R.string.pre_backup_repository_check_failed)
+                    _otgInitializationState.value = InitializationState.NeedsPassword(state.repoPath, state.configId)
                 }
             }
         }
@@ -342,7 +437,7 @@ class ResticViewModel @Inject constructor(
      */
     fun scanOtgRepositories() {
         viewModelScope.launch {
-            _initializationState.value = InitializationState.Checking
+            _otgInitializationState.value = InitializationState.Checking
             withContext(Dispatchers.IO) {
                 val discovered = try {
                     resticRepoLocator.discoverOtgRepositories()
@@ -352,12 +447,12 @@ class ResticViewModel @Inject constructor(
                 }
                 when {
                     discovered.isEmpty() -> {
-                        val savedPath = context.readResticRepoPath() ?: ""
-                        _resticErrorState.value = context.getString(com.xayah.core.data.R.string.restic_otg_offline)
-                        _initializationState.value = InitializationState.Offline(savedPath)
+                        val savedPath = context.readResticOtgRepoPath() ?: ""
+                        _otgErrorState.value = context.getString(com.xayah.core.data.R.string.restic_otg_offline)
+                        _otgInitializationState.value = InitializationState.Offline(savedPath)
                     }
                     discovered.size == 1 -> tryRegisterDiscovered(discovered.first())
-                    else -> _initializationState.value = InitializationState.SelectRepository(discovered)
+                    else -> _otgInitializationState.value = InitializationState.SelectRepository(discovered)
                 }
             }
         }
@@ -367,28 +462,27 @@ class ResticViewModel @Inject constructor(
      * 取消 bootstrap，回到 Idle。
      */
     fun cancelOtgBootstrap() {
-        _initializationState.value = InitializationState.Idle
-        _resticErrorState.value = null
+        _otgInitializationState.value = InitializationState.Idle
+        _otgErrorState.value = null
     }
 
     /**
-     * bootstrap 校验通过后统一持久化：路径 + config_id + 密码，并刷新状态。
+     * bootstrap 校验通过后统一持久化：OTG 路径 + OTG config_id + OTG 密码，并刷新 OTG 状态。
      */
     private suspend fun persistBootstrapResult(repoPath: String, configId: String, password: String) {
-        context.saveResticRepoPath(repoPath)
-        context.saveResticRepoConfigId(configId)
-        context.saveResticPassword(password)
-        _repoPathState.value = repoPath
-        _resticRepoPathState.value = repoPath
-        _resticInitializedState.value = true
-        _resticErrorState.value = null
-        _initializationState.value = InitializationState.ReadyToUse(repoPath)
+        context.saveResticOtgRepoPath(repoPath)
+        context.saveResticOtgRepoConfigId(configId)
+        context.saveResticOtgPassword(password)
+        _otgRepoPathState.value = repoPath
+        _otgInitializedState.value = true
+        _otgErrorState.value = null
+        _otgInitializationState.value = InitializationState.ReadyToUse(repoPath)
         val snapshots = try {
             resticRepo.listSnapshots(repoPath, password)
         } catch (e: Exception) {
             emptyList()
         }
-        _resticSnapshotCountState.value = snapshots.size
+        _otgSnapshotCountState.value = snapshots.size
         Log.d(TAG, "persistBootstrapResult: 已登记 OTG 仓库身份 configId=$configId path=$repoPath")
     }
 
@@ -396,7 +490,8 @@ class ResticViewModel @Inject constructor(
     suspend fun initializeOrValidateRepository(selectedPath: String): Boolean {
         _initializationState.value = InitializationState.Checking
         val repoPath = File(selectedPath, "restic_repo").absolutePath
-        val password = getResticPassword()
+        val password = readPasswordFor(repoPath)   // OTG 读 OTG 密码，本地读本地密码
+        val otg = isOtgPath(repoPath)
 
         return withContext(Dispatchers.IO) {
             try {
@@ -404,15 +499,22 @@ class ResticViewModel @Inject constructor(
                     _initializationState.value = InitializationState.Validating
                     // 验证密码逻辑
                     if (resticRepo.validateRepository(repoPath, password)) {
-                        _resticInitializedState.value = true
-                        _resticRepoPathState.value = repoPath
-                        _repoPathState.value = repoPath
+                        // 持久化状态流按仓库类型分流，避免 OTG 初始化误置本地状态
+                        if (otg) {
+                            _otgInitializedState.value = true
+                            _otgRepoPathState.value = repoPath
+                        } else {
+                            _resticInitializedState.value = true
+                            _resticRepoPathState.value = repoPath
+                            _repoPathState.value = repoPath
+                        }
 
                         val snapshots = resticRepo.listSnapshots(repoPath, password)
-                        _resticSnapshotCountState.value = snapshots.size
+                        if (otg) _otgSnapshotCountState.value = snapshots.size
+                        else _resticSnapshotCountState.value = snapshots.size
 
-                        context.saveResticRepoPath(repoPath)
-                        context.saveResticPassword(password)
+                        persistRepoPath(repoPath)
+                        persistPassword(repoPath, password)
                         // 登记 config_id 身份锚点（后续拔插/换盘靠它重对齐）
                         saveRepoConfigId(repoPath)
 
@@ -429,9 +531,15 @@ class ResticViewModel @Inject constructor(
                     val initSuccess = initializeRepository(repoPath, password)
 
                     if (initSuccess) {
-                        _resticInitializedState.value = true
-                        _resticRepoPathState.value = repoPath
-                        _resticSnapshotCountState.value = 0
+                        if (otg) {
+                            _otgInitializedState.value = true
+                            _otgRepoPathState.value = repoPath
+                            _otgSnapshotCountState.value = 0
+                        } else {
+                            _resticInitializedState.value = true
+                            _resticRepoPathState.value = repoPath
+                            _resticSnapshotCountState.value = 0
+                        }
                         _initializationState.value = InitializationState.ReadyToUse(repoPath)
                         _isReinitializing.value = false
                     } else {
@@ -482,24 +590,29 @@ class ResticViewModel @Inject constructor(
     // --- 辅助方法 ---
     fun saveInitializationState(repoPath: String, password: String) {
         viewModelScope.launch {
-            context.saveResticRepoPath(repoPath)
-            context.saveResticPassword(password)
-            // 创建成功后同样登记 config_id
+            // 写入分流：OTG 走独立键，本地/云端走原键
+            persistRepoPath(repoPath)
+            persistPassword(repoPath, password)
+            // 创建成功后同样登记 config_id（同样按仓库类型分流）
             saveRepoConfigId(repoPath)
             _repoPathState.value = repoPath
-            checkResticStatus()
+            // 刷新分流：OTG 只刷新 OTG 状态，避免覆盖本地状态
+            if (isOtgPath(repoPath)) refreshOtgStatus()
+            else checkResticStatus()
         }
     }
 
     /**
      * 读取并保存指定仓库的 config_id 身份锚点。
      * 建库/校验成功、OTG 处于挂载状态时调用，此刻读 config_id 必然成功。
+     * 按仓库类型分流：OTG 写 OTG config_id，本地写本地 config_id。
      */
     private suspend fun saveRepoConfigId(repoPath: String) {
         try {
             val id = rootService.rusticRepositoryConfigId(repoPath)
             if (!id.isNullOrEmpty()) {
-                context.saveResticRepoConfigId(id)
+                if (isOtgPath(repoPath)) context.saveResticOtgRepoConfigId(id)
+                else context.saveResticRepoConfigId(id)
                 Log.d(TAG, "saveRepoConfigId: 已保存 config_id=$id for $repoPath")
             } else {
                 Log.w(TAG, "saveRepoConfigId: config_id 为空，跳过保存: $repoPath")
@@ -534,6 +647,7 @@ class ResticViewModel @Inject constructor(
         }
     }
 
+    // 本地专用：清空本地键与本地状态（不触碰 OTG）
     fun clearInitializationState() {
         viewModelScope.launch {
             context.saveResticRepoPath("")
@@ -546,8 +660,21 @@ class ResticViewModel @Inject constructor(
         }
     }
 
+    // OTG 专用：清空 OTG 键与 OTG 状态（不触碰本地）
+    fun clearOtgInitializationState() {
+        viewModelScope.launch {
+            context.saveResticOtgRepoPath("")
+            context.saveResticOtgPassword("")
+            context.saveResticOtgRepoConfigId("")
+            _otgRepoPathState.value = ""
+            _otgInitializedState.value = false
+            _otgSnapshotCountState.value = 0
+            _otgInitializationState.value = InitializationState.Idle
+        }
+    }
+
     /**
-     * 进入“重新初始化”模式：仅切换 UI 显示，不清空已持久化的仓库路径/密码。
+     * 进入"重新初始化"模式：仅切换 UI 显示，不清空已持久化的仓库路径/密码。
      */
     fun enterReinitializeMode() {
         _isReinitializing.value = true
@@ -555,7 +682,7 @@ class ResticViewModel @Inject constructor(
     }
 
     /**
-     * 退出“重新初始化”模式（用户中途返回时重置标志），不改动任何持久化数据。
+     * 退出"重新初始化"模式（用户中途返回时重置标志），不改动任何持久化数据。
      */
     fun exitReinitializeMode() {
         _isReinitializing.value = false
@@ -564,7 +691,8 @@ class ResticViewModel @Inject constructor(
     suspend fun deleteAndReinitializeRepository(repoPath: String): Boolean {
         return withContext(Dispatchers.IO) {
             if (resticRepo.deleteRepository(repoPath)) {
-                initializeRepository(repoPath, getResticPassword())
+                // 密码分流：OTG 用 OTG 密码，本地用本地密码
+                initializeRepository(repoPath, readPasswordFor(repoPath))
             } else false
         }
     }
@@ -576,6 +704,43 @@ class ResticViewModel @Inject constructor(
     private suspend fun getResticPassword(): String {
         return context.readResticPassword() ?: "databackup_default"
     }
+
+    /**
+     * TODO#2：解析 OTG 仓库父目录。
+     * - 用户已选到 /mnt/media_rw/<UUID>：原样返回。
+     * - 用户只选到 /mnt/media_rw 根目录：自动补第一个挂载点 UUID。
+     * 返回 null 表示无挂载点（未插盘）。
+     */
+    suspend fun resolveOtgRepoParent(selectedPath: String): String? {
+        val normalized = selectedPath.trimEnd('/')
+        if (normalized.startsWith(OTG_PREFIX) && normalized != OTG_PREFIX.trimEnd('/')) {
+            return normalized
+        }
+        return runCatching {
+            PreparationUtil.listExternalStorage().out.firstOrNull { it.isNotBlank() }?.trimEnd('/')
+        }.getOrNull()
+    }
+
+    // --- OTG / 本地 读写分流辅助 ---
+    // 按仓库路径前缀判断是否 OTG 仓库
+    private fun isOtgPath(path: String?): Boolean =
+        path?.startsWith(OTG_PREFIX) == true
+
+    // 统一写：OTG 走独立键，本地/云端走原键
+    private suspend fun persistRepoPath(repoPath: String) {
+        if (isOtgPath(repoPath)) context.saveResticOtgRepoPath(repoPath)
+        else context.saveResticRepoPath(repoPath)
+    }
+
+    private suspend fun persistPassword(repoPath: String, password: String) {
+        if (isOtgPath(repoPath)) context.saveResticOtgPassword(password)
+        else context.saveResticPassword(password)
+    }
+
+    // 统一读密码：OTG 读 OTG 键，其余读本地键；均缺省 databackup_default
+    private suspend fun readPasswordFor(repoPath: String): String =
+        (if (isOtgPath(repoPath)) context.readResticOtgPassword() else context.readResticPassword())
+            ?: "databackup_default"
 
     override suspend fun onEvent(state: ResticUiState, intent: ResticUiIntent) {}
 

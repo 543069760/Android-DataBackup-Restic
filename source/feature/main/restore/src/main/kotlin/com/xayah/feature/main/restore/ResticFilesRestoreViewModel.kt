@@ -4,12 +4,18 @@ import android.util.Log
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.SavedStateHandle
+import com.xayah.core.ui.route.MainRoutes
 import com.xayah.core.data.repository.FilesRepo
 import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.datastore.readResticRepoConfigId
 import com.xayah.core.datastore.saveResticRepoPath
 import com.xayah.core.datastore.saveResticRepoConfigId
+import com.xayah.core.datastore.readResticOtgRepoPath
+import com.xayah.core.datastore.readResticOtgPassword
+import com.xayah.core.datastore.readResticOtgRepoConfigId
+import com.xayah.core.datastore.saveResticOtgRepoPath
 import com.xayah.core.data.repository.ResticRepoLocator
 import com.xayah.core.model.restic.ResticBackupFiles
 import com.xayah.core.restic.ResticRepository
@@ -48,11 +54,29 @@ class ResticFilesRestoreViewModel @Inject constructor(
     private val rootService: RemoteRootService,
     private val resticRepoLocator: ResticRepoLocator,
     private val mediaDao: MediaDao,
-    private val filesRepo: FilesRepo
+    private val filesRepo: FilesRepo,
+    savedStateHandle: SavedStateHandle,          // ← 新增
 ) : ViewModel() {
 
     companion object {
         private const val TAG = "ResticFilesRestore"
+    }
+
+    // ← 新增：本任务是否 OTG，来自导航参数 ?isOtg={isOtg}
+    val isOtg: Boolean = savedStateHandle.get<Boolean>(MainRoutes.ARG_IS_OTG) ?: false
+
+    // ← 新增：按 isOtg 分流的读写辅助（isOtg=false 时与原本地键完全一致）
+    private suspend fun readRepoPathForTask(): String? =
+        if (isOtg) context.readResticOtgRepoPath() else context.readResticRepoPath()
+
+    private suspend fun readPasswordForTask(): String? =
+        if (isOtg) context.readResticOtgPassword() else context.readResticPassword()
+
+    private suspend fun readRepoConfigIdForTask(): String? =
+        if (isOtg) context.readResticOtgRepoConfigId() else context.readResticRepoConfigId()
+
+    private suspend fun saveRepoPathForTask(value: String) {
+        if (isOtg) context.saveResticOtgRepoPath(value) else context.saveResticRepoPath(value)
     }
 
     // 添加进度状态流
@@ -67,14 +91,14 @@ class ResticFilesRestoreViewModel @Inject constructor(
     val uiState: StateFlow<ResticFilesRestoreUiState> = _uiState.asStateFlow()
 
     private suspend fun resolveAndAlignResticRepo(): String? {
-        val savedPath = context.readResticRepoPath()
+        val savedPath = readRepoPathForTask()                    // ← 原 context.readResticRepoPath()
         if (savedPath.isNullOrEmpty()) return savedPath
-        val savedConfigId = context.readResticRepoConfigId()
+        val savedConfigId = readRepoConfigIdForTask()            // ← 原 context.readResticRepoConfigId()
         return when (val r = resticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
             is ResticRepoLocator.ResolveResult.Passthrough -> r.path
             is ResticRepoLocator.ResolveResult.Matched -> {
                 if (r.changed) {
-                    context.saveResticRepoPath(r.path)
+                    saveRepoPathForTask(r.path)                  // ← 原 context.saveResticRepoPath(r.path)
                 }
                 r.path
             }
@@ -98,7 +122,7 @@ class ResticFilesRestoreViewModel @Inject constructor(
             Log.d("ResticFilesRestore", "读取 Restic 配置")
             // ===== 新增：前置对齐（仅 OTG 生效）=====
             val repoPath = resolveAndAlignResticRepo() ?: return false
-            val password = context.readResticPassword()
+            val password = readPasswordForTask()
             Log.d("ResticFilesRestore", "仓库路径: $repoPath")
 
             if (password.isNullOrEmpty()) {
@@ -224,8 +248,8 @@ class ResticFilesRestoreViewModel @Inject constructor(
 
     suspend fun deleteLocalFileSnapshots(group: ResticFileBackupGroup): Boolean = withContext(Dispatchers.IO) {
         try {
-            val repoPath = context.readResticRepoPath() ?: return@withContext false
-            val password = context.readResticPassword() ?: return@withContext false
+            val repoPath = readRepoPathForTask() ?: return@withContext false
+            val password = readPasswordForTask() ?: return@withContext false
 
             // 文件备份只有 MEDIA 和 CONFIG 两种类型
             val sortedBackups = group.backups.sortedBy { backup ->
@@ -419,8 +443,8 @@ class ResticFilesRestoreViewModel @Inject constructor(
 
             try {
                 Log.d("ResticFilesRestore", "读取本地 Restic 配置")
-                val repoPath = context.readResticRepoPath()
-                val password = context.readResticPassword()
+                val repoPath = readRepoPathForTask()
+                val password = readPasswordForTask()
 
                 if (repoPath.isNullOrEmpty() || password.isNullOrEmpty()) {
                     Log.e("ResticFilesRestore", "Restic配置不完整")

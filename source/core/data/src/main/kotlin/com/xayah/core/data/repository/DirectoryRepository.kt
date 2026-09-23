@@ -51,6 +51,23 @@ class DirectoryRepository @Inject constructor(
     }
 
     /**
+     * 实时插盘检测：直接执行 mount 解析 /mnt/media_rw/<UUID> 挂载点，
+     * 不依赖 DirectoryEntity 的 EXTERNAL 记录。
+     *
+     * hasExternalStorage() 走数据库 countByStorageType(EXTERNAL)，而这些记录在
+     * update() 里只 upsert、拔盘后不删除，且拔盘事件不触发 update()，会导致拔盘后
+     * 仍返回 true、OTG 卡片常驻。本方法每次都真实查询当前挂载点，拔盘即返回 false。
+     *
+     * 只回答"当前有没有插盘"，不回答"盘里有没有 restic 仓库"（后者由
+     * ResticRepoLocator.discoverOtgRepositories() 负责）。
+     */
+    suspend fun hasLiveExternalStorage(): Boolean = withIOContext {
+        runCatching {
+            PreparationUtil.listExternalStorage().out.any { it.isNotBlank() }
+        }.getOrDefault(false)
+    }
+
+    /**
      * hasExternalStorage 的 Flow 版本，供 UI 需要响应式显隐 OTG 段/卡片时使用。
      */
     fun hasExternalStorageFlow(): Flow<Boolean> =

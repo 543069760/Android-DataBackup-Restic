@@ -128,8 +128,17 @@ class MainActivity : AppCompatActivity() {
                         composable(MainRoutes.AwsS3Setup.route) {
                             PageAwsS3Setup()
                         }
-                        composable(MainRoutes.List.route) {
-                            ListRoute()
+                        composable(
+                            route = MainRoutes.List.route,
+                            arguments = listOf(
+                                navArgument(MainRoutes.ARG_IS_OTG) {
+                                    type = NavType.BoolType
+                                    defaultValue = false
+                                }
+                            )
+                        ) { backStackEntry ->
+                            val isOtg = backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
+                            ListRoute(isOtg = isOtg)
                         }
                         composable(MainRoutes.Details.route) {
                             DetailsRoute()
@@ -140,8 +149,17 @@ class MainActivity : AppCompatActivity() {
                         composable(MainRoutes.TaskDetails.route) {
                             TaskDetailsRoute()
                         }
-                        composable(MainRoutes.PackagesBackupProcessingGraph.route) {
-                            PackagesBackupProcessingGraph()
+                        composable(
+                            route = MainRoutes.PackagesBackupProcessingGraph.route,
+                            arguments = listOf(
+                                navArgument(MainRoutes.ARG_IS_OTG) {
+                                    type = NavType.BoolType
+                                    defaultValue = false
+                                }
+                            )
+                        ) { backStackEntry ->
+                            val isOtg = backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
+                            PackagesBackupProcessingGraph(isOtg = isOtg)
                         }
                         composable(
                             route = MainRoutes.CloudRestore.route,
@@ -164,17 +182,32 @@ class MainActivity : AppCompatActivity() {
                                     type = NavType.StringType
                                     nullable = true
                                     defaultValue = ""
+                                },
+                                navArgument(MainRoutes.ARG_IS_OTG) {
+                                    type = NavType.BoolType
+                                    defaultValue = false
                                 }
                             )
                         ) { backStackEntry ->
                             val cloudName = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME) ?: ""
                             val backupDir = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_REMOTE) ?: ""
                             val packageName = backStackEntry.arguments?.getString(MainRoutes.ARG_PACKAGE_NAME_FILTER) ?: ""
-                            Log.d("Navigation", "PackagesRestoreProcessingGraph: cloudName=$cloudName, backupDir=$backupDir, packageName=$packageName")
-                            PackagesRestoreProcessingGraph(packageNameFilter = packageName)
+                            val isOtg = backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
+                            Log.d("Navigation", "PackagesRestoreProcessingGraph: cloudName=$cloudName, backupDir=$backupDir, packageName=$packageName, isOtg=$isOtg")
+                            PackagesRestoreProcessingGraph(packageNameFilter = packageName, isOtg = isOtg)
                         }
-                        composable(MainRoutes.MediumBackupProcessingGraph.route) {
-                            MediumBackupProcessingGraph()
+
+                        composable(
+                            route = MainRoutes.MediumBackupProcessingGraph.route,
+                            arguments = listOf(
+                                navArgument(MainRoutes.ARG_IS_OTG) {
+                                    type = NavType.BoolType
+                                    defaultValue = false
+                                }
+                            )
+                        ) { backStackEntry ->
+                            val isOtg = backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
+                            MediumBackupProcessingGraph(isOtg = isOtg)
                         }
                         composable(
                             route = MainRoutes.MediumRestoreProcessingGraph.route,
@@ -199,8 +232,17 @@ class MainActivity : AppCompatActivity() {
                             PageRestore()
                         }
 
-                        composable(MainRoutes.ResticRestore.route) {  // 添加这行
-                            ResticRestorePage(navController = navController)
+                        composable(
+                            route = MainRoutes.ResticRestore.route,
+                            arguments = listOf(
+                                navArgument(MainRoutes.ARG_IS_OTG) {
+                                    type = NavType.BoolType
+                                    defaultValue = false
+                                }
+                            )
+                        ) { backStackEntry ->
+                            val isOtg = backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
+                            ResticRestorePage(navController = navController, isOtg = isOtg)
                         }
 
                         composable(
@@ -293,6 +335,10 @@ class MainActivity : AppCompatActivity() {
                                 navArgument(MainRoutes.ARG_GROUP) {
                                     type = NavType.StringType
                                     nullable = true
+                                },
+                                navArgument(MainRoutes.ARG_IS_OTG) {
+                                    type = NavType.BoolType
+                                    defaultValue = false
                                 }
                             )
                         ) { backStackEntry ->
@@ -392,7 +438,15 @@ class MainActivity : AppCompatActivity() {
                         composable(MainRoutes.StorageStats.route) {
                             PageStorageStats()
                         }
-                        composable(MainRoutes.ResticFilesRestore.route) {
+                        composable(
+                            route = MainRoutes.ResticFilesRestore.route,
+                            arguments = listOf(
+                                navArgument(MainRoutes.ARG_IS_OTG) {
+                                    type = NavType.BoolType
+                                    defaultValue = false
+                                }
+                            )
+                        ) {
                             ResticFilesRestorePage(navController = navController)
                         }
 
@@ -402,8 +456,17 @@ class MainActivity : AppCompatActivity() {
                         composable(MainRoutes.ResticPassword.route) {
                             ResticPasswordScreen()
                         }
-                        composable(MainRoutes.ResticInitialization.route) {
-                            ResticInitializationScreen()
+                        composable(
+                            route = MainRoutes.ResticInitialization.route,
+                            arguments = listOf(
+                                navArgument(MainRoutes.ARG_IS_OTG) {
+                                    type = NavType.BoolType
+                                    defaultValue = false
+                                }
+                            )
+                        ) { backStackEntry ->
+                            val isOtg = backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
+                            ResticInitializationScreen(isOtg = isOtg)
                         }
                     }
                 }

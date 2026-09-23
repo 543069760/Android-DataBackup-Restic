@@ -2,6 +2,7 @@ package com.xayah.core.datastore
 
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import kotlinx.coroutines.flow.first
 
 // -----------------------------------------Keys-----------------------------------------
 val KeyMonet = booleanPreferencesKey("monet")
@@ -19,6 +20,9 @@ val KeyBackupConfigs = booleanPreferencesKey("backup_configs")
 val KeyRestorePermissions = booleanPreferencesKey("restore_permissions")
 val KeyRestoreSsaid = booleanPreferencesKey("restore_ssaid")
 val KeyResticEnableCompression = booleanPreferencesKey("restic_enable_compression")
+val KeyResticOtgEnabled = booleanPreferencesKey("restic_otg_enabled")
+val KeyResticActiveIsOtg = booleanPreferencesKey("restic_active_is_otg")
+
 // -----------------------------------------Read-----------------------------------------
 fun Context.readMonet() = readStoreBoolean(key = KeyMonet, defValue = true)
 fun Context.readBackupItself() = readStoreBoolean(key = KeyBackupItself, defValue = true)
@@ -35,6 +39,8 @@ fun Context.readBackupConfigs() = readStoreBoolean(key = KeyBackupConfigs, defVa
 fun Context.readRestorePermissions() = readStoreBoolean(key = KeyRestorePermissions, defValue = true)
 fun Context.readRestoreSsaid() = readStoreBoolean(key = KeyRestoreSsaid, defValue = true)
 fun Context.readResticEnableCompression() = readStoreBoolean(key = KeyResticEnableCompression, defValue = true)
+fun Context.readResticOtgEnabled() = readStoreBoolean(key = KeyResticOtgEnabled, defValue = false)
+suspend fun Context.readResticActiveIsOtg(): Boolean = readStoreBoolean(key = KeyResticActiveIsOtg, defValue = false).first()
 
 // -----------------------------------------Write-----------------------------------------
 suspend fun Context.saveMonet(value: Boolean) = saveStoreBoolean(key = KeyMonet, value = value)
@@ -52,3 +58,5 @@ suspend fun Context.saveBackupConfigs(value: Boolean) = saveStoreBoolean(key = K
 suspend fun Context.saveRestorePermissions(value: Boolean) = saveStoreBoolean(key = KeyRestorePermissions, value = value)
 suspend fun Context.saveRestoreSsaid(value: Boolean) = saveStoreBoolean(key = KeyRestoreSsaid, value = value)
 suspend fun Context.saveResticEnableCompression(value: Boolean) = saveStoreBoolean(key = KeyResticEnableCompression, value = value)
+suspend fun Context.saveResticOtgEnabled(value: Boolean) = saveStoreBoolean(key = KeyResticOtgEnabled, value = value)
+suspend fun Context.saveResticActiveIsOtg(value: Boolean) = saveStoreBoolean(key = KeyResticActiveIsOtg, value = value)

@@ -106,12 +106,14 @@ class ListViewModel @Inject constructor(
         }
     }
 
-    fun toNextPage(navController: NavHostController) {
+    fun toNextPage(navController: NavHostController, isOtg: Boolean = false) {
         when (target) {
             Target.Apps -> {
                 when (opType) {
                     OpType.BACKUP -> {
-                        navController.navigateSingle(MainRoutes.PackagesBackupProcessingGraph.route)
+                        navController.navigateSingle(
+                            MainRoutes.PackagesBackupProcessingGraph.getRoute(isOtg = isOtg)
+                        )
                     }
 
                     OpType.RESTORE -> {
@@ -128,7 +130,9 @@ class ListViewModel @Inject constructor(
             Target.Files -> {
                 when (opType) {
                     OpType.BACKUP -> {
-                        navController.navigateSingle(MainRoutes.MediumBackupProcessingGraph.route)
+                        navController.navigateSingle(
+                            MainRoutes.MediumBackupProcessingGraph.getRoute(isOtg = isOtg)
+                        )
                     }
 
                     OpType.RESTORE -> {

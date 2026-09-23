@@ -81,6 +81,7 @@ import java.net.URLEncoder
 @Composable
 fun ResticRestorePage(
     navController: NavController,
+    isOtg: Boolean = false,
     viewModel: ResticRestoreViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -158,7 +159,8 @@ fun ResticRestorePage(
                                     val route = MainRoutes.PackagesRestoreProcessingGraph.getRoute(
                                         cloudName = encodedURLWithSpace,
                                         backupDir = URLEncoder.encode(backupDir, "UTF-8"),
-                                        packageName = ""
+                                        packageName = "",
+                                        isOtg = isOtg
                                     )
                                     exitSelection()
                                     navController.navigateSingle(route)

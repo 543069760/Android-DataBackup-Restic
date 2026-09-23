@@ -119,8 +119,9 @@ class IndexViewModel @Inject constructor(
                     when (state.storageType) {
                         // Otg 复用本地 restic 恢复路由（仓库在 OTG，路径已前置对齐）
                         StorageMode.Local, StorageMode.Otg -> {
+                            val isOtg = state.storageType == StorageMode.Otg
                             intent.navController.navigateSingle(
-                                MainRoutes.ResticRestore.route  // 本地Restic恢复
+                                MainRoutes.ResticRestore.getRoute(isOtg = isOtg)  // 本地/OTG Restic恢复
                             )
                         }
                         StorageMode.Cloud -> {
@@ -141,11 +142,13 @@ class IndexViewModel @Inject constructor(
                     when (state.storageType) {
                         // Otg 复用本地文件恢复路由
                         StorageMode.Local, StorageMode.Otg -> {
+                            val isOtg = state.storageType == StorageMode.Otg
                             intent.navController.navigateSingle(
                                 MainRoutes.List.getRoute(
                                     target = Target.Files,
                                     opType = OpType.RESTORE,
-                                    backupDir = context.localBackupSaveDir().encodeURL()
+                                    backupDir = context.localBackupSaveDir().encodeURL(),
+                                    isOtg = isOtg
                                 )
                             )
                         }

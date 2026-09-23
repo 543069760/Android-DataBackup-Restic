@@ -14,6 +14,11 @@ import com.xayah.core.datastore.readResticRepoConfigId
 import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.datastore.saveResticRepoConfigId
 import com.xayah.core.datastore.saveResticRepoPath
+import com.xayah.core.datastore.readResticActiveIsOtg
+import com.xayah.core.datastore.readResticOtgRepoPath
+import com.xayah.core.datastore.readResticOtgPassword
+import com.xayah.core.datastore.readResticOtgRepoConfigId
+import com.xayah.core.datastore.saveResticOtgRepoPath
 import com.xayah.core.model.CloudType
 import com.xayah.core.model.DataType
 import com.xayah.core.model.OpType
@@ -409,23 +414,29 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
     ): Boolean {
         return try {
             if (item.accountName.isEmpty()) {
-                // 本地
-                // ===== 新增：OTG 前置对齐（仅 /mnt/media_rw/ 前缀生效，内部存储/云端不受影响）=====
-                val savedPath = mContext.readResticRepoPath()
+                // 本地 / OTG（二者都是"本机 restic 仓库"，仅数据源键不同）
+                // Service 无 savedStateHandle，拿不到导航参数 isOtg，
+                // 只能读方案 B 第 1 步建立的任务级瞬态标记键。
+                val isOtg = mContext.readResticActiveIsOtg()
+
+                // ===== OTG 前置对齐（仅 /mnt/media_rw/ 前缀生效，内部存储/云端不受影响）=====
+                val savedPath = if (isOtg) mContext.readResticOtgRepoPath() else mContext.readResticRepoPath()
                 val repoPath: String? = if (savedPath.isNullOrEmpty()) {
                     savedPath
                 } else {
-                    val savedConfigId = mContext.readResticRepoConfigId()
+                    val savedConfigId = if (isOtg) mContext.readResticOtgRepoConfigId() else mContext.readResticRepoConfigId()
                     when (val r = mResticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
                         is ResticRepoLocator.ResolveResult.Passthrough -> r.path
                         is ResticRepoLocator.ResolveResult.Matched -> {
                             if (r.changed) {
-                                mContext.saveResticRepoPath(r.path)
+                                // OTG 写 OTG 键，本地写本地键；绝不互相覆盖
+                                if (isOtg) mContext.saveResticOtgRepoPath(r.path)
+                                else mContext.saveResticRepoPath(r.path)
                             }
                             r.path
                         }
                         is ResticRepoLocator.ResolveResult.NotFound -> {
-                            Log.e(mTAG, "未检测到 OTG 仓库，无法解出")
+                            Log.e(mTAG, "未检测到 ${if (isOtg) "OTG" else "本地"} 仓库，无法解出")
                             return false   // 保守中止，绝不猜路径
                         }
                         is ResticRepoLocator.ResolveResult.Ambiguous -> {
@@ -434,7 +445,7 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
                         }
                     }
                 }
-                val password = mContext.readResticPassword()
+                val password = if (isOtg) mContext.readResticOtgPassword() else mContext.readResticPassword()
                 if (repoPath.isNullOrEmpty() || password.isNullOrEmpty()) {
                     Log.e(mTAG, "本地 restic 配置不完整，无法解出")
                     return false

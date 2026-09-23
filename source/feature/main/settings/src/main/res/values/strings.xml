@@ -73,4 +73,17 @@
     <string name="restic_otg_enter_password">Enter repository password</string>
     <string name="restic_otg_select_repository">Select an OTG repository</string>
     <string name="restic_otg_external_storage_hint">This repository is on external storage. Keep the device plugged in during backup and restore.</string>
+    <!-- OTG USB 存储 -->
+    <string name="otg_usb_storage">OTG USB Storage</string>
+    <string name="otg_usb_storage_enable">Enable OTG USB Storage</string>
+    <string name="otg_usb_storage_enable_desc">Manage backup repository on OTG USB storage</string>
+    <string name="restic_otg_status">OTG Status</string>
+    <string name="restic_otg_please_insert">Please insert OTG device</string>
+    <string name="restic_otg_connected">Connected</string>
+    <string name="restic_otg_storage_path">OTG Storage Path</string>
+    <string name="restic_otg_initialization_status">OTG Initialization Status</string>
+    <string name="restic_otg_snapshot_count">OTG Snapshot Count</string>
+    <string name="restic_otg_no_snapshots">No OTG snapshots</string>
+    <string name="otg_backup_apps">Backup Apps to OTG</string>
+    <string name="otg_backup_files">Backup Files to OTG</string>
 </resources>

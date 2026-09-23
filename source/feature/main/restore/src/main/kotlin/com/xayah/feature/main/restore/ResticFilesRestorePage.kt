@@ -188,16 +188,18 @@ fun ResticFilesRestorePage(
                         ) {
                             itemsIndexed(
                                 items = currentState.groups,
-                                // ✅ 明确 Lambda 参数名，增强编译器推断稳定性
                                 key = { index, group -> "${group.fullPath}-${group.timestamp}-$index" }
                             ) { index, group ->
                                 ResticFileBackupGroupItem(
                                     group = group,
-                                    context = context, // ✅ 使用上面获取好的 context 变量
+                                    context = context,
                                     onClick = {
                                         val groupJson = Json.encodeToString(group)
                                         val encodedJson = URLEncoder.encode(groupJson, "UTF-8")
-                                        val url = MainRoutes.ResticFilesBackupDetail.getRoute(encodedJson)
+                                        val url = MainRoutes.ResticFilesBackupDetail.getRoute(
+                                            groupJsonEncoded = encodedJson,
+                                            isOtg = viewModel.isOtg
+                                        )
                                         navController.navigateSingle(url)
                                     }
                                 )

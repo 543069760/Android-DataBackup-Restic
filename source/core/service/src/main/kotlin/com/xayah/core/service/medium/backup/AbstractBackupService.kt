@@ -29,6 +29,9 @@ import com.xayah.core.restic.ResticRepository
 import com.xayah.core.restic.ResticRepository.ResticProgressCallback
 import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.datastore.readResticPassword
+import com.xayah.core.datastore.readResticActiveIsOtg
+import com.xayah.core.datastore.readResticOtgRepoPath
+import com.xayah.core.datastore.readResticOtgPassword
 import com.xayah.core.datastore.readResticRepoConfigId
 import com.xayah.core.datastore.saveResticRepoPath
 import com.xayah.core.datastore.saveResticRepoConfigId
@@ -131,12 +134,22 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
 
     // Restic 辅助方法：获取仓库路径
     protected suspend fun getResticRepoPath(): String {
-        return mContext.readResticRepoPath() ?: File(mFilesDir, "restic_repo").absolutePath
+        // 任务级 isOtg 标记为 true 时读 OTG 独立键，否则读本地键；默认回退路径不变
+        return if (mContext.readResticActiveIsOtg()) {
+            mContext.readResticOtgRepoPath() ?: File(mFilesDir, "restic_repo").absolutePath
+        } else {
+            mContext.readResticRepoPath() ?: File(mFilesDir, "restic_repo").absolutePath
+        }
     }
 
     // Restic 辅助方法：生成密码
     protected suspend fun getResticPassword(): String {
-        return mContext.readResticPassword() ?: "backup_${mBackupTimestamp}"
+        // 任务级 isOtg 标记为 true 时读 OTG 独立密码键，否则读本地密码键；默认串不变
+        return if (mContext.readResticActiveIsOtg()) {
+            mContext.readResticOtgPassword() ?: "backup_${mBackupTimestamp}"
+        } else {
+            mContext.readResticPassword() ?: "backup_${mBackupTimestamp}"
+        }
     }
 
     // 添加成员变量

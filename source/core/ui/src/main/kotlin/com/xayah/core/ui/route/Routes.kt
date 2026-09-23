@@ -17,6 +17,7 @@ sealed class MainRoutes(val route: String) {
         const val ARG_ID = "id"
         const val ARG_GROUP = "group"
         const val ARG_PACKAGE_NAME_FILTER = "packageName"
+        const val ARG_IS_OTG = "isOtg"
     }
 
     data object Dashboard : MainRoutes(route = "main_dashboard")
@@ -52,16 +53,25 @@ sealed class MainRoutes(val route: String) {
     data object RestoreSettings : MainRoutes(route = "main_restore_settings")
     data object LanguageSettings : MainRoutes(route = "main_language_settings")
     data object BlackList : MainRoutes(route = "main_blacklist")
-    data object ResticInitialization : MainRoutes(route = "main_settings_restic_initialization")
+    data object ResticInitialization : MainRoutes(route = "main_settings_restic_initialization?${ARG_IS_OTG}={${ARG_IS_OTG}}") {
+        fun getRoute(isOtg: Boolean = false) = "main_settings_restic_initialization?${ARG_IS_OTG}=${isOtg}"
+    }
     data object ResticRepoPath : MainRoutes(route = "main_settings_restic_repo_path")
     data object ResticPassword : MainRoutes(route = "main_settings_restic_password")
     data object Configurations : MainRoutes(route = "main_configurations")
     data object About : MainRoutes(route = "main_about")
     data object Translators : MainRoutes(route = "main_translators")
-    data object ResticRestore : MainRoutes(route = "main_restic_restore")
-    data object ResticFilesRestore : MainRoutes(route = "main_restic_files_restore")
-    data object ResticFilesBackupDetail : MainRoutes(route = "main_restic_files_backup_detail?${ARG_GROUP}={${ARG_GROUP}}") {
-        fun getRoute(groupJsonEncoded: String) = "main_restic_files_backup_detail?${ARG_GROUP}=${groupJsonEncoded}"
+    data object ResticRestore : MainRoutes(route = "main_restic_restore?${ARG_IS_OTG}={${ARG_IS_OTG}}") {
+        fun getRoute(isOtg: Boolean = false) = "main_restic_restore?${ARG_IS_OTG}=${isOtg}"
+    }
+    data object ResticFilesRestore : MainRoutes(route = "main_restic_files_restore?${ARG_IS_OTG}={${ARG_IS_OTG}}") {
+        fun getRoute(isOtg: Boolean = false) = "main_restic_files_restore?${ARG_IS_OTG}=${isOtg}"
+    }
+    data object ResticFilesBackupDetail : MainRoutes(
+        route = "main_restic_files_backup_detail?${ARG_GROUP}={${ARG_GROUP}}&${ARG_IS_OTG}={${ARG_IS_OTG}}"
+    ) {
+        fun getRoute(groupJsonEncoded: String, isOtg: Boolean = false) =
+            "main_restic_files_backup_detail?${ARG_GROUP}=${groupJsonEncoded}&${ARG_IS_OTG}=${isOtg}"
     }
 
     // 在这里添加 CloudRestore 路由
@@ -74,8 +84,16 @@ sealed class MainRoutes(val route: String) {
     }
 
 
-    data object List : MainRoutes(route = "main_list/{$ARG_TARGET}/{$ARG_OP_TYPE}/{$ARG_ACCOUNT_NAME}/{$ARG_ACCOUNT_REMOTE}") {
-        fun getRoute(target: Target, opType: OpType, cloudName: String = encodedURLWithSpace, backupDir: String = encodedURLWithSpace) = "main_list/${target}/${opType}/${cloudName}/${backupDir}"
+    data object List : MainRoutes(
+        route = "main_list/{$ARG_TARGET}/{$ARG_OP_TYPE}/{$ARG_ACCOUNT_NAME}/{$ARG_ACCOUNT_REMOTE}?${ARG_IS_OTG}={${ARG_IS_OTG}}"
+    ) {
+        fun getRoute(
+            target: Target,
+            opType: OpType,
+            cloudName: String = encodedURLWithSpace,
+            backupDir: String = encodedURLWithSpace,
+            isOtg: Boolean = false
+        ) = "main_list/${target}/${opType}/${cloudName}/${backupDir}?${ARG_IS_OTG}=${isOtg}"
     }
 
     data object Details : MainRoutes(route = "main_details/{$ARG_TARGET}/{$ARG_OP_TYPE}/{$ARG_ID}") {
@@ -94,20 +112,29 @@ sealed class MainRoutes(val route: String) {
 
     data object Directory : MainRoutes(route = "main_directory")
     data object StorageStats : MainRoutes(route = "main_storage_stats")
-    data object PackagesBackupProcessing : MainRoutes(route = "main_packages_backup_processing")
+    data object PackagesBackupProcessing : MainRoutes(
+        route = "main_packages_backup_processing?${ARG_IS_OTG}={${ARG_IS_OTG}}"
+    ) {
+        fun getRoute(isOtg: Boolean = false) = "main_packages_backup_processing?${ARG_IS_OTG}=${isOtg}"
+    }
     data object PackagesBackupProcessingSetup : MainRoutes(route = "main_packages_backup_processing_setup")
-    data object PackagesBackupProcessingGraph : MainRoutes(route = "main_packages_backup_processing_graph")
+    data object PackagesBackupProcessingGraph : MainRoutes(
+        route = "main_packages_backup_processing_graph?${ARG_IS_OTG}={${ARG_IS_OTG}}"
+    ) {
+        fun getRoute(isOtg: Boolean = false) = "main_packages_backup_processing_graph?${ARG_IS_OTG}=${isOtg}"
+    }
 
     data object PackagesRestoreProcessing : MainRoutes(route = "main_packages_restore_processing")
     data object PackagesRestoreProcessingSetup : MainRoutes(route = "main_packages_restore_processing_setup")
     data object PackagesRestoreProcessingGraph : MainRoutes(
-        route = "main_packages_restore_processing_graph/{$ARG_ACCOUNT_NAME}/{$ARG_ACCOUNT_REMOTE}?${ARG_PACKAGE_NAME_FILTER}={${ARG_PACKAGE_NAME_FILTER}}"
+        route = "main_packages_restore_processing_graph/{$ARG_ACCOUNT_NAME}/{$ARG_ACCOUNT_REMOTE}?${ARG_PACKAGE_NAME_FILTER}={${ARG_PACKAGE_NAME_FILTER}}&${ARG_IS_OTG}={${ARG_IS_OTG}}"
     ) {
         fun getRoute(
             cloudName: String = encodedURLWithSpace,
             backupDir: String = encodedURLWithSpace,
-            packageName: String = ""
-        ) = "main_packages_restore_processing_graph/${cloudName}/${backupDir}?${ARG_PACKAGE_NAME_FILTER}=${packageName}"
+            packageName: String = "",
+            isOtg: Boolean = false
+        ) = "main_packages_restore_processing_graph/${cloudName}/${backupDir}?${ARG_PACKAGE_NAME_FILTER}=${packageName}&${ARG_IS_OTG}=${isOtg}"
     }
 
     data object CloudFilesBackupDetail : MainRoutes(route = "main_cloud_files_backup_detail?${ARG_GROUP}={${ARG_GROUP}}&${ARG_ACCOUNT_NAME}={${ARG_ACCOUNT_NAME}}") {
@@ -119,9 +146,17 @@ sealed class MainRoutes(val route: String) {
         fun getRoute(accountName: String) = "main_cloud_files_restore?${ARG_ACCOUNT_NAME}=${accountName}"
     }
 
-    data object MediumBackupProcessing : MainRoutes(route = "main_medium_backup_processing")
+    data object MediumBackupProcessing : MainRoutes(
+        route = "main_medium_backup_processing?${ARG_IS_OTG}={${ARG_IS_OTG}}"
+    ) {
+        fun getRoute(isOtg: Boolean = false) = "main_medium_backup_processing?${ARG_IS_OTG}=${isOtg}"
+    }
     data object MediumBackupProcessingSetup : MainRoutes(route = "main_medium_backup_processing_setup")
-    data object MediumBackupProcessingGraph : MainRoutes(route = "main_medium_backup_processing_graph")
+    data object MediumBackupProcessingGraph : MainRoutes(
+        route = "main_medium_backup_processing_graph?${ARG_IS_OTG}={${ARG_IS_OTG}}"
+    ) {
+        fun getRoute(isOtg: Boolean = false) = "main_medium_backup_processing_graph?${ARG_IS_OTG}=${isOtg}"
+    }
 
     data object MediumRestoreProcessing : MainRoutes(route = "main_medium_restore_processing")
     data object MediumRestoreProcessingSetup : MainRoutes(route = "main_medium_restore_processing_setup")

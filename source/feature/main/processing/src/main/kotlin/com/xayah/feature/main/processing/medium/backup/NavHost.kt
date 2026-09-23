@@ -5,6 +5,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -22,9 +23,14 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 @ExperimentalFoundationApi
 @ExperimentalMaterial3Api
 @Composable
-fun MediumBackupProcessingGraph() {
+fun MediumBackupProcessingGraph(isOtg: Boolean = false) {
     val localNavController = rememberNavController()
     val viewModel = hiltViewModel<BackupViewModelImpl>()
+
+    // 把任务级 isOtg 写入 ViewModel，供前置检查/服务读取侧按 OTG 键分流
+    LaunchedEffect(Unit) {
+        viewModel.mIsOtgTask = isOtg
+    }
 
     AnimatedNavHost(
         navController = localNavController,
@@ -43,7 +49,7 @@ fun MediumBackupProcessingGraph() {
                 finishedSubtitleId = R.string.args_files_backed_up,
                 finishedWithErrorsSubtitleId = R.string.args_files_backed_up_and_failed,
                 viewModel = viewModel,
-                opType = OpType.BACKUP  // 添加这一行
+                opType = OpType.BACKUP
             )
         }
         composable(MainRoutes.MediumBackupProcessingSetup.route) {

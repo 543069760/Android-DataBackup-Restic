@@ -5,11 +5,18 @@ import android.content.Context
 import android.content.pm.PackageManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.SavedStateHandle
+import com.xayah.core.ui.route.MainRoutes
 import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.datastore.readResticRepoConfigId
 import com.xayah.core.datastore.saveResticRepoPath
 import com.xayah.core.datastore.saveResticRepoConfigId
+import com.xayah.core.datastore.readResticOtgPassword
+import com.xayah.core.datastore.readResticOtgRepoPath
+import com.xayah.core.datastore.readResticOtgRepoConfigId
+import com.xayah.core.datastore.saveResticOtgRepoPath
+import com.xayah.core.datastore.saveResticOtgRepoConfigId
 import com.xayah.core.data.repository.ResticRepoLocator
 import com.xayah.core.model.DataType
 import com.xayah.core.model.ResticProgressState
@@ -58,13 +65,30 @@ class ResticRestoreViewModel @Inject constructor(
     private val appsRepo: AppsRepo,
     private val rootService: RemoteRootService,
     private val resticRepoLocator: ResticRepoLocator,
-    private val appsDao: PackageDao
+    private val appsDao: PackageDao,
+    savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     companion object {
         private const val TAG = "ResticRestore"
         const val RESTORE_QUEUE_FILE = "restic_restore_queue.json"
     }
+
+    // 任务级 OTG 标志：由导航参数 ?isOtg= 传入，与 ListViewModel 一致
+    private val isOtg: Boolean = savedStateHandle.get<Boolean>(MainRoutes.ARG_IS_OTG) ?: false
+
+    // 按任务类型分流读写 restic 键：OTG 读写 OTG 独立键，其余读写本地键
+    private suspend fun readRepoPathForTask(): String? =
+        if (isOtg) context.readResticOtgRepoPath() else context.readResticRepoPath()
+
+    private suspend fun readPasswordForTask(): String? =
+        if (isOtg) context.readResticOtgPassword() else context.readResticPassword()
+
+    private suspend fun readRepoConfigIdForTask(): String? =
+        if (isOtg) context.readResticOtgRepoConfigId() else context.readResticRepoConfigId()
+
+    private suspend fun saveRepoPathForTask(value: String) =
+        if (isOtg) context.saveResticOtgRepoPath(value) else context.saveResticRepoPath(value)
 
     // 速度跟踪变量 - 添加到这里
     private var lastBytes = 0L
@@ -96,8 +120,8 @@ class ResticRestoreViewModel @Inject constructor(
                 Log.w(TAG, "prepareBatchRestore: 选中 groups 为空")
                 return@withContext false
             }
-            val repoPath = context.readResticRepoPath()
-            val password = context.readResticPassword()
+            val repoPath = readRepoPathForTask()
+            val password = readPasswordForTask()
             if (repoPath.isNullOrEmpty() || password.isNullOrEmpty()) {
                 Log.e(TAG, "prepareBatchRestore: restic 未配置（repoPath/password 为空）")
                 return@withContext false
@@ -192,8 +216,8 @@ class ResticRestoreViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            val repoPath = context.readResticRepoPath()
-            val password = context.readResticPassword()
+            val repoPath = readRepoPathForTask()
+            val password = readPasswordForTask()
             Log.d("ResticRestore", "读取到的 repoPath: $repoPath")
             Log.d("ResticRestore", "password: ${if (password.isNullOrEmpty()) "空" else "已设置"}")
             if (repoPath.isNullOrEmpty() || password.isNullOrEmpty()) {
@@ -391,8 +415,8 @@ class ResticRestoreViewModel @Inject constructor(
 
     suspend fun deleteLocalSnapshots(group: ResticBackupGroup): Boolean = withContext(Dispatchers.IO) {
         try {
-            val repoPath = context.readResticRepoPath() ?: return@withContext false
-            val password = context.readResticPassword() ?: return@withContext false
+            val repoPath = readRepoPathForTask() ?: return@withContext false
+            val password = readPasswordForTask() ?: return@withContext false
 
             val sortedBackups = group.backups.sortedBy { backup ->
                 when (backup.dataType) {
@@ -559,15 +583,15 @@ class ResticRestoreViewModel @Inject constructor(
      * 非 OTG（内部存储/云端读不到该路径）走 Passthrough，行为与改造前一致。
      */
     private suspend fun resolveAndAlignResticRepo(): String? {
-        val savedPath = context.readResticRepoPath()
+        val savedPath = readRepoPathForTask()
         if (savedPath.isNullOrEmpty()) return savedPath   // 交由后续 isNullOrEmpty 分支处理
-        val savedConfigId = context.readResticRepoConfigId()
+        val savedConfigId = readRepoConfigIdForTask()
         return when (val r = resticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
             is ResticRepoLocator.ResolveResult.Passthrough -> r.path        // 非 OTG，原样返回
             is ResticRepoLocator.ResolveResult.Matched -> {
                 if (r.changed) {
-                    // 路径变了（同一 config_id），更新 DataStore
-                    context.saveResticRepoPath(r.path)
+                    // 路径变了（同一 config_id），更新 DataStore（OTG 写 OTG 键）
+                    saveRepoPathForTask(r.path)
                 }
                 r.path
             }
@@ -591,7 +615,7 @@ class ResticRestoreViewModel @Inject constructor(
             Log.d("ResticRestore", "读取 Restic 配置")
             // ===== 新增：前置对齐（仅 OTG 生效）=====
             val repoPath = resolveAndAlignResticRepo() ?: return false
-            val password = context.readResticPassword()
+            val password = readPasswordForTask()
             Log.d("ResticRestore", "仓库路径: $repoPath")
 
             if (password.isNullOrEmpty()) {   // repoPath 已由前置对齐保证非空

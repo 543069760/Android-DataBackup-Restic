@@ -7,6 +7,10 @@ import com.xayah.core.data.repository.DirectoryRepository
 import com.xayah.core.data.repository.PackageRepository
 import com.xayah.core.data.repository.ResticRepoLocator
 import com.xayah.core.data.repository.TaskRepository
+import com.xayah.core.datastore.readResticOtgPassword
+import com.xayah.core.datastore.readResticOtgRepoPath
+import com.xayah.core.datastore.readResticActiveIsOtg
+import com.xayah.core.datastore.saveResticActiveIsOtg
 import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.datastore.saveCloudActivatedAccountName
@@ -66,6 +70,10 @@ class BackupViewModelImpl @Inject constructor(
 ) : AbstractPackagesProcessingViewModel(mContext, mRootService, mTaskRepo, mLocalService, mCloudService) {
 
     private fun backend(entity: CloudEntity) = resticBackends.getValue(entity.type)
+    // 当前备份任务是否针对 OTG 仓库。由导航参数（方案 B 第 4 步）在进入设置页时置位；
+    // 默认 false，保证本地/云端任务零回归。
+    @Volatile
+    var mIsOtgTask: Boolean = false
 
     override suspend fun onOtherEvent(state: IndexUiState, intent: ProcessingUiIntent) {
         when (intent) {
@@ -132,12 +140,28 @@ class BackupViewModelImpl @Inject constructor(
                 } else {
                     _isTesting.value = true
                     runCatching {
-                        // ===== 本地仓库前置检查（fail-fast）=====
-                        val repoPath = mContext.readResticRepoPath()
-                            ?: File(mContext.filesDir, "restic_repo").absolutePath
-                        val password = mContext.readResticPassword() ?: "databackup_default"
+                        // ===== 本地/OTG 仓库前置检查（fail-fast）=====
+                        // 按本任务 isOtg 决定读取来源：OTG 走独立键，本地走原键
+                        val isOtg = mIsOtgTask
+                        val repoPath = if (isOtg) {
+                            mContext.readResticOtgRepoPath()
+                                ?: File(mContext.filesDir, "restic_repo").absolutePath
+                        } else {
+                            mContext.readResticRepoPath()
+                                ?: File(mContext.filesDir, "restic_repo").absolutePath
+                        }
+                        val password = if (isOtg) {
+                            mContext.readResticOtgPassword() ?: "databackup_default"
+                        } else {
+                            mContext.readResticPassword() ?: "databackup_default"
+                        }
+                        // 置位任务级瞬态标记，供 service 层读取侧按同一 isOtg 分流
+                        mContext.saveResticActiveIsOtg(isOtg)
+
                         val ok = resticRepo.verifyRepository(repoPath, password)
                         if (!ok) {
+                            // 前置检查失败：复位标记，避免污染下次本地任务
+                            mContext.saveResticActiveIsOtg(false)
                             emitEffect(IndexUiEffect.DismissSnackbar)
                             emitEffectOnIO(
                                 IndexUiEffect.ShowSnackbar(
@@ -155,6 +179,8 @@ class BackupViewModelImpl @Inject constructor(
                             intent.navController.navigateSingle(MainRoutes.PackagesBackupProcessing.route)
                         }
                     }.onFailure {
+                        // 异常路径同样复位标记
+                        mContext.saveResticActiveIsOtg(false)
                         emitEffect(IndexUiEffect.DismissSnackbar)
                         if (it.localizedMessage != null)
                             emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Error, message = it.localizedMessage!!, duration = SnackbarDuration.Long))

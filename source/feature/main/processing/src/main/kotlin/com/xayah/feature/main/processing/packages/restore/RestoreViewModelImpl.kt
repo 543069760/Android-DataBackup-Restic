@@ -24,6 +24,7 @@ import com.xayah.core.ui.viewmodel.IndexUiEffect
 import com.xayah.core.util.LogUtil
 import com.xayah.core.util.decodeURL
 import com.xayah.core.util.localBackupSaveDir
+import com.xayah.core.datastore.saveResticActiveIsOtg
 import com.xayah.core.util.navigateSingle
 import com.xayah.feature.main.processing.UpdateAppsWithFilter
 import com.xayah.feature.main.processing.AbstractPackagesProcessingViewModel
@@ -58,6 +59,10 @@ class RestoreViewModelImpl @Inject constructor(
     private val args: SavedStateHandle,
 ) : AbstractPackagesProcessingViewModel(mContext, mRootService, mTaskRepo, mLocalService, mCloudService) {
     private var currentPackageNameFilter: String = ""
+
+    // 任务级 OTG 标志：来自 PackagesRestoreProcessingGraph 路由的 ARG_IS_OTG
+    // 非 OTG（本地/云端）恒为 false，保持零回归
+    private val isOtg: Boolean = args.get<Boolean>(MainRoutes.ARG_IS_OTG) ?: false
     override suspend fun onOtherEvent(state: IndexUiState, intent: ProcessingUiIntent) {
         when (intent) {
             is UpdateApps -> {
@@ -140,6 +145,7 @@ class RestoreViewModelImpl @Inject constructor(
                         val (client, _) = mCloudRepo.getClient(state.cloudEntity!!.name)
                         client.testConnection()
                         emitEffect(IndexUiEffect.DismissSnackbar)
+                        mContext.saveResticActiveIsOtg(isOtg)
                         withMainContext {
                             intent.navController.popBackStack()
                             intent.navController.navigateSingle(MainRoutes.PackagesRestoreProcessing.route)
@@ -152,6 +158,8 @@ class RestoreViewModelImpl @Inject constructor(
                     }
                     _isTesting.value = false
                 } else {
+                    // OTG 瞬态标记：await 写入完成后再启动服务，防止读到旧值
+                    mContext.saveResticActiveIsOtg(isOtg)
                     withMainContext {
                         intent.navController.popBackStack()
                         intent.navController.navigateSingle(MainRoutes.PackagesRestoreProcessing.route)

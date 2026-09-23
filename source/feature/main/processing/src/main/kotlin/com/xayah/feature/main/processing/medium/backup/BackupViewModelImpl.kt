@@ -7,6 +7,10 @@ import com.xayah.core.data.repository.DirectoryRepository
 import com.xayah.core.data.repository.MediaRepository
 import com.xayah.core.data.repository.ResticRepoLocator
 import com.xayah.core.data.repository.TaskRepository
+import com.xayah.core.datastore.readResticActiveIsOtg
+import com.xayah.core.datastore.readResticOtgPassword
+import com.xayah.core.datastore.readResticOtgRepoPath
+import com.xayah.core.datastore.saveResticActiveIsOtg
 import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.datastore.saveCloudActivatedAccountName
@@ -66,7 +70,9 @@ class BackupViewModelImpl @Inject constructor(
 ) : AbstractMediumProcessingViewModel(mContext, mRootService, mTaskRepo, mLocalService, mCloudService) {
 
     private fun backend(entity: CloudEntity) = resticBackends.getValue(entity.type)
-
+    // 本任务是否针对 OTG 仓库（由 OTG 备份入口的导航参数赋值；默认本地/云端）
+    @Volatile
+    var mIsOtgTask: Boolean = false
     override suspend fun onOtherEvent(state: IndexUiState, intent: ProcessingUiIntent) {
         when (intent) {
             is UpdateFiles -> {
@@ -130,16 +136,28 @@ class BackupViewModelImpl @Inject constructor(
                     }
                     _isTesting.value = false
                 } else {
-                    // ===== 本地备份前仓库可用性前置检查（fail-fast）=====
+                    // ===== 本地/OTG 备份前仓库可用性前置检查（fail-fast）=====
                     _isTesting.value = true
                     runCatching {
-                        // 与服务层一致地解析本地 restic 仓库路径与密码
-                        val repoPath = mContext.readResticRepoPath()
-                            ?: File(mContext.filesDir, "restic_repo").absolutePath
-                        val password = mContext.readResticPassword() ?: "databackup_default"
+                        // 与服务层一致地解析仓库路径与密码：
+                        // OTG 任务读 OTG 独立键，本地任务读本地键。默认回退保持原样。
+                        val repoPath = if (mIsOtgTask) {
+                            mContext.readResticOtgRepoPath()
+                                ?: File(mContext.filesDir, "restic_repo").absolutePath
+                        } else {
+                            mContext.readResticRepoPath()
+                                ?: File(mContext.filesDir, "restic_repo").absolutePath
+                        }
+                        val password = if (mIsOtgTask) {
+                            mContext.readResticOtgPassword() ?: "databackup_default"
+                        } else {
+                            mContext.readResticPassword() ?: "databackup_default"
+                        }
 
                         val ok = resticRepo.verifyRepository(repoPath, password)
                         if (!ok) {
+                            // 前置检查失败：复位任务级标记，避免污染下次本地备份
+                            mContext.saveResticActiveIsOtg(false)
                             emitEffect(IndexUiEffect.DismissSnackbar)
                             emitEffectOnIO(
                                 IndexUiEffect.ShowSnackbar(
@@ -151,12 +169,18 @@ class BackupViewModelImpl @Inject constructor(
                             return@runCatching
                         }
 
+                        // 前置检查通过、即将进入处理页/启动服务：置位任务级标记，
+                        // 供服务层读取侧（方案 B 第 2 步）按 isOtg 分流读键。
+                        mContext.saveResticActiveIsOtg(mIsOtgTask)
+
                         emitEffect(IndexUiEffect.DismissSnackbar)
                         withMainContext {
                             intent.navController.popBackStack()
                             intent.navController.navigateSingle(MainRoutes.MediumBackupProcessing.route)
                         }
                     }.onFailure {
+                        // 异常路径同样复位，避免标记泄漏
+                        mContext.saveResticActiveIsOtg(false)
                         emitEffect(IndexUiEffect.DismissSnackbar)
                         if (it.localizedMessage != null)
                             emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Error, message = it.localizedMessage!!, duration = SnackbarDuration.Long))

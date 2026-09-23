@@ -24,6 +24,9 @@ val KeyLanguage = stringPreferencesKey("language")
 val KeyResticRepoPath = stringPreferencesKey("restic_repo_path")
 val KeyResticPassword = stringPreferencesKey("restic_password")
 val KeyResticRepoConfigId = stringPreferencesKey("restic_repo_config_id")
+val KeyResticOtgRepoPath = stringPreferencesKey("restic_otg_repo_path")
+val KeyResticOtgPassword = stringPreferencesKey("restic_otg_password")
+val KeyResticOtgRepoConfigId = stringPreferencesKey("restic_otg_repo_config_id")
 
 // -----------------------------------------Read-----------------------------------------
 fun Context.readCompressionType() = readStoreString(key = KeyCompressionType, defValue = "").map { CompressionType.of(it) }
@@ -34,18 +37,19 @@ fun Context.readSelectionType() = readStoreString(key = KeySelectionType, defVal
 fun Context.readThemeType() = readStoreString(key = KeyThemeType, defValue = "").map { ThemeType.of(it) }
 fun Context.readKillAppOption() = readStoreString(key = KeyKillAppOption, defValue = "").map { KillAppOption.of(it) }
 fun Context.readLanguage() = readStoreString(key = KeyLanguage, defValue = ConstantUtil.LANGUAGE_SYSTEM)
-
-// 修复 1：将 defValue = null 改为 defValue = ""。
-// .first() 后的 .takeIf { it.isNotEmpty() } 将 "" 转换回 null，从而实现 String? 的返回。
 suspend fun Context.readResticRepoPath(): String? = readStoreString(key = KeyResticRepoPath, defValue = "").first().takeIf { it.isNotEmpty() }
 suspend fun Context.readResticPassword(): String? = readStoreString(key = KeyResticPassword, defValue = "").first().takeIf { it.isNotEmpty() }
 suspend fun Context.readLoadedIconMD5(accountId: String): String = readStoreString(key = keyLoadedIconMD5(accountId), defValue = "").first()
-// 新增：读取 OTG 仓库身份 config_id；空串按未设置处理，返回 null（与 readResticRepoPath 语义一致）
 suspend fun Context.readResticRepoConfigId(): String? = readStoreString(key = KeyResticRepoConfigId, defValue = "").first().takeIf { it.isNotEmpty() }
 fun Context.readBackupSavePathSaved() = readStoreString(key = KeyBackupSavePath, defValue = "").map { it.isNotEmpty() }
 fun Context.readBackupSavePath() = readStoreString(key = KeyBackupSavePath, defValue = ConstantUtil.DEFAULT_PATH)
 fun Context.readCustomSUFile() = readStoreString(key = KeyCustomSUFile, defValue = "su")
-
+suspend fun Context.readResticOtgRepoPath(): String? =
+    readStoreString(key = KeyResticOtgRepoPath, defValue = "").first().takeIf { it.isNotEmpty() }
+suspend fun Context.readResticOtgPassword(): String? =
+    readStoreString(key = KeyResticOtgPassword, defValue = "").first().takeIf { it.isNotEmpty() }
+suspend fun Context.readResticOtgRepoConfigId(): String? =
+    readStoreString(key = KeyResticOtgRepoConfigId, defValue = "").first().takeIf { it.isNotEmpty() }
 
 // -----------------------------------------Write-----------------------------------------
 suspend fun Context.saveCompressionType(value: CompressionType) = saveStoreString(key = KeyCompressionType, value = value.type.trim())
@@ -61,5 +65,7 @@ suspend fun Context.saveKillAppOption(value: KillAppOption) = saveStoreString(ke
 suspend fun Context.saveLanguage(value: String) = saveStoreString(key = KeyLanguage, value = value.trim())
 suspend fun Context.saveResticRepoPath(value: String) = saveStoreString(key = KeyResticRepoPath, value = value)
 suspend fun Context.saveResticPassword(value: String) = saveStoreString(key = KeyResticPassword, value = value)
-// 新增：保存 OTG 仓库身份 config_id
 suspend fun Context.saveResticRepoConfigId(value: String) = saveStoreString(key = KeyResticRepoConfigId, value = value)
+suspend fun Context.saveResticOtgRepoPath(value: String) = saveStoreString(key = KeyResticOtgRepoPath, value = value)
+suspend fun Context.saveResticOtgPassword(value: String) = saveStoreString(key = KeyResticOtgPassword, value = value)
+suspend fun Context.saveResticOtgRepoConfigId(value: String) = saveStoreString(key = KeyResticOtgRepoConfigId, value = value)

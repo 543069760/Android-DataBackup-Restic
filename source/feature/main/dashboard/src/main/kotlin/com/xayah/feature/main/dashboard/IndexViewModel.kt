@@ -15,6 +15,12 @@ import com.xayah.core.datastore.readUpdateChannel
 import com.xayah.core.datastore.saveResticPassword
 import com.xayah.core.datastore.saveResticRepoConfigId
 import com.xayah.core.datastore.saveResticRepoPath
+import com.xayah.core.datastore.readResticOtgRepoConfigId
+import com.xayah.core.datastore.readResticOtgRepoPath
+import com.xayah.core.datastore.saveResticOtgRepoPath
+import com.xayah.core.datastore.readResticOtgPassword
+import com.xayah.core.datastore.saveResticOtgRepoConfigId
+import com.xayah.core.datastore.saveResticOtgPassword
 import com.xayah.core.model.database.DirectoryEntity
 import com.xayah.core.network.model.Release
 import com.xayah.core.network.retrofit.GitHubRepository
@@ -140,16 +146,16 @@ class IndexViewModel @Inject constructor(
         // 每次刷新丢弃上一批扫描缓存，确保拔插状态实时反映
         resticRepoLocator.invalidateCache()
 
-        val savedConfigId = context.readResticRepoConfigId()
+        val savedConfigId = context.readResticOtgRepoConfigId()
 
         // 情形 A：已登记设备——插上目标盘即常驻显示 OTG 容量卡
         if (!savedConfigId.isNullOrEmpty()) {
-            val savedPath = context.readResticRepoPath().orEmpty()
+            val savedPath = context.readResticOtgRepoPath().orEmpty()
             when (val result = resticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
                 is ResolveResult.Matched -> {
-                    // 挂载点漂移（换盘/重插导致 UUID 变化）时静默改指，不改身份
+                    // 挂载点漂移（换盘/重插导致 UUID 变化）时静默改指，不改身份（写 OTG 键，不污染本地）
                     if (result.changed) {
-                        context.saveResticRepoPath(result.path)
+                        context.saveResticOtgRepoPath(result.path)
                     }
                     _otgDiscoveryState.value = buildRegisteredState(result.path)
                 }
@@ -167,8 +173,8 @@ class IndexViewModel @Inject constructor(
         val discovered = resticRepoLocator.discoverOtgRepositories()
         when {
             discovered.isEmpty() -> {
-                // 扫不到仓库，再判是否插了盘：插了盘但无仓库 → 引导初始化；没插盘 → 不显示
-                val hasDisk = runCatching { directoryRepo.hasExternalStorage() }.getOrDefault(false)
+                // 扫不到仓库，再判是否"实时"插了盘：插了盘但无仓库 → 引导初始化；没插盘 → 不显示
+                val hasDisk = runCatching { directoryRepo.hasLiveExternalStorage() }.getOrDefault(false)
                 if (hasDisk) {
                     Log.d("DashboardOtg", "detectOtgRepository: 插了 OTG 盘但无仓库 → NotInitialized")
                     _otgDiscoveryState.value = OtgDiscoveryState.NotInitialized
@@ -180,13 +186,13 @@ class IndexViewModel @Inject constructor(
 
             discovered.size == 1 -> {
                 val repo = discovered.first()
-                val defaultPassword = context.readResticPassword() ?: "databackup_default"
+                val defaultPassword = context.readResticOtgPassword() ?: "databackup_default"
                 val valid = resticRepo.validateRepository(repo.path, defaultPassword)
                 if (valid) {
                     // 默认密码可解：零交互静默登记
-                    context.saveResticRepoPath(repo.path)
-                    context.saveResticRepoConfigId(repo.configId)
-                    context.saveResticPassword(defaultPassword)
+                    context.saveResticOtgRepoPath(repo.path)
+                    context.saveResticOtgRepoConfigId(repo.configId)
+                    context.saveResticOtgPassword(defaultPassword)
                     _otgDiscoveryState.value = buildRegisteredState(repo.path)
                 } else {
                     // 默认密码不可解（用了自定义密码）：引导去设置页输入密码

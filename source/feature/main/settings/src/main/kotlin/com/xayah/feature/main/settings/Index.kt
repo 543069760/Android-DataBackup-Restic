@@ -32,9 +32,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xayah.core.datastore.KeyAutoScreenOff
 import com.xayah.core.datastore.KeyMonet
+import com.xayah.core.datastore.KeyResticOtgEnabled
 import com.xayah.core.datastore.readResticCompressionLevel
+import com.xayah.core.datastore.readResticOtgEnabled
 import com.xayah.core.datastore.readUpdateChannel
 import com.xayah.core.datastore.saveUpdateChannel
+import com.xayah.core.model.OpType
+import com.xayah.core.model.Target
 import com.xayah.core.ui.component.Clickable
 import com.xayah.core.ui.component.InnerBottomSpacer
 import com.xayah.core.ui.component.LocalSlotScope
@@ -74,9 +78,21 @@ fun PageSettings() {
     val repoPath by resticViewModel.repoPathState.collectAsStateWithLifecycle()
     val resticError by resticViewModel.resticErrorState.collectAsStateWithLifecycle()
 
-    // 逻辑：首次进入页面检查状态
+    // OTG 状态收集（独立于本地/云端，读 OTG 独立键与 OTG 专用状态流）
+    val otgEnabled by context.readResticOtgEnabled().collectAsStateWithLifecycle(initialValue = false)
+    val otgInitialized by resticViewModel.otgInitializedState.collectAsStateWithLifecycle(initialValue = false)
+    val otgRepoPath by resticViewModel.otgRepoPathState.collectAsStateWithLifecycle()
+    val otgSnapshotCount by resticViewModel.otgSnapshotCountState.collectAsStateWithLifecycle(initialValue = 0)
+
+    // OTG 实时插盘挂载点（/mnt/media_rw/<UUID>）：由 ResticViewModel 订阅 otgMountEvents 事件驱动，
+    // 插拔/换盘即时更新，无盘为 null。不再使用 delay 轮询。
+    val otgMountPath by resticViewModel.otgMountPathState.collectAsStateWithLifecycle(initialValue = null)
+
+    // 逻辑：首次进入页面检查本地/云端状态，并对 OTG 做一次兜底首刷
+    // （实时性由 ViewModel 的 otgMountEvents 订阅承担，此处仅兜底）。
     LaunchedEffect(Unit) {
         resticViewModel.checkResticStatus()
+        resticViewModel.refreshOtgStatus()
     }
 
     Scaffold(
@@ -158,7 +174,7 @@ fun PageSettings() {
                     }
                 ) {
                     if (resticVersion != null) {
-                        navController.navigateSingle(MainRoutes.ResticInitialization.route)
+                        navController.navigateSingle(MainRoutes.ResticInitialization.getRoute(isOtg = false))
                     }
                 }
 
@@ -190,6 +206,91 @@ fun PageSettings() {
                     value = stringResource(R.string.args_current_level, currentLevelLabel),
                 ) {
                     navController.navigateSingle(MainRoutes.BackupSettings.route)
+                }
+            }
+
+            // --- OTG USB 存储 ---
+            Title(title = stringResource(id = R.string.otg_usb_storage)) {
+                // 总开关：始终显示，控制下方 OTG 项显隐
+                Switchable(
+                    key = KeyResticOtgEnabled,
+                    defValue = false,
+                    title = stringResource(id = R.string.otg_usb_storage_enable),
+                    checkedText = stringResource(id = R.string.otg_usb_storage_enable_desc),
+                )
+
+                if (otgEnabled) {
+                    val mount = otgMountPath
+                    // OTG 状态：始终一行
+                    Clickable(
+                        title = stringResource(id = R.string.restic_otg_status),
+                        value = if (mount == null)
+                            stringResource(id = R.string.restic_otg_please_insert)
+                        else
+                            stringResource(id = R.string.restic_otg_connected)
+                    ) {
+                        scope.launch {
+                            resticViewModel.refreshOtgStatus()
+                        }
+                    }
+
+                    // 已插盘：展开路径 / 初始化状态 / 快照数
+                    if (mount != null) {
+                        Clickable(
+                            title = stringResource(id = R.string.restic_otg_storage_path),
+                            value = mount
+                        ) {}
+
+                        Clickable(
+                            title = stringResource(id = R.string.restic_initialization_status),
+                            value = when {
+                                resticVersion == null -> stringResource(id = R.string.restic_not_detected)
+                                !otgInitialized -> stringResource(id = R.string.restic_not_initialized)
+                                else -> stringResource(id = R.string.restic_initialized_at, otgRepoPath ?: "")
+                            }
+                        ) {
+                            if (resticVersion != null) {
+                                navController.navigateSingle(MainRoutes.ResticInitialization.getRoute(isOtg = true))
+                            }
+                        }
+
+                        Clickable(
+                            title = stringResource(id = R.string.restic_snapshot_count),
+                            value = when {
+                                resticVersion == null -> stringResource(id = R.string.restic_not_detected)
+                                !otgInitialized -> stringResource(id = R.string.restic_not_initialized)
+                                otgSnapshotCount > 0 -> stringResource(id = R.string.restic_snapshots_count, otgSnapshotCount)
+                                else -> stringResource(id = R.string.restic_no_snapshots)
+                            }
+                        ) {}
+                        // 备份应用到 OTG
+                        Clickable(
+                            enabled = otgInitialized,
+                            title = stringResource(id = R.string.otg_backup_apps),
+                        ) {
+                            navController.navigateSingle(
+                                MainRoutes.List.getRoute(
+                                    target = Target.Apps,
+                                    opType = OpType.BACKUP,
+                                    isOtg = true
+                                )
+                            )
+                        }
+
+                        // 备份文件到 OTG
+                        Clickable(
+                            enabled = otgInitialized,
+                            title = stringResource(id = R.string.otg_backup_files),
+                        ) {
+                            navController.navigateSingle(
+                                MainRoutes.List.getRoute(
+                                    target = Target.Files,
+                                    opType = OpType.BACKUP,
+                                    isOtg = true
+                                )
+                            )
+                        }
+                    }
                 }
             }
 

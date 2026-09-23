@@ -25,13 +25,14 @@ import com.xayah.core.ui.util.LocalNavController
 
 @Composable
 fun ListRoute(
+    isOtg: Boolean = false,
     viewModel: ListViewModel = hiltViewModel(), // Initialize/Reset list data
 ) {
     val navController = LocalNavController.current!!
     val uiState: ListUiState by viewModel.uiState.collectAsStateWithLifecycle()
     SetOnResume(onResume = viewModel::onResume)
     ListScreen(uiState) {
-        viewModel.toNextPage(navController)
+        viewModel.toNextPage(navController, isOtg)
     }
 }
 

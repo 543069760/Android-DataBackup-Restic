@@ -43,7 +43,7 @@ import java.io.File
 
 @ExperimentalMaterial3Api
 @Composable
-fun ResticInitializationScreen() {
+fun ResticInitializationScreen(isOtg: Boolean = false) {
     val viewModel = hiltViewModel<ResticViewModel>()
     val navController = LocalNavController.current!!
     val context = LocalContext.current
@@ -57,7 +57,6 @@ fun ResticInitializationScreen() {
     var showDeleteDialog by remember { mutableStateOf(false) }
     var repoPathToDelete by remember { mutableStateOf("") }
 
-    // 记录本次是否曾进入过“重新初始化”模式。
     var wasReinitializing by remember { mutableStateOf(false) }
     LaunchedEffect(isReinitializing) {
         if (isReinitializing) {
@@ -65,7 +64,6 @@ fun ResticInitializationScreen() {
         }
     }
 
-    // 成功后自动回退上一页：仅当此前处于重新初始化模式时才 popBackStack
     LaunchedEffect(initializationState) {
         if (initializationState is ResticViewModel.InitializationState.ReadyToUse && wasReinitializing) {
             wasReinitializing = false
@@ -79,12 +77,26 @@ fun ResticInitializationScreen() {
         }
     }
 
-    val directoryLauncher = PickYouLauncher(
-        checkPermission = false,
-        title = stringResource(id = R.string.select_directory),
-        pickerType = PickerType.DIRECTORY,
-        permissionType = PermissionType.ROOT,
-    )
+    // 按 OTG/本地分别构造目录选择器
+    val directoryLauncher = if (isOtg) {
+        // OTG 场景：起始/根路径放开到 /mnt/media_rw，用户在该目录下选择 <UUID> 子目录
+        PickYouLauncher(
+            checkPermission = false,
+            title = stringResource(id = R.string.select_directory),
+            pickerType = PickerType.DIRECTORY,
+            permissionType = PermissionType.ROOT,
+            rootPathList = listOf("/mnt/media_rw"),
+            defaultPathList = listOf("/mnt/media_rw"),
+        )
+    } else {
+        // 本地场景：完全保持原样，起始路径不变
+        PickYouLauncher(
+            checkPermission = false,
+            title = stringResource(id = R.string.select_directory),
+            pickerType = PickerType.DIRECTORY,
+            permissionType = PermissionType.ROOT,
+        )
+    }
 
     if (resticInitialized && repoPath != null && !isReinitializing) {
         // 已初始化状态：显示当前信息和重新初始化按钮
@@ -105,7 +117,8 @@ fun ResticInitializationScreen() {
             showDeleteDialog = showDeleteDialog,
             repoPathToDelete = repoPathToDelete,
             onDeleteDialogChange = { showDeleteDialog = it },
-            onRepoPathToDeleteChange = { repoPathToDelete = it }
+            onRepoPathToDeleteChange = { repoPathToDelete = it },
+            isOtg = isOtg,
         )
     }
 }
@@ -162,10 +175,22 @@ private fun InitializationView(
     showDeleteDialog: Boolean,
     repoPathToDelete: String,
     onDeleteDialogChange: (Boolean) -> Unit,
-    onRepoPathToDeleteChange: (String) -> Unit
+    onRepoPathToDeleteChange: (String) -> Unit,
+    isOtg: Boolean = false,
 ) {
     val context = LocalContext.current
     val navController = LocalNavController.current!!
+
+    // OTG 模式下预览路径需异步解析（读取挂载点补全 UUID），用状态承接
+    var resolvedRepoPath by remember { mutableStateOf("") }
+    LaunchedEffect(selectedPath, isOtg) {
+        resolvedRepoPath = when {
+            selectedPath.isEmpty() -> ""
+            isOtg -> viewModel.resolveOtgRepoParent(selectedPath)
+                ?.let { File(it, "restic_repo").absolutePath } ?: ""
+            else -> File(selectedPath, "restic_repo").absolutePath
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -205,30 +230,7 @@ private fun InitializationView(
                         color = MaterialTheme.colorScheme.error
                     )
                 }
-                // 新增：OTG 离线态（扫不到原盘/未插盘）——不清空配置，提示重新插入
-                is ResticViewModel.InitializationState.Offline -> {
-                    Text(
-                        text = stringResource(id = R.string.restic_otg_offline),
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
                 else -> {}
-            }
-
-            // 新增：OTG 离线态下提供“重新扫描并连接”按钮，触发一次发现流程
-            if (initializationState is ResticViewModel.InitializationState.Offline) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        viewModel.launchOnIO {
-                            viewModel.scanOtgRepositories()
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(stringResource(id = R.string.restic_otg_rescan))
-                }
-                Spacer(modifier = Modifier.height(16.dp))
             }
 
             // 文件选择器
@@ -248,11 +250,10 @@ private fun InitializationView(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 显示选中的路径
-            if (selectedPath.isNotEmpty()) {
+            // 显示将要创建的仓库路径（OTG 模式下已补全 UUID）
+            if (resolvedRepoPath.isNotEmpty()) {
                 Text(
-                    text = stringResource(id = R.string.restic_repo_will_be_created_at,
-                        File(selectedPath, "restic_repo").absolutePath),
+                    text = stringResource(id = R.string.restic_repo_will_be_created_at, resolvedRepoPath),
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
@@ -264,7 +265,15 @@ private fun InitializationView(
                 onClick = {
                     if (selectedPath.isNotEmpty()) {
                         viewModel.launchOnIO {
-                            viewModel.initializeOrValidateRepository(selectedPath)
+                            val parent = if (isOtg) {
+                                viewModel.resolveOtgRepoParent(selectedPath)   // → /mnt/media_rw/<UUID>
+                            } else {
+                                selectedPath
+                            }
+                            if (!parent.isNullOrEmpty()) {
+                                viewModel.initializeOrValidateRepository(parent)  // 内部再拼 restic_repo
+                            }
+                            // parent 为空表示未插盘/取不到 UUID：可在 ViewModel 侧置 Error 状态提示（TODO#3）
                         }
                     }
                 },
@@ -301,81 +310,6 @@ private fun InitializationView(
             },
             dismissButton = {
                 TextButton(onClick = { onDeleteDialogChange(false) }) {
-                    Text(stringResource(id = R.string.cancel))
-                }
-            }
-        )
-    }
-
-    // 新增：OTG bootstrap —— 默认密码不可解，弹密码框
-    if (initializationState is ResticViewModel.InitializationState.NeedsPassword) {
-        val state = initializationState as ResticViewModel.InitializationState.NeedsPassword
-        var passwordInput by remember(state.repoPath) { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { viewModel.cancelOtgBootstrap() },
-            title = { Text(stringResource(id = R.string.restic_otg_enter_password)) },
-            text = {
-                Column {
-                    Text(
-                        text = stringResource(id = R.string.restic_repo_will_be_created_at, state.repoPath),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = passwordInput,
-                        onValueChange = { passwordInput = it },
-                        label = { Text(stringResource(id = R.string.restic_password)) },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = passwordInput.isNotEmpty(),
-                    onClick = {
-                        viewModel.launchOnIO {
-                            viewModel.submitOtgPassword(passwordInput)
-                        }
-                    }
-                ) {
-                    Text(stringResource(id = R.string.save))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.cancelOtgBootstrap() }) {
-                    Text(stringResource(id = R.string.cancel))
-                }
-            }
-        )
-    }
-
-    // 新增：OTG bootstrap —— 发现多个仓库，弹选择列表
-    if (initializationState is ResticViewModel.InitializationState.SelectRepository) {
-        val state = initializationState as ResticViewModel.InitializationState.SelectRepository
-        AlertDialog(
-            onDismissRequest = { viewModel.cancelOtgBootstrap() },
-            title = { Text(stringResource(id = R.string.restic_otg_select_repository)) },
-            text = {
-                Column {
-                    state.candidates.forEach { repo ->
-                        Text(
-                            text = repo.path,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    viewModel.launchOnIO {
-                                        viewModel.selectOtgRepository(repo)
-                                    }
-                                }
-                                .padding(vertical = 12.dp)
-                        )
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { viewModel.cancelOtgBootstrap() }) {
                     Text(stringResource(id = R.string.cancel))
                 }
             }
