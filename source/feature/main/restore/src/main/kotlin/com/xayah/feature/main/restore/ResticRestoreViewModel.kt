@@ -14,6 +14,8 @@ import com.xayah.core.datastore.saveResticRepoPath
 import com.xayah.core.datastore.saveResticRepoConfigId
 import com.xayah.core.datastore.readResticOtgPassword
 import com.xayah.core.datastore.readResticOtgRepoPath
+import com.xayah.core.datastore.readResticActiveIsOtg
+import com.xayah.core.datastore.saveResticActiveIsOtg
 import com.xayah.core.datastore.readResticOtgRepoConfigId
 import com.xayah.core.datastore.saveResticOtgRepoPath
 import com.xayah.core.datastore.saveResticOtgRepoConfigId
@@ -77,6 +79,11 @@ class ResticRestoreViewModel @Inject constructor(
     // 任务级 OTG 标志：由导航参数 ?isOtg= 传入，与 ListViewModel 一致
     private val isOtg: Boolean = savedStateHandle.get<Boolean>(MainRoutes.ARG_IS_OTG) ?: false
 
+    // 本次列表会话捕获的 OTG 决策：在列表首次加载时（此刻全局标记仍是恢复入口
+    // Index.ToAppList 刚落的正确值、尚未被 processing 图 RestoreViewModelImpl.FinishSetup
+    // 无条件 saveResticActiveIsOtg(false) 重置）捕获一次，用于每次消费前重申全局标记。
+    private var capturedIsOtg: Boolean? = null
+
     // 按任务类型分流读写 restic 键：OTG 读写 OTG 独立键，其余读写本地键
     private suspend fun readRepoPathForTask(): String? =
         if (isOtg) context.readResticOtgRepoPath() else context.readResticRepoPath()
@@ -120,12 +127,13 @@ class ResticRestoreViewModel @Inject constructor(
                 Log.w(TAG, "prepareBatchRestore: 选中 groups 为空")
                 return@withContext false
             }
-            val repoPath = readRepoPathForTask()
-            val password = readPasswordForTask()
-            if (repoPath.isNullOrEmpty() || password.isNullOrEmpty()) {
-                Log.e(TAG, "prepareBatchRestore: restic 未配置（repoPath/password 为空）")
+            reassertActiveIsOtg()   // 新增：入队/解 config 前先把捕获值落回全局标记
+            val repo = resolveRestoreRepo()
+            if (repo == null) {
+                Log.e(TAG, "prepareBatchRestore: restic 未配置或 OTG 不可用")
                 return@withContext false
             }
+            val (repoPath, password) = repo
 
             val backupBaseDir = context.readBackupDirectory() ?: context.localBackupSaveDir()
             val targetBasePath = "${context.localBackupSaveDir()}/restore/"
@@ -186,6 +194,12 @@ class ResticRestoreViewModel @Inject constructor(
                 return@withContext false
             }
 
+            // 入队时一次性 stamp 本批 OTG 决策：此刻处于恢复入口刚落的正确值，
+            // 尚未被 processing 图（RestoreViewModelImpl.FinishSetup 无条件 saveResticActiveIsOtg(false)）重置。
+            // 服务端 extractOne() 据每条 item.isOtg 选仓库，避免读到被重置后的全局标记。
+            val isOtg = context.readResticActiveIsOtg()
+            Log.d("RestoreOtg", "prepareBatchRestore: 队列 isOtg=$isOtg")
+
             // 仅用成功的包写队列（含 CONFIG 与重型，重型仍交给服务解出）
             val queue = succeededGroups.flatMap { it.backups }.map { backup ->
                 ResticRestoreQueueItem(
@@ -193,7 +207,8 @@ class ResticRestoreViewModel @Inject constructor(
                     userId = backup.userId,
                     dataType = backup.dataType,
                     snapshotId = backup.snapshotId,
-                    accountName = ""   // 本地：空串
+                    accountName = "",   // 本地：空串
+                    isOtg = isOtg
                 )
             }
             File(context.cacheDir, RESTORE_QUEUE_FILE).writeText(Json.encodeToString(queue))
@@ -216,14 +231,24 @@ class ResticRestoreViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
-            val repoPath = readRepoPathForTask()
-            val password = readPasswordForTask()
-            Log.d("ResticRestore", "读取到的 repoPath: $repoPath")
-            Log.d("ResticRestore", "password: ${if (password.isNullOrEmpty()) "空" else "已设置"}")
-            if (repoPath.isNullOrEmpty() || password.isNullOrEmpty()) {
-                _uiState.value = ResticRestoreUiState.Error(context.getString(R.string.restore_error_restic_not_configured))
+            // 首次进入列表时捕获 OTG 决策（此刻全局标记仍正确）
+            if (capturedIsOtg == null) {
+                capturedIsOtg = context.readResticActiveIsOtg()
+                Log.d("RestoreOtg", "captured activeIsOtg=$capturedIsOtg")
+            }
+            // 每次加载前重申，抵消可能的重置
+            reassertActiveIsOtg()
+            val repo = resolveRestoreRepo()
+            if (repo == null) {
+                // OTG 分支已置错误态；非 OTG 未配置在此补默认文案
+                if (_uiState.value !is ResticRestoreUiState.Error) {
+                    _uiState.value = ResticRestoreUiState.Error(context.getString(R.string.restore_error_restic_not_configured))
+                }
                 return@launch
             }
+            val (repoPath, password) = repo
+            Log.d("ResticRestore", "读取到的 repoPath: $repoPath")
+            Log.d("ResticRestore", "password: ${if (password.isEmpty()) "空" else "已设置"}")
 
             // ---- 阶段一：读持久缓存，命中秒开 ----
             val cachedApps = runCatching { readCachedApps() }.getOrElse { emptyList() }
@@ -415,8 +440,10 @@ class ResticRestoreViewModel @Inject constructor(
 
     suspend fun deleteLocalSnapshots(group: ResticBackupGroup): Boolean = withContext(Dispatchers.IO) {
         try {
-            val repoPath = readRepoPathForTask() ?: return@withContext false
-            val password = readPasswordForTask() ?: return@withContext false
+            // 统一走全局 OTG 活动标记判据（与 prepare/load/restore 一致），
+            // 避免 OTG 恢复场景下 forget/prune 打到本地仓库。
+            reassertActiveIsOtg()
+            val (repoPath, password) = resolveRestoreRepo() ?: return@withContext false
 
             val sortedBackups = group.backups.sortedBy { backup ->
                 when (backup.dataType) {
@@ -578,33 +605,44 @@ class ResticRestoreViewModel @Inject constructor(
     }
 
     /**
-     * 恢复前前置对齐：仅 OTG 前缀执行扫描重对齐。
-     * 返回对齐后的 repoPath；返回 null 表示应中止（已设置 UI 错误态）。
-     * 非 OTG（内部存储/云端读不到该路径）走 Passthrough，行为与改造前一致。
+     * 恢复读键分流：按全局活动标记 readResticActiveIsOtg() 决定读 OTG 独立键还是本地键。
+     * 返回 (repoPath, password)；返回 null 表示应中止。
+     * OTG 分支失败会置 UI 错误态；非 OTG 未配置返回 null 但不置错误态，交由调用方按原有文案处理。
      */
-    private suspend fun resolveAndAlignResticRepo(): String? {
-        val savedPath = readRepoPathForTask()
-        if (savedPath.isNullOrEmpty()) return savedPath   // 交由后续 isNullOrEmpty 分支处理
-        val savedConfigId = readRepoConfigIdForTask()
-        return when (val r = resticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
-            is ResticRepoLocator.ResolveResult.Passthrough -> r.path        // 非 OTG，原样返回
-            is ResticRepoLocator.ResolveResult.Matched -> {
-                if (r.changed) {
-                    // 路径变了（同一 config_id），更新 DataStore（OTG 写 OTG 键）
-                    saveRepoPathForTask(r.path)
-                }
-                r.path
-            }
-            is ResticRepoLocator.ResolveResult.NotFound -> {
-                Log.e(TAG, "未检测到 OTG 仓库，无法恢复")
+    private suspend fun resolveRestoreRepo(): Pair<String, String>? {
+        val isOtg = context.readResticActiveIsOtg()
+        if (isOtg) {
+            val otgPath = context.readResticOtgRepoPath()
+            if (otgPath.isNullOrEmpty()) {
+                Log.d("RestoreOtg", "resolveRestoreRepo: activeIsOtg=true 但未登记 OTG 仓库路径")
                 _uiState.value = ResticRestoreUiState.Error("未检测到 OTG 仓库，请插入 U 盘后重试")
-                null
+                return null
             }
-            is ResticRepoLocator.ResolveResult.Ambiguous -> {
-                Log.e(TAG, "检测到多个 OTG 仓库候选，需用户选择: ${r.candidates}")
-                _uiState.value = ResticRestoreUiState.Error("检测到多个匹配的 OTG 仓库，请手动选择")
-                null
+            val otgPwd = context.readResticOtgPassword() ?: "databackup_default"
+            val ok = runCatching { resticRepo.verifyRepository(otgPath, otgPwd) }.getOrDefault(false)
+            Log.d("RestoreOtg", "resolveRestoreRepo: activeIsOtg=true repoPath=$otgPath checkOk=$ok")
+            if (!ok) {
+                _uiState.value = ResticRestoreUiState.Error("未检测到 OTG 仓库，请插入 U 盘后重试")
+                return null
             }
+            return otgPath to otgPwd
+        } else {
+            val repoPath = context.readResticRepoPath()
+            val password = context.readResticPassword()
+            Log.d("RestoreOtg", "resolveRestoreRepo: activeIsOtg=false repoPath=$repoPath")
+            if (repoPath.isNullOrEmpty() || password.isNullOrEmpty()) return null
+            return repoPath to password
+        }
+    }
+
+    /**
+     * 把首次捕获的 OTG 决策重新落回全局标记，抵消 processing 图对全局标记的重置。
+     * capturedIsOtg 为 null（尚未捕获）时不动，保持现状。
+     */
+    private suspend fun reassertActiveIsOtg() {
+        capturedIsOtg?.let {
+            context.saveResticActiveIsOtg(it)
+            Log.d("RestoreOtg", "reassertActiveIsOtg=$it")
         }
     }
 
@@ -613,16 +651,11 @@ class ResticRestoreViewModel @Inject constructor(
         Log.d("ResticRestore", "开始快照恢复流程，包名: ${group.packageName}")
         return try {
             Log.d("ResticRestore", "读取 Restic 配置")
-            // ===== 新增：前置对齐（仅 OTG 生效）=====
-            val repoPath = resolveAndAlignResticRepo() ?: return false
-            val password = readPasswordForTask()
+            reassertActiveIsOtg()
+            // ===== 读键分流（按全局 activeIsOtg 标记）=====
+            val repo = resolveRestoreRepo() ?: return false
+            val (repoPath, password) = repo
             Log.d("ResticRestore", "仓库路径: $repoPath")
-
-            if (password.isNullOrEmpty()) {   // repoPath 已由前置对齐保证非空
-                Log.e("ResticRestore", "Restic 配置不完整")
-                _uiState.value = ResticRestoreUiState.Error("Restic not configured")
-                return false
-            }
 
             // 使用用户配置的备份目录 + /restore/
             Log.d("ResticRestore", "读取用户备份目录配置")

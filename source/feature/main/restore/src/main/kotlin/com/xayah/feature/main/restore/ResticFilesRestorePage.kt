@@ -172,7 +172,6 @@ fun ResticFilesRestorePage(
                 }
 
                 is ResticFilesRestoreUiState.Success -> {
-                    // ✅ 关键修正：在 LazyColumn 外部获取 context
                     val context = LocalContext.current
 
                     if (currentState.groups.isEmpty()) {
@@ -196,9 +195,12 @@ fun ResticFilesRestorePage(
                                     onClick = {
                                         val groupJson = Json.encodeToString(group)
                                         val encodedJson = URLEncoder.encode(groupJson, "UTF-8")
+                                        // isOtg 已废弃：详情侧复用 ResticFilesRestoreViewModel，
+                                        // 读键统一走全局标记 readResticActiveIsOtg() + resolveRestoreRepo()，
+                                        // 该导航参数不再有实际作用，传占位常量 false。
                                         val url = MainRoutes.ResticFilesBackupDetail.getRoute(
                                             groupJsonEncoded = encodedJson,
-                                            isOtg = viewModel.isOtg
+                                            isOtg = false
                                         )
                                         navController.navigateSingle(url)
                                     }

@@ -1,6 +1,7 @@
 package com.xayah.feature.main.processing.medium.backup
 
 import android.content.Context
+import android.util.Log
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.xayah.core.data.repository.CloudRepository
 import com.xayah.core.data.repository.DirectoryRepository
@@ -86,7 +87,20 @@ class BackupViewModelImpl @Inject constructor(
                 }
                 _medium.value = medium
                 _mediumSize.value = bytes.formatSize()
-                _hasOtg.value = !mContext.readResticOtgRepoPath().isNullOrEmpty()
+
+                // OTG 段显隐判据（与首页 detectOtgRepository 情形 A、应用备份页保持一致）：
+                // 已登记 OTG 仓库(路径键非空) + 对该精确路径 verifyRepository 校验通过 + 目标盘当前实时在场。
+                // 不依赖 config_id（native 恒返回全 0）与 discoverOtgRepositories（只扫扁平层级，对嵌套仓库无效）。
+                val otgPath = mContext.readResticOtgRepoPath()
+                val ok = if (otgPath.isNullOrEmpty()) {
+                    false
+                } else {
+                    val otgPwd = mContext.readResticOtgPassword() ?: "databackup_default"
+                    runCatching { resticRepo.verifyRepository(otgPath, otgPwd) }.getOrDefault(false)
+                }
+                val hasDisk = runCatching { mDirectoryRepo.hasLiveExternalStorage() }.getOrDefault(false)
+                _hasOtg.value = !otgPath.isNullOrEmpty() && ok && hasDisk
+                Log.d("BackupOtg", "hasOtg(medium): otgPath=$otgPath checkOk=$ok hasDisk=$hasDisk")
             }
 
             is SetCloudEntity -> {
@@ -141,17 +155,20 @@ class BackupViewModelImpl @Inject constructor(
                 } else {
                     // ===== 本地/OTG 备份前仓库可用性前置检查（fail-fast）=====
                     _isTesting.value = true
+                    // 判据统一到用户在 Setup 页选中的段，不再依赖 mIsOtgTask 导航参数
+                    val isOtg = state.storageType == StorageMode.Otg
+                    mIsOtgTask = isOtg
                     runCatching {
                         // 与服务层一致地解析仓库路径与密码：
                         // OTG 任务读 OTG 独立键，本地任务读本地键。默认回退保持原样。
-                        val repoPath = if (mIsOtgTask) {
+                        val repoPath = if (isOtg) {
                             mContext.readResticOtgRepoPath()
                                 ?: File(mContext.filesDir, "restic_repo").absolutePath
                         } else {
                             mContext.readResticRepoPath()
                                 ?: File(mContext.filesDir, "restic_repo").absolutePath
                         }
-                        val password = if (mIsOtgTask) {
+                        val password = if (isOtg) {
                             mContext.readResticOtgPassword() ?: "databackup_default"
                         } else {
                             mContext.readResticPassword() ?: "databackup_default"
@@ -174,7 +191,7 @@ class BackupViewModelImpl @Inject constructor(
 
                         // 前置检查通过、即将进入处理页/启动服务：置位任务级标记，
                         // 供服务层读取侧（方案 B 第 2 步）按 isOtg 分流读键。
-                        mContext.saveResticActiveIsOtg(mIsOtgTask)
+                        mContext.saveResticActiveIsOtg(isOtg)
 
                         emitEffect(IndexUiEffect.DismissSnackbar)
                         withMainContext {
@@ -198,13 +215,29 @@ class BackupViewModelImpl @Inject constructor(
         }
     }
 
-    /**
-     * 首次选择 OTG 段时触发：发现 OTG restic 仓库并（默认密码可解时）静默登记。
-     * 走 discoverOtgRepositories()（只读 config、不需密码）而非 resolveCurrentResticRepoPath()
-     * （后者首次无 savedConfigId 会 NotFound）。首页/Setup 不弹密码框/多盘选择框，
-     * 自定义密码或多盘一律引导去设置页 ResticViewModel 承载交互式 bootstrap。
-     */
     fun bootstrapOtg() = launchOnIO {
+        // 情形 A（已登记）：与 FinishSetup / 首页 detectOtgRepository 情形 A 判据一致——
+        // 读 OTG 独立路径键 + 对该精确路径 verifyRepository 校验。
+        // 通过则说明当前 OTG 仓库可用，直接静默返回，不弹任何提示。
+        // 不依赖 discoverOtgRepositories（只扫扁平层级，对嵌套仓库如 .../23565/restic_repo 恒空，会误报）。
+        val registeredPath = mContext.readResticOtgRepoPath()
+        if (!registeredPath.isNullOrEmpty()) {
+            val otgPwd = mContext.readResticOtgPassword() ?: "databackup_default"
+            val ok = runCatching { resticRepo.verifyRepository(registeredPath, otgPwd) }.getOrDefault(false)
+            Log.d("BackupOtg", "bootstrapOtg(medium): registeredPath=$registeredPath checkOk=$ok")
+            if (ok) return@launchOnIO
+            // 已登记但当前不可用（未插盘/仓库被删/密码错）→ 引导去设置页处理
+            emitEffectOnIO(
+                IndexUiEffect.ShowSnackbar(
+                    type = SnackbarType.Error,
+                    message = mContext.getString(R.string.restic_otg_go_settings),
+                    duration = SnackbarDuration.Long,
+                )
+            )
+            return@launchOnIO
+        }
+
+        // 情形 B（未登记，换新机首次插盘）：走 discoverOtgRepositories 静默 bootstrap。
         val discovered = resticRepoLocator.discoverOtgRepositories()
         when {
             discovered.isEmpty() -> {
@@ -219,10 +252,8 @@ class BackupViewModelImpl @Inject constructor(
 
             discovered.size == 1 -> {
                 val repo = discovered.first()
-                // 默认密码回退读 OTG 键（与本地键隔离）
                 val defaultPwd = mContext.readResticOtgPassword() ?: "databackup_default"
                 if (resticRepo.validateRepository(repo.path, defaultPwd)) {
-                    // 静默登记只写 OTG 独立键，不污染本地仓库身份
                     mContext.saveResticOtgRepoPath(repo.path)
                     mContext.saveResticOtgRepoConfigId(repo.configId)
                     mContext.saveResticOtgPassword(defaultPwd)

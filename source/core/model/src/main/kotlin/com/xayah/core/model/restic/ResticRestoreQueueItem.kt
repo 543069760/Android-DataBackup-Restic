@@ -23,4 +23,17 @@ data class ResticRestoreQueueItem(
     val dataType: DataType,
     val snapshotId: String,
     val accountName: String = "",
+    /**
+     * 该批恢复是否走 OTG 仓库的持久化决策。
+     *
+     * 由 writer（ResticRestoreViewModel.prepareBatchRestore）在入队时按当时仍正确的
+     * readResticActiveIsOtg() 一次性 stamp 进每条队列元素，服务端 extractOne() 据此按条选择
+     * OTG 仓库（readResticOtgRepoPath/readResticOtgPassword）或本地仓库。
+     *
+     * 替代易被 processing 图（RestoreViewModelImpl.FinishSetup 无条件 saveResticActiveIsOtg(false)）
+     * 重置的全局标记，避免重型 tar 解出时读到被覆盖后的 false 而误回退本地仓库。
+     *
+     * 默认 false：保证既有 writer 不传该参数可编译，且旧队列 JSON（无该字段）能兼容反序列化。
+     */
+    val isOtg: Boolean = false,
 )

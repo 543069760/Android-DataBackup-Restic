@@ -414,38 +414,57 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
     ): Boolean {
         return try {
             if (item.accountName.isEmpty()) {
-                // 本地 / OTG（二者都是"本机 restic 仓库"，仅数据源键不同）
-                // Service 无 savedStateHandle，拿不到导航参数 isOtg，
-                // 只能读方案 B 第 1 步建立的任务级瞬态标记键。
-                val isOtg = mContext.readResticActiveIsOtg()
-
-                // ===== OTG 前置对齐（仅 /mnt/media_rw/ 前缀生效，内部存储/云端不受影响）=====
-                val savedPath = if (isOtg) mContext.readResticOtgRepoPath() else mContext.readResticRepoPath()
-                val repoPath: String? = if (savedPath.isNullOrEmpty()) {
-                    savedPath
+                // 本地/OTG：按【队列项持久化标记 item.isOtg】分流，
+                // 不再读全局 readResticActiveIsOtg()——该全局标记会被 processing 图
+                // (RestoreViewModelImpl.FinishSetup 无条件 saveResticActiveIsOtg(false)) 重置为 false。
+                // item.isOtg 由 prepareBatchRestore 入队时按当时仍正确的 readResticActiveIsOtg() stamp 进队列。
+                val isOtg = item.isOtg
+                val repoPath: String?
+                val password: String?
+                if (isOtg) {
+                    // ===== OTG：精确 OTG 路径键 + verifyRepository，绝不回退本地 =====
+                    val otgPath = mContext.readResticOtgRepoPath()
+                    if (otgPath.isNullOrEmpty()) {
+                        Log.e(mTAG, "extractOne: itemIsOtg=true 但未登记 OTG 仓库路径，保守中止")
+                        return false
+                    }
+                    val otgPwd = mContext.readResticOtgPassword() ?: "databackup_default"
+                    val ok = runCatching { mResticRepo.verifyRepository(otgPath, otgPwd) }.getOrDefault(false)
+                    Log.d("RestoreOtg", "extractOne: itemIsOtg=true repoPath=$otgPath checkOk=$ok")
+                    if (!ok) {
+                        Log.e(mTAG, "extractOne: OTG 仓库校验失败（未插盘/仓库被删/密码错），保守中止")
+                        return false
+                    }
+                    repoPath = otgPath
+                    password = otgPwd
                 } else {
-                    val savedConfigId = if (isOtg) mContext.readResticOtgRepoConfigId() else mContext.readResticRepoConfigId()
-                    when (val r = mResticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
-                        is ResticRepoLocator.ResolveResult.Passthrough -> r.path
-                        is ResticRepoLocator.ResolveResult.Matched -> {
-                            if (r.changed) {
-                                // OTG 写 OTG 键，本地写本地键；绝不互相覆盖
-                                if (isOtg) mContext.saveResticOtgRepoPath(r.path)
-                                else mContext.saveResticRepoPath(r.path)
+                    // ===== 本地：维持原有读键（Passthrough 放行）=====
+                    val savedPath = mContext.readResticRepoPath()
+                    repoPath = if (savedPath.isNullOrEmpty()) {
+                        savedPath
+                    } else {
+                        val savedConfigId = mContext.readResticRepoConfigId()
+                        when (val r = mResticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
+                            is ResticRepoLocator.ResolveResult.Passthrough -> r.path
+                            is ResticRepoLocator.ResolveResult.Matched -> {
+                                if (r.changed) {
+                                    mContext.saveResticRepoPath(r.path)
+                                }
+                                r.path
                             }
-                            r.path
-                        }
-                        is ResticRepoLocator.ResolveResult.NotFound -> {
-                            Log.e(mTAG, "未检测到 ${if (isOtg) "OTG" else "本地"} 仓库，无法解出")
-                            return false   // 保守中止，绝不猜路径
-                        }
-                        is ResticRepoLocator.ResolveResult.Ambiguous -> {
-                            Log.e(mTAG, "检测到多个 OTG 仓库候选，无法自动确定: ${r.candidates}")
-                            return false
+                            is ResticRepoLocator.ResolveResult.NotFound -> {
+                                Log.e(mTAG, "未检测到 OTG 仓库，无法解出")
+                                return false
+                            }
+                            is ResticRepoLocator.ResolveResult.Ambiguous -> {
+                                Log.e(mTAG, "检测到多个 OTG 仓库候选，无法自动确定: ${r.candidates}")
+                                return false
+                            }
                         }
                     }
+                    password = mContext.readResticPassword()
+                    Log.d("RestoreOtg", "extractOne: itemIsOtg=false repoPath=$repoPath")
                 }
-                val password = if (isOtg) mContext.readResticOtgPassword() else mContext.readResticPassword()
                 if (repoPath.isNullOrEmpty() || password.isNullOrEmpty()) {
                     Log.e(mTAG, "本地 restic 配置不完整，无法解出")
                     return false

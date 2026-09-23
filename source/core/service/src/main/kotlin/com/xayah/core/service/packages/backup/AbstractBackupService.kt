@@ -210,23 +210,23 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
 
     // Restic 辅助方法：获取仓库路径
     protected suspend fun getResticRepoPath(): String {
-        // 从 DataStore 读取用户配置的路径，与 ResticViewModel 保持一致
-        // 任务级 isOtg 标记为 true 时读 OTG 独立键，否则读本地键；默认回退路径不变
-        return if (mContext.readResticActiveIsOtg()) {
-            mContext.readResticOtgRepoPath() ?: File(mContext.filesDir, "restic_repo").absolutePath
-        } else {
-            mContext.readResticRepoPath() ?: File(mContext.filesDir, "restic_repo").absolutePath
+        // OTG 活动：读独立 OTG 路径键；取不到必须中止，绝不回退本地（否则会静默写到内部存储）
+        if (mContext.readResticActiveIsOtg()) {
+            return mContext.readResticOtgRepoPath()
+                ?: throw IllegalStateException("OTG 仓库路径未登记，中止备份")
         }
+        // 非 OTG：维持本地默认逻辑
+        return mContext.readResticRepoPath() ?: File(mContext.filesDir, "restic_repo").absolutePath
     }
 
     // Restic 辅助方法：生成密码
     protected suspend fun getResticPassword(): String {
-        // 任务级 isOtg 标记为 true 时读 OTG 独立密码键，否则读本地密码键；默认串不变
-        return if (mContext.readResticActiveIsOtg()) {
-            mContext.readResticOtgPassword() ?: "databackup_${mBackupTimestamp}"
-        } else {
-            mContext.readResticPassword() ?: "databackup_${mBackupTimestamp}"
+        // OTG 活动：用全链路一致的 OTG 默认密码，不要用 databackup_<timestamp>
+        if (mContext.readResticActiveIsOtg()) {
+            return mContext.readResticOtgPassword() ?: "databackup_default"
         }
+        // 非 OTG：维持本地密码逻辑
+        return mContext.readResticPassword() ?: "databackup_default"
     }
 
     // Restic 辅助方法：更新数据库中的快照信息（存根）
@@ -285,27 +285,42 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
      */
     protected suspend fun resolveAndAlignResticRepo(): Boolean {
         val isOtg = mContext.readResticActiveIsOtg()
-        val savedPath = (if (isOtg) mContext.readResticOtgRepoPath() else mContext.readResticRepoPath())
-            ?: return true // 无配置=内部默认，放行
-        val savedConfigId = if (isOtg) mContext.readResticOtgRepoConfigId() else mContext.readResticRepoConfigId()
-        return when (val r = resticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
-            is ResolveResult.Passthrough -> true
-            is ResolveResult.Matched -> {
-                if (r.changed) {
-                    // 挂载点变了但 config_id 命中同一仓库：更新路径后放行（OTG 写 OTG 键）
-                    if (isOtg) mContext.saveResticOtgRepoPath(r.path) else mContext.saveResticRepoPath(r.path)
+
+        // 非 OTG（内部/云端）：维持现有放行/对齐逻辑（本地本就是 Passthrough 放行）
+        if (!isOtg) {
+            val savedPath = mContext.readResticRepoPath() ?: return true
+            val savedConfigId = mContext.readResticRepoConfigId()
+            return when (val r = resticRepoLocator.resolveCurrentResticRepoPath(savedPath, savedConfigId)) {
+                is ResolveResult.Passthrough -> true
+                is ResolveResult.Matched -> {
+                    if (r.changed) mContext.saveResticRepoPath(r.path)
+                    true
                 }
-                true
-            }
-            is ResolveResult.NotFound -> {
-                log { "onPreBackupRepositoryCheck: 未检测到目标 OTG 仓库（未插盘/无此 config_id），中止备份" }
-                false
-            }
-            is ResolveResult.Ambiguous -> {
-                log { "onPreBackupRepositoryCheck: OTG 多仓库歧义（${r.candidates.size} 个候选），中止备份" }
-                false
+                is ResolveResult.NotFound -> {
+                    log { "resolveAndAlignResticRepo(local): 未检测到目标仓库，中止备份" }
+                    false
+                }
+                is ResolveResult.Ambiguous -> {
+                    log { "resolveAndAlignResticRepo(local): 多仓库歧义（${r.candidates.size} 个候选），中止备份" }
+                    false
+                }
             }
         }
+
+        // OTG 活动：config_id 恒全 0、resolveCurrentResticRepoPath 只扫扁平路径，
+        // 会把嵌套 OTG 仓库误判 NotFound —— 改用「精确 OTG 路径键 + verifyRepository」判据。
+        val otgPath = mContext.readResticOtgRepoPath()
+        if (otgPath.isNullOrEmpty()) {
+            log { "resolveAndAlignResticRepo(otg): 未登记 OTG 仓库路径，中止备份" }
+            return false
+        }
+        val otgPwd = mContext.readResticOtgPassword() ?: "databackup_default"
+        val ok = runCatching { resticRepo.verifyRepository(otgPath, otgPwd) }.getOrDefault(false)
+        if (!ok) {
+            log { "resolveAndAlignResticRepo(otg): 仓库校验失败（未插盘/仓库被删/密码错）: $otgPath，中止备份" }
+            return false
+        }
+        return true
     }
 
     /**
