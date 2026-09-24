@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xayah.core.ui.route.MainRoutes
+import com.xayah.core.ui.theme.value
 import com.xayah.core.ui.util.LocalNavController
 import com.xayah.core.util.navigateSingle
 import com.xayah.feature.main.settings.R
@@ -39,30 +42,39 @@ import com.xayah.feature.main.settings.restic.ResticViewModel
 @ExperimentalAnimationApi
 @ExperimentalMaterial3Api
 @Composable
-fun PageStorageStats() {
+fun PageStorageStats(isOtg: Boolean = false) {
     val navController = LocalNavController.current!!
     val resticViewModel = hiltViewModel<ResticViewModel>()
     val cacheViewModel = hiltViewModel<CacheManagementViewModel>()
 
-    val repoPath by resticViewModel.repoPathState.collectAsStateWithLifecycle()
-    val resticInitialized by resticViewModel.resticInitializedState
+    val localRepoPath by resticViewModel.repoPathState.collectAsStateWithLifecycle()
+    val otgRepoPath by resticViewModel.otgRepoPathState.collectAsStateWithLifecycle()
+    val repoPath = if (isOtg) otgRepoPath else localRepoPath
+    val localInitialized by resticViewModel.resticInitializedState
         .collectAsStateWithLifecycle(initialValue = false)
+    val otgInitialized by resticViewModel.otgInitializedState
+        .collectAsStateWithLifecycle(initialValue = false)
+    val resticInitialized = if (isOtg) otgInitialized else localInitialized
     val cacheInfo by cacheViewModel.cacheInfo.collectAsStateWithLifecycle()
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
 
     LaunchedEffect(Unit) {
-        resticViewModel.checkResticStatus()
+        if (isOtg) resticViewModel.refreshOtgStatus()
+        else resticViewModel.checkResticStatus()
         cacheViewModel.calculateCacheSize()
     }
 
     SettingsScaffold(
         scrollBehavior = scrollBehavior,
-        title = stringResource(id = R.string.storage_stats_title)
+        title = stringResource(
+            id = if (isOtg) R.string.otg_storage_stats_title else R.string.storage_stats_title
+        )
     ) { _ ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
             // --- 1. Restic 备份仓库 ---
@@ -86,7 +98,10 @@ fun PageStorageStats() {
                         onClick = {
                             // 进入“重新初始化”模式：仅切换 UI，不清空已保存路径/密码
                             resticViewModel.enterReinitializeMode()
-                            navController.navigateSingle(MainRoutes.ResticInitialization.route)
+                            navController.navigateSingle(
+                                if (isOtg) MainRoutes.ResticInitialization.getRoute(isOtg = true)
+                                else MainRoutes.ResticInitialization.route
+                            )
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -109,6 +124,28 @@ fun PageStorageStats() {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (isOtg) {
+                Spacer(modifier = Modifier.height(16.dp))
+                com.xayah.core.ui.component.Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = com.xayah.core.ui.material3.CardDefaults.cardColors(
+                        containerColor = com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens.PrimaryContainer.value
+                    ),
+                ) {
+                    Column(modifier = Modifier.padding(com.xayah.core.ui.token.SizeTokens.Level16)) {
+                        Text(
+                            text = stringResource(id = R.string.otg_storage_tips_title),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens.OnPrimaryContainer.value
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        com.xayah.core.ui.component.BodyMediumText(
+                            text = stringResource(id = R.string.otg_storage_tips_content),
+                            color = com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens.OnPrimaryContainer.value
+                        )
+                    }
+                }
+            }
         }
     }
 }

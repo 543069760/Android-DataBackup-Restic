@@ -435,8 +435,17 @@ class MainActivity : AppCompatActivity() {
                         composable(route = MainRoutes.Directory.route) {
                             PageDirectory()
                         }
-                        composable(MainRoutes.StorageStats.route) {
-                            PageStorageStats()
+                        composable(
+                            route = MainRoutes.StorageStats.route,
+                            arguments = listOf(
+                                navArgument(MainRoutes.ARG_IS_OTG) {
+                                    type = NavType.BoolType
+                                    defaultValue = false
+                                }
+                            )
+                        ) { backStackEntry ->
+                            val isOtg = backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
+                            PageStorageStats(isOtg = isOtg)
                         }
                         composable(
                             route = MainRoutes.ResticFilesRestore.route,

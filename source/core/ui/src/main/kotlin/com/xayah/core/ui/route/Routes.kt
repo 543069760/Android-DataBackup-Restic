@@ -111,7 +111,9 @@ sealed class MainRoutes(val route: String) {
     }
 
     data object Directory : MainRoutes(route = "main_directory")
-    data object StorageStats : MainRoutes(route = "main_storage_stats")
+    data object StorageStats : MainRoutes(route = "main_storage_stats?${ARG_IS_OTG}={${ARG_IS_OTG}}") {
+        fun getRoute(isOtg: Boolean = false) = "main_storage_stats?${ARG_IS_OTG}=${isOtg}"
+    }
     data object PackagesBackupProcessing : MainRoutes(
         route = "main_packages_backup_processing?${ARG_IS_OTG}={${ARG_IS_OTG}}"
     ) {

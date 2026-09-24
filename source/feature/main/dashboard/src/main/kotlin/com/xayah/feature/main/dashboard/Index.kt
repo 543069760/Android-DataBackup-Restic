@@ -161,7 +161,7 @@ fun PageDashboard() {
                         used = SegmentProgress(used = otg.usedBytes, total = otg.totalBytes),
                         backupUsed = SegmentProgress(used = otg.backupUsedBytes, total = otg.totalBytes),
                     ) {
-                        navController.navigateSingle(MainRoutes.StorageStats.route)
+                        navController.navigateSingle(MainRoutes.StorageStats.getRoute(isOtg = true))
                     }
                 }
 

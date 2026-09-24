@@ -62,6 +62,7 @@
     <string name="update_channel_beta_title">切换到测试版通道？</string>
     <string name="update_channel_beta_warning">测试版为不稳定构建，功能可能随时变动调整，且可能存在数据风险，请谨慎使用。</string>
     <string name="storage_stats_title">存储与仓库</string>
+    <string name="otg_storage_stats_title">OTG存储与仓库</string>
     <string name="restic_repo_path_label">Restic 备份仓库路径</string>
     <string name="storage_reselect_and_reinit">重新选择新的仓库路径并重新初始化？</string>
     <string name="storage_cache_title">临时缓存</string>
@@ -89,4 +90,6 @@
     <string name="otg_no_storage_detected">未检测到 OTG 存储</string>
     <string name="otg_partition_capacity">可用 %1$s / 共 %2$s</string>
     <string name="otg_partition_fs_type">文件系统：%1$s</string>
+    <string name="otg_storage_tips_title">小提示</string>
+    <string name="otg_storage_tips_content">如果之前存在（曾初始化过）仓库，请点击上方的重新初始化按钮，选择原来备份仓库的路径。密码正确的情况下即可恢复原来的仓库快照，旧的仓库快照不会丢失；如果密码错误或选择全新路径，则需要将仓库重新初始化为新的仓库。</string>
 </resources>

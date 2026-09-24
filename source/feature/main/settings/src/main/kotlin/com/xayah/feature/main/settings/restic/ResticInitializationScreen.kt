@@ -35,6 +35,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import com.xayah.core.ui.theme.value
 import com.xayah.core.model.util.formatSize
 import com.xayah.libpickyou.PickYouLauncher
 import com.xayah.libpickyou.ui.model.PickerType
@@ -130,7 +134,7 @@ fun ResticInitializationScreen(isOtg: Boolean = false) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun InitializedView(
     repoPath: String,
@@ -154,6 +158,7 @@ private fun InitializedView(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
             Text(stringResource(R.string.restic_initialized))
@@ -171,7 +176,7 @@ private fun InitializedView(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun InitializationView(
     viewModel: ResticViewModel,
@@ -371,6 +376,28 @@ private fun InitializationView(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(stringResource(id = R.string.initialize))
+            }
+            if (isOtg) {
+                Spacer(modifier = Modifier.height(16.dp))
+                com.xayah.core.ui.component.Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = com.xayah.core.ui.material3.CardDefaults.cardColors(
+                        containerColor = com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens.PrimaryContainer.value
+                    ),
+                ) {
+                    Column(modifier = Modifier.padding(com.xayah.core.ui.token.SizeTokens.Level16)) {
+                        Text(
+                            text = stringResource(id = R.string.otg_storage_tips_title),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens.OnPrimaryContainer.value
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        com.xayah.core.ui.component.BodyMediumText(
+                            text = stringResource(id = R.string.otg_storage_tips_content),
+                            color = com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens.OnPrimaryContainer.value
+                        )
+                    }
+                }
             }
         }
     }

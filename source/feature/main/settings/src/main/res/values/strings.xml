@@ -63,6 +63,7 @@
     <string name="update_channel_beta_title">Switch to Beta Channel?</string>
     <string name="update_channel_beta_warning">Beta builds are unstable. Features may change or be adjusted at any time, and there may be data risks. Please use with caution.</string>
     <string name="storage_stats_title">Storage &amp; Repository</string>
+    <string name="otg_storage_stats_title">OTG Storage &amp; Repository</string>
     <string name="restic_repo_path_label">Restic repository path</string>
     <string name="storage_reselect_and_reinit">Re-select a new repository path and reinitialize?</string>
     <string name="storage_cache_title">Temporary cache</string>
@@ -91,4 +92,6 @@
     <string name="otg_no_storage_detected">No OTG storage detected</string>
     <string name="otg_partition_capacity">Available %1$s / Total %2$s</string>
     <string name="otg_partition_fs_type">Filesystem: %1$s</string>
+    <string name="otg_storage_tips_title">Tips</string>
+    <string name="otg_storage_tips_content">If the device previously had a repository (it was initialized before), tap the reinitialize button above and select the original backup repository path. With the correct password, the original repository snapshots will be restored and old snapshots will not be lost. If the password is wrong or a brand-new path is chosen, the repository will be reinitialized as a new one.</string>
 </resources>
