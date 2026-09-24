@@ -88,6 +88,15 @@ fun PageRestore() {
 
             var enabled by remember { mutableStateOf(true) }
             val hasOtg by viewModel.hasOtgState.collectAsStateWithLifecycle()
+            // OTG 段被选中后物理拔盘：hasOtg 变 false，storageModes 收缩为 [Local, Cloud]，
+            // 但 uiState.storageType 仍是 Otg，会以 OTG 继续放行/查询。这里主动复位到本地。
+            LaunchedEffect(hasOtg) {
+                if (!hasOtg && uiState.storageType == StorageMode.Otg) {
+                    viewModel.emitState(state = uiState.copy(storageIndex = 0, storageType = StorageMode.Local))
+                    viewModel.emitIntent(IndexUiIntent.UpdateApps)
+                    viewModel.emitIntent(IndexUiIntent.UpdateFiles)
+                }
+            }
             val localText = stringResource(id = R.string.local)
             val otgText = stringResource(id = R.string.otg_usb)
             val cloudText = stringResource(id = R.string.cloud)

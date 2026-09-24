@@ -317,7 +317,7 @@ private fun InitializationView(
                                         Text(
                                             text = stringResource(
                                                 id = R.string.otg_partition_fs_type,
-                                                partition.fsType
+                                                partition.fsType.uppercase()
                                             ),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant

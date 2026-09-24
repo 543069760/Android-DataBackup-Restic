@@ -75,6 +75,15 @@ fun PageMediumBackupProcessingSetup(localNavController: NavHostController, viewM
     // 是否检测到 OTG 外接存储（决定段选择是否出现「OTG USB」段）
     val hasOtg by viewModel.hasOtgState.collectAsStateWithLifecycle()
 
+    // OTG 段被选中时拔盘 → 复位为本地，避免「继续」仍以 OTG 放行
+    LaunchedEffect(hasOtg) {
+        if (!hasOtg && uiState.storageType == StorageMode.Otg) {
+            viewModel.emitStateOnMain(
+                state = uiState.copy(storageIndex = 0, storageType = StorageMode.Local)
+            )
+        }
+    }
+
     LaunchedEffect(null) {
         viewModel.emitIntentOnIO(UpdateFiles)
     }

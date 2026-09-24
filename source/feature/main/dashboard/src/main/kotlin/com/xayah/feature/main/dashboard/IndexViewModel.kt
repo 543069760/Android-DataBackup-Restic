@@ -31,6 +31,7 @@ import com.xayah.core.ui.viewmodel.IndexUiEffect
 import com.xayah.core.ui.viewmodel.UiIntent
 import com.xayah.core.ui.viewmodel.UiState
 import com.xayah.core.util.localBackupSaveDir
+import com.xayah.core.util.command.PreparationUtil
 import com.xayah.core.util.toBrowser
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -76,6 +77,7 @@ class IndexViewModel @Inject constructor(
             val usedBytes: Long,
             val totalBytes: Long,
             val backupUsedBytes: Long,
+            val fsType: String? = null,
         ) : OtgDiscoveryState()
         data object NeedsSetup : OtgDiscoveryState()
         data object NotInitialized : OtgDiscoveryState()
@@ -234,10 +236,16 @@ class IndexViewModel @Inject constructor(
         val availableBytes = statFs?.availableBytes ?: 0L
         val usedBytes = (totalBytes - availableBytes).coerceAtLeast(0L)
         val backupUsedBytes = runCatching { rootService.calculateSize(repoPath) }.getOrDefault(0L)
+        // 解析分区真实文件系统类型（blkid 解 fuseblk 背后的真实 fs，取不到回退 mount 类型），
+        // 与设置页 listOtgPartitions 获取 fsType 的口径保持一致
+        val fsType = runCatching {
+            PreparationUtil.getExternalStorageRealType(partitionRoot).out.firstOrNull { it.isNotBlank() }
+        }.getOrNull()
         return OtgDiscoveryState.Registered(
             usedBytes = usedBytes,
             totalBytes = totalBytes,
             backupUsedBytes = backupUsedBytes,
+            fsType = fsType,
         )
     }
 

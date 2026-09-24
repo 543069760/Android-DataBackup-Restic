@@ -11,3 +11,5 @@ local.properties
 keystore.jks
 *.jks
 keystore.b64
+hs_err_pid*.log
+hs_err_pid*.mdmp

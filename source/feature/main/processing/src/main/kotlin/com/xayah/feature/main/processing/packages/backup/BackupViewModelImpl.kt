@@ -50,6 +50,11 @@ import com.xayah.feature.main.processing.UpdateApps
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -90,22 +95,6 @@ class BackupViewModelImpl @Inject constructor(
                 }
                 _packages.value = packages
                 _packagesSize.value = bytes.formatSize()
-
-                // OTG 段显隐：仅当「已登记 OTG 仓库 + 目标盘当前在场 + 仓库校验通过」时才显示。
-                // 不再用「OTG 路径键非空」判定（键会残留，导致拔盘后三段恒显示）。
-                val otgPath = mContext.readResticOtgRepoPath()
-                val ok: Boolean
-                val hasDisk: Boolean
-                if (otgPath.isNullOrEmpty()) {
-                    ok = false
-                    hasDisk = false
-                } else {
-                    val otgPwd = mContext.readResticOtgPassword() ?: "databackup_default"
-                    ok = runCatching { resticRepo.verifyRepository(otgPath, otgPwd) }.getOrDefault(false)
-                    hasDisk = runCatching { mDirectoryRepo.hasLiveExternalStorage() }.getOrDefault(false)
-                }
-                _hasOtg.value = !otgPath.isNullOrEmpty() && ok && hasDisk
-                Log.d("BackupOtg", "hasOtg: otgPath=$otgPath checkOk=$ok hasDisk=$hasDisk")
             }
 
             is SetCloudEntity -> {
@@ -116,6 +105,9 @@ class BackupViewModelImpl @Inject constructor(
             is FinishSetup -> {
                 if (state.storageType == StorageMode.Cloud) {
                     _isTesting.value = true
+                    // 复位 OTG 活动标记，杜绝上一次 OTG 任务残留 true 污染云端任务
+                    mIsOtgTask = false
+                    mContext.saveResticActiveIsOtg(false)
                     emitEffect(IndexUiEffect.DismissSnackbar)
                     emitEffectOnIO(
                         IndexUiEffect.ShowSnackbar(
@@ -339,11 +331,35 @@ class BackupViewModelImpl @Inject constructor(
     private val _isTesting: MutableStateFlow<Boolean> = MutableStateFlow(false)
     private val _packages: MutableStateFlow<List<PackageEntity>> = MutableStateFlow(listOf())
     private val _packagesSize: MutableStateFlow<String> = MutableStateFlow("")
-    private val _hasOtg: MutableStateFlow<Boolean> = MutableStateFlow(false)
 
     val accounts: StateFlow<List<DialogRadioItem<Any>>> = _accounts.stateInScope(listOf())
     val isTesting: StateFlow<Boolean> = _isTesting.stateInScope(false)
     val packages: StateFlow<List<PackageEntity>> = _packages.stateInScope(listOf())
     val packagesSize: StateFlow<String> = _packages.let { _ -> _packagesSize }.stateInScope("")
-    val hasOtgState: StateFlow<Boolean> = _hasOtg.stateInScope(false)
+    @OptIn(FlowPreview::class)
+    val hasOtgState: StateFlow<Boolean> =
+        resticRepoLocator.otgMountEvents()
+            .onStart { emit(Unit) }
+            .debounce(300)
+            .mapLatest {
+                // 盘在场前置短路：拔盘场景立即返回 false，绝不调用 verifyRepository（零 native 请求）
+                val hasDisk = runCatching { mDirectoryRepo.hasLiveExternalStorage() }.getOrDefault(false)
+                if (!hasDisk) {
+                    Log.d("BackupOtg", "hasOtg: hasDisk=false → false (skip verify)")
+                    return@mapLatest false
+                }
+                val otgPath = mContext.readResticOtgRepoPath()
+                if (otgPath.isNullOrEmpty()) {
+                    Log.d("BackupOtg", "hasOtg: otgPath=null → false")
+                    return@mapLatest false
+                }
+                val otgPwd = mContext.readResticOtgPassword() ?: "databackup_default"
+                val ok = runCatching { resticRepo.verifyRepository(otgPath, otgPwd) }.getOrDefault(false)
+                val result = ok
+                Log.d("BackupOtg", "hasOtg: otgPath=$otgPath hasDisk=$hasDisk checkOk=$ok → $result")
+                result
+            }
+            .distinctUntilChanged()
+            .flowOnIO()
+            .stateInScope(false)
 }

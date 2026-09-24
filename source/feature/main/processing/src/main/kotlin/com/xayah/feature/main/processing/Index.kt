@@ -1,5 +1,6 @@
 package com.xayah.feature.main.processing
 
+import android.widget.Toast
 import android.annotation.SuppressLint
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -43,6 +44,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.xayah.core.datastore.readResticActiveIsOtg
 import com.xayah.core.datastore.saveScreenOffCountDown
 import com.xayah.core.model.OperationState
 import com.xayah.core.ui.component.AnimatedTextContainer
@@ -88,7 +91,7 @@ fun PageProcessing(
     finishedSubtitleId: Int,
     finishedWithErrorsSubtitleId: Int,
     viewModel: AbstractProcessingViewModel,
-    opType: OpType  // 添加这个参数
+    opType: OpType
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -117,6 +120,40 @@ fun PageProcessing(
 
     LaunchedEffect(null) {
         viewModel.emitIntentOnIO(ProcessingUiIntent.Initialize)
+    }
+
+    val otgProcessingGuard: OtgProcessingGuardViewModel = hiltViewModel()
+    var pendingBackHomeOnCancel by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        otgProcessingGuard.otgDisconnected.collect {
+            // 仅 OTG 任务场景；本地/云端绝不打断
+            if (!context.readResticActiveIsOtg()) return@collect
+            // 读取最新状态（不要用被 LaunchedEffect(Unit) 捕获的旧 uiState 委托）
+            if (viewModel.uiState.value.state == OperationState.PROCESSING) {
+                // 进行中：先安全取消并清理，等清理完成（state 回 IDLE）后再回首页
+                pendingBackHomeOnCancel = true
+                BaseUtil.kill(context, "tar", "root")
+                viewModel.emitIntent(ProcessingUiIntent.CancelAndCleanup)
+            } else {
+                // 非进行中：解绑服务后直接回首页
+                viewModel.emitIntent(ProcessingUiIntent.DestroyService)
+                withMainContext {
+                    Toast.makeText(context, context.getString(R.string.otg_disconnected_back_home), Toast.LENGTH_SHORT).show()
+                    navController.popBackStack(MainRoutes.Dashboard.route, false)
+                }
+            }
+        }
+    }
+
+    // 等待 CancelAndCleanup 完成（state 回到 IDLE）后再导航，
+    // 避免立即 pop 清除处理页 ViewModel 而中断清理协程、留下孤儿 root 进程
+    LaunchedEffect(uiState.state, pendingBackHomeOnCancel) {
+        if (pendingBackHomeOnCancel && uiState.state == OperationState.IDLE) {
+            pendingBackHomeOnCancel = false
+            Toast.makeText(context, context.getString(R.string.otg_disconnected_back_home), Toast.LENGTH_SHORT).show()
+            navController.popBackStack(MainRoutes.Dashboard.route, false)
+        }
     }
 
     LaunchedEffect(screenOffCountDown, uiState.state) {
@@ -167,7 +204,6 @@ fun PageProcessing(
                 viewModel.launchOnIO {
                     if (dialogState.confirm(title = promptText, text = processingExitConfirmationText)) {
                         BaseUtil.kill(context, "tar", "root")
-                        // 修改这里:使用 CancelAndCleanup 而不是 DestroyService
                         viewModel.emitIntent(ProcessingUiIntent.CancelAndCleanup)
                     }
                 }

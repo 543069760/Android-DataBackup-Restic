@@ -110,6 +110,14 @@ fun PagePackagesBackupProcessingSetup(localNavController: NavHostController, vie
                 .fillMaxSize(),
         ) {
             val hasOtg by viewModel.hasOtgState.collectAsStateWithLifecycle()
+            // 拔盘后 OTG 段消失：若此前已选中 OTG，复位到本地，避免「继续」仍按 Otg 放行
+            LaunchedEffect(hasOtg) {
+                if (!hasOtg && uiState.storageType == StorageMode.Otg) {
+                    viewModel.emitStateOnMain(
+                        state = uiState.copy(storageIndex = 0, storageType = StorageMode.Local)
+                    )
+                }
+            }
             val localText = stringResource(R.string.local)
             val otgText = stringResource(R.string.otg_usb)
             val cloudText = stringResource(R.string.cloud)

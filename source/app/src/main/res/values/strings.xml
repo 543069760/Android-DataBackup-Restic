@@ -429,4 +429,5 @@
     <string name="protocol">Protocol</string>
     <string name="protocol_desc">Select HTTP or HTTPS protocol</string>
     <string name="args_temp_cache">Temp cache %1$d%%</string>
+    <string name="otg_disconnected_back_home">OTG device disconnected, returned to home</string>
 </resources>

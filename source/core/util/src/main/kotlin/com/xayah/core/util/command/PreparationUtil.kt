@@ -26,6 +26,18 @@ object PreparationUtil {
         )
     }
 
+    suspend fun getExternalStorageRealType(path: String): ShellResult = run {
+        // blkid -s TYPE -o value "$(mount | awk '$3 == "/mnt/media_rw/xxxx" {print $1}')"
+        execute(
+            "blkid",
+            "-s",
+            "TYPE",
+            "-o",
+            "value",
+            "${QUOTE}${USD}(mount | awk '${USD}3 == ${QUOTE}${path}${QUOTE} {print ${USD}1}')${QUOTE}",
+        )
+    }
+
     suspend fun getInputMethods(): ShellResult = run {
         // settings get secure default_input_method
         execute(

@@ -6,4 +6,5 @@
     <string name="otg_repo_found_go_settings">Tap to go to Settings to connect this repository</string>
     <string name="otg_repo_not_initialized">No backup repository found. Tap to initialize.</string>
     <string name="otg_repo_needs_reconnect">OTG backup repository found. Tap to connect to the existing repository.</string>
+    <string name="otg_disconnected_back_home">OTG device disconnected, returned to home</string>
 </resources>

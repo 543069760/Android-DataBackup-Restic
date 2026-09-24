@@ -12,4 +12,5 @@
     <string name="restic_otg_go_settings">发现多个 OTG 仓库，请前往设置页选择</string>
     <string name="otg_usb">OTG USB</string>
     <string name="otg_do_not_remove_storage">操作期间请勿拔出存储介质,否则可能导致备份数据损坏</string>
+    <string name="otg_disconnected_back_home">OTG 设备已断开，已返回首页</string>
 </resources>

@@ -10,10 +10,19 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.NavType
+import android.widget.Toast
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.compose.currentBackStackEntryAsState
+import com.xayah.core.datastore.readResticActiveIsOtg
 import java.net.URLDecoder
 import com.xayah.core.ui.theme.DataBackupExpressiveTheme
 import com.xayah.core.ui.component.AnimatedNavHost
@@ -94,6 +103,46 @@ class MainActivity : AppCompatActivity() {
         setContent {
             DataBackupTheme {
                 val navController = rememberNavController()
+
+// —— OTG 全局断开守卫 ——
+                val otgGuardViewModel: OtgGuardViewModel = hiltViewModel()
+                val guardContext = LocalContext.current
+                val otgBackHomeText = stringResource(R.string.otg_disconnected_back_home)
+// currentBackStackEntryAsState 保证守卫拿到的是当前路由
+                val currentEntry by navController.currentBackStackEntryAsState()
+
+// OTG 敏感路由集合（取每个 route 的 base 段，去掉参数与路径占位）
+                val otgSensitiveRoutes = remember {
+                    listOf(
+                        MainRoutes.Restore.route,
+                        MainRoutes.List.route,
+                        MainRoutes.ResticRestore.route,
+                        MainRoutes.ResticFilesRestore.route,
+                        MainRoutes.ResticBackupDetail.route,
+                        MainRoutes.ResticFilesBackupDetail.route,
+                        MainRoutes.PackagesBackupProcessingSetup.route,
+                        MainRoutes.MediumBackupProcessingSetup.route,
+                        MainRoutes.PackagesRestoreProcessingSetup.route,
+                    ).map { it.substringBefore("?").substringBefore("/") }.toSet()
+                }
+
+                LaunchedEffect(Unit) {
+                    otgGuardViewModel.otgDisconnected.collect {
+                        val entry = navController.currentBackStackEntry ?: return@collect
+                        val route = entry.destination.route ?: return@collect
+                        val baseRoute = route.substringBefore("?").substringBefore("/")
+                        if (baseRoute !in otgSensitiveRoutes) return@collect // 非敏感页：不打断
+
+                        // 判定 OTG 场景：优先当前路由 ARG_IS_OTG；Setup 页无该参数则读持久化标记
+                        val argIsOtg = entry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
+                        val isOtg = argIsOtg || guardContext.readResticActiveIsOtg()
+                        if (!isOtg) return@collect // 本地/云端场景：绝不打断
+
+                        // OTG 场景且在敏感页：回退首页 + 提示
+                        navController.popBackStack(MainRoutes.Dashboard.route, inclusive = false)
+                        Toast.makeText(guardContext, otgBackHomeText, Toast.LENGTH_LONG).show()
+                    }
+                }
                 CompositionLocalProvider(
                     LocalNavController provides navController,
                     androidx.lifecycle.compose.LocalLifecycleOwner provides androidx.compose.ui.platform.LocalLifecycleOwner.current,

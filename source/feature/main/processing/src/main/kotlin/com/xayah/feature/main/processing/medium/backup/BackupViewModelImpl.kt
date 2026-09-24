@@ -49,6 +49,11 @@ import com.xayah.feature.main.processing.UpdateFiles
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -56,6 +61,7 @@ import kotlinx.coroutines.flow.map
 import java.io.File
 import javax.inject.Inject
 
+@FlowPreview
 @ExperimentalCoroutinesApi
 @ExperimentalMaterial3Api
 @HiltViewModel
@@ -87,20 +93,6 @@ class BackupViewModelImpl @Inject constructor(
                 }
                 _medium.value = medium
                 _mediumSize.value = bytes.formatSize()
-
-                // OTG 段显隐判据（与首页 detectOtgRepository 情形 A、应用备份页保持一致）：
-                // 已登记 OTG 仓库(路径键非空) + 对该精确路径 verifyRepository 校验通过 + 目标盘当前实时在场。
-                // 不依赖 config_id（native 恒返回全 0）与 discoverOtgRepositories（只扫扁平层级，对嵌套仓库无效）。
-                val otgPath = mContext.readResticOtgRepoPath()
-                val ok = if (otgPath.isNullOrEmpty()) {
-                    false
-                } else {
-                    val otgPwd = mContext.readResticOtgPassword() ?: "databackup_default"
-                    runCatching { resticRepo.verifyRepository(otgPath, otgPwd) }.getOrDefault(false)
-                }
-                val hasDisk = runCatching { mDirectoryRepo.hasLiveExternalStorage() }.getOrDefault(false)
-                _hasOtg.value = !otgPath.isNullOrEmpty() && ok && hasDisk
-                Log.d("BackupOtg", "hasOtg(medium): otgPath=$otgPath checkOk=$ok hasDisk=$hasDisk")
             }
 
             is SetCloudEntity -> {
@@ -111,6 +103,9 @@ class BackupViewModelImpl @Inject constructor(
             is FinishSetup -> {
                 if (state.storageType == StorageMode.Cloud) {
                     _isTesting.value = true
+                    // 复位 OTG 活动标记，杜绝上一次 OTG 任务残留 true 污染云端任务
+                    mIsOtgTask = false
+                    mContext.saveResticActiveIsOtg(false)
                     emitEffect(IndexUiEffect.DismissSnackbar)
                     emitEffectOnIO(
                         IndexUiEffect.ShowSnackbar(
@@ -292,11 +287,33 @@ class BackupViewModelImpl @Inject constructor(
     private val _isTesting: MutableStateFlow<Boolean> = MutableStateFlow(false)
     private val _medium: MutableStateFlow<List<MediaEntity>> = MutableStateFlow(listOf())
     private val _mediumSize: MutableStateFlow<String> = MutableStateFlow("")
-    private val _hasOtg: MutableStateFlow<Boolean> = MutableStateFlow(false)
 
     val accounts: StateFlow<List<DialogRadioItem<Any>>> = _accounts.stateInScope(listOf())
     val isTesting: StateFlow<Boolean> = _isTesting.stateInScope(false)
     val medium: StateFlow<List<MediaEntity>> = _medium.stateInScope(listOf())
     val mediumSize: StateFlow<String> = _mediumSize.stateInScope("")
-    val hasOtgState: StateFlow<Boolean> = _hasOtg.stateInScope(false)
+    val hasOtgState: StateFlow<Boolean> =
+        resticRepoLocator.otgMountEvents()
+            .onStart { emit(Unit) }
+            .debounce(300)
+            .mapLatest {
+                // 盘在场前置短路：拔盘场景直接 false，绝不调用 verifyRepository（零 native 请求）
+                val hasDisk = runCatching { mDirectoryRepo.hasLiveExternalStorage() }.getOrDefault(false)
+                if (!hasDisk) {
+                    Log.d("BackupOtg", "hasOtg(medium): hasDisk=false → false (skip verify)")
+                    return@mapLatest false
+                }
+                val otgPath = mContext.readResticOtgRepoPath()
+                if (otgPath.isNullOrEmpty()) {
+                    Log.d("BackupOtg", "hasOtg(medium): otgPath=null → false")
+                    return@mapLatest false
+                }
+                val otgPwd = mContext.readResticOtgPassword() ?: "databackup_default"
+                val ok = runCatching { resticRepo.verifyRepository(otgPath, otgPwd) }.getOrDefault(false)
+                Log.d("BackupOtg", "hasOtg(medium): otgPath=$otgPath checkOk=$ok hasDisk=$hasDisk → $ok")
+                ok
+            }
+            .distinctUntilChanged()
+            .flowOnIO()
+            .stateInScope(false)
 }

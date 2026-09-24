@@ -761,7 +761,9 @@ class ResticViewModel @Inject constructor(
             val path = raw.trimEnd('/')
             val stat = runCatching { rootService.readStatFs(path) }.getOrNull()
             val fsType = runCatching {
-                PreparationUtil.getExternalStorageType(path).out.firstOrNull { it.isNotBlank() }
+                PreparationUtil.getExternalStorageRealType(path).out
+                    .firstOrNull { it.isNotBlank() && it.lowercase() != "fuseblk" }
+                    ?: PreparationUtil.getExternalStorageType(path).out.firstOrNull { it.isNotBlank() }
             }.getOrNull()
             OtgPartition(
                 uuid = path.substringAfterLast('/'),

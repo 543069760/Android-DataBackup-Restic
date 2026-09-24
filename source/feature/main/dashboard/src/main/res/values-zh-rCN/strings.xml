@@ -6,4 +6,5 @@
     <string name="otg_repo_found_go_settings">点击前往设置连接该仓库</string>
     <string name="otg_repo_not_initialized">未找到备份仓库，点击初始化</string>
     <string name="otg_repo_needs_reconnect">发现OTG设备中存在仓库，点击立即连接现有仓库</string>
+    <string name="otg_disconnected_back_home">OTG 设备已断开，已返回首页</string>
 </resources>

@@ -50,6 +50,7 @@ import com.xayah.core.util.DateUtil
 fun OtgStorageCard(
     used: SegmentProgress? = null,
     backupUsed: SegmentProgress? = null,
+    fsType: String? = null,
     onClick: () -> Unit,
 ) {
     Card(
@@ -85,12 +86,32 @@ fun OtgStorageCard(
             }
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(id = R.string.otg_usb_storage),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(id = R.string.otg_usb_storage),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    if (!fsType.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(MaterialTheme.colorScheme.tertiaryContainer)
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = fsType.uppercase(),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
+                    }
+                }
 
                 if (used != null && used.progress.isNaN().not()) {
                     Spacer(modifier = Modifier.height(4.dp))
