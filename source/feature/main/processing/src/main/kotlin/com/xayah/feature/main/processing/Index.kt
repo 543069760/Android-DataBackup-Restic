@@ -115,6 +115,7 @@ fun PageProcessing(
 
     val screenOffMessage = stringResource(R.string.args_screen_off_in_seconds, screenOffCountDown)
     val promptText = stringResource(R.string.prompt)
+    val otgDisconnectedBackHomeText = stringResource(R.string.otg_disconnected_back_home)
     val processingExitConfirmationText = stringResource(R.string.processing_exit_confirmation)
     val cancelBackupConfirmationText = stringResource(R.string.cancel_backup_confirmation)
 
@@ -139,7 +140,7 @@ fun PageProcessing(
                 // 非进行中：解绑服务后直接回首页
                 viewModel.emitIntent(ProcessingUiIntent.DestroyService)
                 withMainContext {
-                    Toast.makeText(context, context.getString(R.string.otg_disconnected_back_home), Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, otgDisconnectedBackHomeText, Toast.LENGTH_SHORT).show()
                     navController.popBackStack(MainRoutes.Dashboard.route, false)
                 }
             }
@@ -151,7 +152,7 @@ fun PageProcessing(
     LaunchedEffect(uiState.state, pendingBackHomeOnCancel) {
         if (pendingBackHomeOnCancel && uiState.state == OperationState.IDLE) {
             pendingBackHomeOnCancel = false
-            Toast.makeText(context, context.getString(R.string.otg_disconnected_back_home), Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, otgDisconnectedBackHomeText, Toast.LENGTH_SHORT).show()
             navController.popBackStack(MainRoutes.Dashboard.route, false)
         }
     }
