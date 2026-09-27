@@ -33,17 +33,17 @@
 
 ### Cloud Storage Protocol Support
 
-| Feature | Legacy (DataBackup) | New (DataBackup Revived 3.0.0) |
-| :--- | :--- | :--- |
-| **Local Storage** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic, done)** |
+| Feature                              | Legacy (DataBackup) | New (DataBackup Revived 3.0.0) |
+|:-------------------------------------| :--- | :--- |
+| **Local Storage / USB OTG Storage**  | ✅ Supported | ✅ **Block-level deduplication (JNI rustic, done)** |
 | **AWS S3 (Minio/Rustfs compatible)** | ❌ Not supported | ✅ **Block-level deduplication (JNI rustic, done)** |
-| **Tencent COS Protocol** | ❌ Not supported | ✅ **Block-level deduplication (JNI rustic, done)** |
-| **Aliyun OSS Protocol** | ❌ Not supported | ❗ **Block-level deduplication (JNI rustic, in progress)** |
-| **Huawei OBS Protocol** | ❌ Not supported | ❗ **Block-level deduplication (JNI rustic, in progress)** |
-| **FTP Protocol** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic over librclone, done)** |
-| **SFTP Protocol** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic over librclone, done)** |
-| **WebDAV Protocol** | ✅ Supported | ✅ **Block-level deduplication (JNI rustic, done)** |
-| **SMB/CIFS Protocol** | ✅ Supported | ❗ **Block-level deduplication (JNI rustic over librclone, in progress)** |
+| **Tencent COS Protocol**             | ❌ Not supported | ✅ **Block-level deduplication (JNI rustic, done)** |
+| **Aliyun OSS Protocol**              | ❌ Not supported | ❗ **Block-level deduplication (JNI rustic, in progress)** |
+| **Huawei OBS Protocol**              | ❌ Not supported | ❗ **Block-level deduplication (JNI rustic, in progress)** |
+| **FTP Protocol**                     | ✅ Supported | ✅ **Block-level deduplication (JNI rustic over librclone, done)** |
+| **SFTP Protocol**                    | ✅ Supported | ✅ **Block-level deduplication (JNI rustic over librclone, done)** |
+| **WebDAV Protocol**                  | ✅ Supported | ✅ **Block-level deduplication (JNI rustic, done)** |
+| **SMB/CIFS Protocol**                | ✅ Supported | ❗ **Block-level deduplication (JNI rustic over librclone, in progress)** |
 
 > ℹ️ **Note:** Aliyun OSS, Huawei OBS, and SMB/CIFS are being adapted gradually. Please stay tuned for updates.
 
