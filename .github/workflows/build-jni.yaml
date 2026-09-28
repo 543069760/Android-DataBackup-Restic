@@ -297,8 +297,6 @@ jobs:
           cp "$GITHUB_WORKSPACE/.github/release-notes/stable.md" "$BODY"  
           {  
             echo ""  
-            echo "---"  
-            echo ""  
             echo "## 📝 本次更新内容 / Changelog"  
             echo ""  
             cat "$GITHUB_WORKSPACE/source/CHANGELOG_RANGE.md"  

@@ -99,3 +99,5 @@ Pick the APK that matches your device architecture:
 ## 🙏 Acknowledgements
 
 This project is forked from [XayahSuSuSu/Android-DataBackup](https://github.com/XayahSuSuSu/Android-DataBackup). Many thanks to the original author for their outstanding work.
+
+---
