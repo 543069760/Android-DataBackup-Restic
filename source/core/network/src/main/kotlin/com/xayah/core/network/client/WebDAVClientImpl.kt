@@ -8,244 +8,167 @@ import com.xayah.core.model.database.WebDAVProtocol
 import com.xayah.core.network.R
 import com.xayah.core.network.util.getExtraEntity
 import com.xayah.core.rootservice.parcelables.PathParcelable
+import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.GsonUtil
 import com.xayah.core.util.LogUtil
-import com.xayah.core.util.PathUtil
 import com.xayah.core.util.toPathList
 import com.xayah.core.util.withMainContext
 import com.xayah.libpickyou.PickYouLauncher
 import com.xayah.libpickyou.parcelables.DirChildrenParcelable
 import com.xayah.libpickyou.parcelables.FileParcelable
 import com.xayah.libpickyou.ui.model.PickerType
-import com.xayah.libsardine.DavResource
-import com.xayah.libsardine.impl.OkHttpSardine
-import okhttp3.OkHttpClient
-import java.io.File
-import java.util.concurrent.TimeUnit
-import java.security.SecureRandom
-import java.security.cert.X509Certificate
-import javax.net.ssl.SSLContext
-import javax.net.ssl.TrustManager
-import javax.net.ssl.X509TrustManager
+import kotlinx.coroutines.runBlocking
 
-class WebDAVClientImpl(private val entity: CloudEntity, private val extra: WebDAVExtra) : CloudClient {
-    private var client: OkHttpSardine? = null
+class WebDAVClientImpl(
+    private val entity: CloudEntity,
+    private val extra: WebDAVExtra,
+    private val rootService: RemoteRootService,
+) : CloudClient {
+
+    companion object {
+        /** opendal scheme;WebDAV 固定为 "webdav"。 */
+        private const val SCHEME = "webdav"
+    }
 
     private fun log(msg: () -> String): String = run {
         LogUtil.log { "WebDAVClientImpl" to msg() }
         msg()
     }
 
-    private fun getPath(path: String) = "${entity.host.trimEnd('/')}/${path.trimStart('/')}"
-
-    private fun <T> withClient(block: (client: OkHttpSardine) -> T): T {
-        if (client == null) throw NullPointerException("Client is null.")
-        return block(client!!)
+    private fun normalizePath(path: String): String {
+        return path.trim('/').replace("//", "/")
     }
 
-    override fun connect() {
-        val builder = OkHttpClient.Builder()
-            .connectTimeout(0, TimeUnit.SECONDS)
-            .readTimeout(0, TimeUnit.SECONDS)
-            .writeTimeout(0, TimeUnit.SECONDS)
-        if (extra.insecure) {
-            try {
-                val trustAllCerts = arrayOf<TrustManager>(
-                    object : X509TrustManager {
-                        override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
-                        override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
-                        override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-                    }
-                )
+    /**
+     * 构建 opendal webdav options。
+     * root 固定为 "/",当前浏览目录由 path 参数表达(与建库时 root=remotePath 语义不同)。
+     * endpoint 即 entity.host(完整 URL,含 http(s)://),trim + 去尾斜杠,
+     * 与 ResticShared.buildOpenDALWebdavEndpoint 一致,但在 network 层本地实现以避免依赖 restic 模块。
+     * 注意:opendal webdav 不支持跳过 TLS 校验,故不传 insecure 相关 key。
+     */
+    private fun buildOpendalOptions(): Map<String, String> = mapOf(
+        "endpoint" to entity.host.trim().removeSuffix("/"),
+        "root" to "/",
+        "username" to entity.user,
+        "password" to entity.pass,
+    )
 
-                val sslContext = SSLContext.getInstance("SSL")
-                sslContext.init(null, trustAllCerts, SecureRandom())
+    // opendal 无长连接概念,connect/disconnect 保留为空实现以满足接口。
+    override fun connect() {}
 
-                builder.sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
-                builder.hostnameVerifier { _, _ -> true }
-            } catch (_: Exception) {
-                // do nothing
-            }
-        }
+    override fun disconnect() {}
 
-        client = OkHttpSardine(builder.build()).apply {
-            setCredentials(entity.user, entity.pass)
-            list(entity.host)
+    override fun mkdir(dst: String) {
+        val path = normalizePath(dst)
+        log { "mkdir(opendal): $path" }
+        runBlocking {
+            rootService.opendalCreateDir(SCHEME, path, buildOpendalOptions())
         }
     }
 
-    override fun disconnect() {
-        client = null
-    }
-
-    override fun mkdir(dst: String) = withClient { client ->
-        log { "mkdir: ${getPath(dst)}" }
-        client.createDirectory(getPath(dst))
-    }
-
-    override fun mkdirRecursively(dst: String) = withClient { client ->
-        val dirs = dst.split("/")
-        var currentDir = ""
-        for (i in dirs) {
-            currentDir += "/$i"
-            currentDir = currentDir.trimStart('/')
-            if (client.exists(getPath(currentDir)).not()) mkdir(currentDir)
-        }
+    override fun mkdirRecursively(dst: String) {
+        mkdir(dst)
     }
 
     override fun renameTo(
         src: String,
         dst: String,
         onProgress: ((currentPart: Int, totalParts: Int, currentFile: Int, totalFiles: Int) -> Unit)?
-    ) = withClient { client ->
-        log { "renameTo: from ${getPath(src)} to ${getPath(dst)}" }
-        client.move(getPath(src), getPath(dst), false)
+    ) {
+        // 备份已统一走 rustic 快照链路,WebDAV 不再需要 renameTo。
+        log { "renameTo is deprecated for WebDAV, skipping: $src to $dst" }
     }
 
-    override fun upload(src: String, dst: String, onUploading: (read: Long, total: Long) -> Unit, isCanceled: (() -> Boolean)?) = withClient { client ->
-        val name = PathUtil.getFileName(src)
-        val dstPath = "${getPath(dst)}/$name"
-        log { "upload: $src to $dstPath" }
-        val srcFile = File(src)
-        client.put(dstPath, srcFile, null)
+    override fun upload(
+        src: String,
+        dst: String,
+        onUploading: (read: Long, total: Long) -> Unit,
+        isCanceled: (() -> Boolean)?
+    ) {
+        // 备份/配置上传已统一走 rustic 快照链路,WebDAVClientImpl 不再提供上传能力。
+        throw UnsupportedOperationException("WebDAV upload is handled by rustic; direct upload is no longer supported.")
     }
 
-    override fun download(src: String, dst: String, onDownloading: (written: Long, total: Long) -> Unit) = withClient { client ->
-        val name = PathUtil.getFileName(src)
-        val dstPath = "${dst}/$name"
-        log { "download: ${getPath(src)} to $dstPath" }
-        val dstOutputStream = File(dstPath).outputStream()
-        val srcInputStream = client.get(getPath(src))
-        srcInputStream.copyTo(dstOutputStream)
-        srcInputStream.close()
-        dstOutputStream.close()
+    override fun download(src: String, dst: String, onDownloading: (written: Long, total: Long) -> Unit) {
+        // 恢复已统一走 rustic 快照链路,WebDAVClientImpl 不再提供下载能力。
+        throw UnsupportedOperationException("WebDAV download is handled by rustic; direct download is no longer supported.")
     }
 
-    override fun deleteFile(src: String) = withClient { client ->
-        log { "deleteFile: ${getPath(src)}" }
-        client.delete(getPath(src))
+    override fun deleteFile(src: String) {
+        throw UnsupportedOperationException("WebDAV deleteFile is handled by rustic; not supported here.")
     }
 
-    override fun removeDirectory(src: String): Boolean = withClient { client ->
-        log { "removeDirectory: ${getPath(src)}" }
-        client.delete(getPath(src))
-        true
-    }
-
-    private fun clearEmptyDirectoriesRecursivelyInternal(src: String): Boolean {
-        var isEmpty = true
-        withClient { client ->
-            val resources: List<DavResource> = client.list(src)
-
-            for (res in resources) {
-                if (!res.isDirectory) {
-                    isEmpty = false
-                } else {
-                    if (clearEmptyDirectoriesRecursivelyInternal(res.path).not()) {
-                        isEmpty = false
-                    }
-                }
-            }
-
-            if (isEmpty) {
-                client.delete(src)
-            }
-
-        }
-        return isEmpty
-    }
-
-
-    override fun clearEmptyDirectoriesRecursively(src: String) {
-        clearEmptyDirectoriesRecursivelyInternal(getPath(src))
+    override fun removeDirectory(src: String): Boolean {
+        throw UnsupportedOperationException("WebDAV removeDirectory is handled by rustic; not supported here.")
     }
 
     override fun deleteRecursively(src: String): Boolean {
-        removeDirectory(src)
-        return true
+        throw UnsupportedOperationException("WebDAV deleteRecursively is handled by rustic; not supported here.")
+    }
+
+    override fun clearEmptyDirectoriesRecursively(src: String) {
+        // 目录浏览不再维护空目录清理,无需处理。
     }
 
     override fun listFiles(src: String): DirChildrenParcelable {
+        log { "listFiles(opendal): $src" }
         val files = mutableListOf<FileParcelable>()
         val directories = mutableListOf<FileParcelable>()
-        withClient { client ->
-            val resources = client.list(getPath(src))
-            for ((index, resource) in resources.withIndex()) {
-                if (index == 0) continue
-                val creationTime = runCatching { resource.creation.time }.getOrDefault(0)
-                val fileParcelable = FileParcelable(resource.name, creationTime)
-                if (resource.isDirectory) directories.add(fileParcelable)
-                else files.add(fileParcelable)
+
+        val path = if (src.isEmpty()) "/" else normalizePath(src)
+        val raw = runBlocking {
+            rootService.opendalList(SCHEME, path, buildOpendalOptions())
+        }
+
+        // 解析格式(与 jni_bridge.rs nativeOpendalList 约定一致):
+        //   目录: d:<name>
+        //   文件: f:<name>:<mtimeEpoch>   (name 可能含 ':',用最后一个 ':' 之后作为 mtime)
+        //   条目以 '\n' 分隔
+        raw.lineSequence().forEach { line ->
+            if (line.isEmpty()) return@forEach
+            when {
+                line.startsWith("d:") -> {
+                    val name = line.removePrefix("d:").removeSuffix("/")
+                    if (name.isNotEmpty()) directories.add(FileParcelable(name, 0))
+                }
+
+                line.startsWith("f:") -> {
+                    val rest = line.removePrefix("f:")
+                    val sep = rest.lastIndexOf(':')
+                    val name = if (sep >= 0) rest.substring(0, sep) else rest
+                    val mtime = if (sep >= 0) rest.substring(sep + 1).toLongOrNull() ?: 0L else 0L
+                    if (name.isNotEmpty()) files.add(FileParcelable(name, mtime))
+                }
             }
         }
+
         files.sortBy { it.name }
         directories.sortBy { it.name }
         return DirChildrenParcelable(files = files, directories = directories)
     }
 
-    private fun walkFileTreeRecursively(src: String): List<PathParcelable> {
-        val pathParcelableList = mutableListOf<PathParcelable>()
-        val files = listFiles(src)
-        for (i in files.files) {
-            pathParcelableList.add(PathParcelable("${src}/${i.name}"))
-        }
-        for (i in files.directories) {
-            pathParcelableList.addAll(walkFileTreeRecursively("${src}/${i.name}"))
-        }
-        return pathParcelableList
+    override fun walkFileTree(path: String): List<PathParcelable> {
+        // 递归遍历仅用于旧的下载/reload 流程,已统一到 rustic,不再支持。
+        throw UnsupportedOperationException("WebDAV walkFileTree is handled by rustic; not supported here.")
     }
 
-    override fun walkFileTree(src: String): List<PathParcelable> {
-        val pathParcelableList = mutableListOf<PathParcelable>()
-        withClient { client ->
-            val srcFile = client.list(getPath(src))[0]
-            if (srcFile.isDirectory) {
-                pathParcelableList.addAll(walkFileTreeRecursively(src))
-            } else {
-                pathParcelableList.add(PathParcelable(src))
-            }
-        }
-        return pathParcelableList
-    }
-
-    override fun exists(src: String): Boolean = runCatching { withClient { client -> client.list(getPath(src)) } }.isSuccess
-
-    private fun sizeRecursively(src: String): Long {
-        var size = 0L
-        withClient { client ->
-            val files = listFiles(src)
-            for (i in files.files) {
-                size += client.list(getPath("${src}/${i.name}"))[0].contentLength
-            }
-            for (i in files.directories) {
-                size("${src}/${i.name}")
-            }
-        }
-        return size
+    override fun exists(src: String): Boolean {
+        throw UnsupportedOperationException("WebDAV exists is handled by rustic; not supported here.")
     }
 
     override fun size(src: String): Long {
-        var size = 0L
-        withClient { client ->
-            val srcFile = client.list(getPath(src))[0]
-            size += if (srcFile.isDirectory) {
-                sizeRecursively(src)
-            } else {
-                srcFile.contentLength
-            }
-        }
-        log { "size: $size, $src" }
-        return size
+        throw UnsupportedOperationException("WebDAV size is handled by rustic; not supported here.")
     }
 
     override suspend fun testConnection() {
-        connect()
-        disconnect()
+        // 能成功列举根路径即视为连通(凭据/endpoint 可用)。失败时 opendalList 抛异常上抛。
+        log { "testConnection(opendal): scheme=$SCHEME endpoint=${entity.host}" }
+        rootService.opendalList(SCHEME, "/", buildOpendalOptions())
     }
 
     private fun handleOriginalPath(path: String): String = run {
         val pathSplit = path.toPathList().toMutableList()
-        // Remove “$Cloud:”
+        // Remove "$Cloud:"
         pathSplit.removeFirstOrNull()
         pathSplit.toPathString()
     }
@@ -258,7 +181,6 @@ class WebDAVClientImpl(private val entity: CloudEntity, private val extra: WebDA
             protocol = extra.protocol ?: WebDAVProtocol.HTTPS,
             resticPassword = extra.resticPassword.orEmpty(),
         )
-        connect()
         val prefix = "${context.getString(R.string.cloud)}:"
         val pickYou = PickYouLauncher(
             checkPermission = false,
@@ -275,6 +197,5 @@ class WebDAVClientImpl(private val entity: CloudEntity, private val extra: WebDA
             val pathString = pickYou.awaitLaunch(context)
             onSet(handleOriginalPath(pathString), GsonUtil().toJson(safeExtra))
         }
-        disconnect()
     }
 }

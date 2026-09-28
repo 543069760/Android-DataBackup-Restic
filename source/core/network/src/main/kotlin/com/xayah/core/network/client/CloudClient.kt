@@ -45,7 +45,7 @@ fun CloudEntity.getCloud(rootService: RemoteRootService) = when (this.type) {
 
     CloudType.WEBDAV -> {
         val extra = getExtraEntity<WebDAVExtra>()!!
-        WebDAVClientImpl(this, extra)
+        WebDAVClientImpl(this, extra, rootService)
     }
 
     CloudType.SFTP -> {
