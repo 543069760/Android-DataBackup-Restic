@@ -45,6 +45,8 @@ import javax.inject.Inject
 
 data class IndexUiState(
     val latestRelease: Release? = null,
+    /** 本地 code 与最新 code 之间的全部 release（含最新），按 code 升序（旧→新） */
+    val newerReleases: List<Release> = emptyList(),
 ) : UiState
 
 sealed class IndexUiIntent : UiIntent {
@@ -112,17 +114,31 @@ class IndexViewModel @Inject constructor(
                 runCatching {
                     // 0 = 正式版通道, 1 = 测试版通道
                     val channel = context.readUpdateChannel().first()
+                    val releases = githubRepo.getReleases()
+
+                    // code > 本地 VERSION_CODE 的全部 release，按 code 升序（旧→新）。
+                    // 本地 APK 的 BASE_CODE 起始点不同，不能用 remoteCode - localCode 推
+                    // commit 区间；release 粒度与 parseReleaseCode 检测口径一致。
+                    val newer = releases
+                        .mapNotNull { r -> parseReleaseCode(r).takeIf { it > Long.MIN_VALUE }?.let { r to it } }
+                        .filter { it.second > BuildConfigUtil.VERSION_CODE }
+                        .sortedByDescending { it.second }   // 新 → 旧
+                        .map { it.first }
+
                     val release: Release? = if (channel == 1) {
-                        githubRepo.getReleases().maxByOrNull { parseReleaseCode(it) }
+                        // 测试版通道：取区间内 code 最大者（含 prerelease）
+                        newer.firstOrNull()
                     } else {
+                        // 正式版通道保持 latest 语义（latest 接口不含 prerelease）
                         githubRepo.getLatestRelease()
+                            .takeIf { parseReleaseCode(it) > BuildConfigUtil.VERSION_CODE }
                     }
-                    val remoteCode = release?.let { parseReleaseCode(it) } ?: Long.MIN_VALUE
-                    if (release != null && remoteCode > BuildConfigUtil.VERSION_CODE) {
-                        emitState(state.copy(latestRelease = release))
-                    } else {
-                        emitState(state.copy(latestRelease = null))
-                    }
+
+                    emitState(state.copy(
+                        latestRelease = release,
+                        // 只有确认有更新时才带更新记录，否则清空
+                        newerReleases = if (release != null) newer else emptyList(),
+                    ))
                 }
             }
 

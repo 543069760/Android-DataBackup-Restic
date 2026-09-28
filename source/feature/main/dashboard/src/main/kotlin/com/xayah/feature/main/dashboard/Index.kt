@@ -11,6 +11,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.Icons
@@ -103,7 +107,44 @@ fun PageDashboard() {
                     icon = null,
                     dismissText = changelogText,
                     confirmText = downloadText,
-                    block = { _ -> Text(text = argsUpdateFromText) }
+                    block = { _ ->
+                        Column(
+                            modifier = Modifier.verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(SizeTokens.Level8)
+                        ) {
+                            Text(text = argsUpdateFromText)
+                            uiState.newerReleases.forEachIndexed { index, release ->
+                                // 相邻版本之间加分隔线（第一条之前不加）
+                                if (index > 0) {
+                                    HorizontalDivider()
+                                }
+                                Column {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        // 列表按 code 降序，第一条即最新版本，标题前方标记
+                                        if (index == 0) {
+                                            Text(
+                                                text = stringResource(id = R.string.latest_version),
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.Bold,
+                                            )
+                                            Spacer(modifier = Modifier.height(SizeTokens.Level4).let { Modifier })
+                                        }
+                                        Text(
+                                            text = release.name,
+                                            style = MaterialTheme.typography.labelLarge,
+                                        )
+                                    }
+                                    if (release.changelog.isNotEmpty()) {
+                                        Text(
+                                            text = release.changelog,
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 ).first
                 when (state) {
                     DismissState.CONFIRM -> {
