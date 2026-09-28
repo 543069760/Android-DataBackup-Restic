@@ -74,7 +74,7 @@ fun PageDashboard() {
     val downloadText = stringResource(id = R.string.download)
     val argsUpdateFromText = stringResource(
         id = R.string.args_update_from,
-        BuildConfigUtil.VERSION_NAME,
+        "${BuildConfigUtil.VERSION_NAME}（Build ${BuildConfigUtil.VERSION_CODE}）",
         uiState.latestRelease?.name ?: ""
     )
 
