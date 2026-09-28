@@ -50,7 +50,7 @@ fun CloudEntity.getCloud(rootService: RemoteRootService) = when (this.type) {
 
     CloudType.SFTP -> {
         val extra = getExtraEntity<SFTPExtra>()!!
-        SFTPClientImpl(this, extra)
+        SFTPClientImpl(this, extra, rootService)
     }
 
     CloudType.S3 -> {

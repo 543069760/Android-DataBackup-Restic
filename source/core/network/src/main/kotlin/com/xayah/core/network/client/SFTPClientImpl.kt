@@ -6,108 +6,132 @@ import com.xayah.core.model.SFTPAuthMode
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.SFTPExtra
 import com.xayah.core.network.R
-import com.xayah.core.network.io.CountingOutputStreamImpl
 import com.xayah.core.network.util.getExtraEntity
 import com.xayah.core.rootservice.parcelables.PathParcelable
+import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.GsonUtil
 import com.xayah.core.util.LogUtil
-import com.xayah.core.util.PathUtil
 import com.xayah.core.util.toPathList
 import com.xayah.core.util.withMainContext
 import com.xayah.libpickyou.PickYouLauncher
 import com.xayah.libpickyou.parcelables.DirChildrenParcelable
 import com.xayah.libpickyou.parcelables.FileParcelable
 import com.xayah.libpickyou.ui.model.PickerType
-import net.schmizz.sshj.SSHClient
-import net.schmizz.sshj.sftp.FileMode
-import net.schmizz.sshj.sftp.OpenMode
-import net.schmizz.sshj.sftp.RemoteFile
-import net.schmizz.sshj.sftp.SFTPClient
-import net.schmizz.sshj.transport.verification.PromiscuousVerifier
-import net.schmizz.sshj.userauth.password.PasswordFinder
-import net.schmizz.sshj.userauth.password.Resource
-import java.io.File
-import java.io.FileOutputStream
-import java.io.IOException
+import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 
-
-class SFTPClientImpl(private val entity: CloudEntity, private val extra: SFTPExtra) : CloudClient {
-    private var sshClient: SSHClient? = null
-    private var sftpClient: SFTPClient? = null
+/**
+ * SFTP 目录浏览客户端 —— 迁移到 librclone（rclone RC RPC）。
+ *
+ * 不再使用 sshj（SSHClient/SFTPClient），所有远端操作经
+ * rootService.rcloneRpc(method, input) 在 root 进程的 librclone 中执行：
+ *   - 列目录: operations/list   {"fs": "<connstr>:", "remote": "<dir>"}
+ *   - 建目录: operations/mkdir  {"fs": "<connstr>:", "remote": "<dir>"}（天然 mkdir -p）
+ *   - 密码混淆: core/obscure    {"clear": "<pass>"} -> {"obscured": "..."}
+ *
+ * connection string 拼法与 ResticRepositorySftp/RcloneServe.buildSftpConnectionString
+ * 一致（含 disable_hashcheck/shell_type=none/set_modtime=false/chunk_size=255k），
+ * 区别是这里 root 段留空，目标目录通过 remote 参数逐次传入。
+ */
+class SFTPClientImpl(
+    private val entity: CloudEntity,
+    private val extra: SFTPExtra,
+    private val rootService: RemoteRootService,
+) : CloudClient {
 
     private fun log(msg: () -> String): String = run {
         LogUtil.log { "SFTPClientImpl" to msg() }
         msg()
     }
 
-    private fun <T> withSSHClient(block: (client: SSHClient) -> T) = run {
-        if (sshClient == null) throw NullPointerException("SSHClient is null.")
-        block(sshClient!!)
+    private fun normalizePath(path: String): String = path.trim('/').replace("//", "/")
+
+    /**
+     * core/obscure 混淆明文密码，取返回 JSON 的 obscured 字段。
+     * 与 RcloneServe.obscure 一致。
+     */
+    private suspend fun obscure(plain: String): String {
+        val out = rootService.rcloneRpc(
+            "core/obscure", JSONObject().put("clear", plain).toString()
+        )
+        return JSONObject(out).getString("obscured")
     }
 
-    private fun <T> withSFTPClient(block: (client: SFTPClient) -> T) = run {
-        if (sftpClient == null) throw NullPointerException("SFTPClient is null.")
-        block(sftpClient!!)
-    }
+    /**
+     * 拼 SFTP rclone connection string 的参数区（末尾保留 ':'，root 段留空）：
+     *   :sftp,host='...',port=NN,user='...',pass='<obscured>'[,或 key_pem='...'],
+     *   disable_hashcheck=true,shell_type=none,set_modtime=false,chunk_size=255k:
+     *
+     * 参数取值与 RcloneServe.buildSftpConnectionString 完全对齐。
+     * SFTP 的 remote 为相对路径时表示用户 home 目录（与 sshj 旧实现 "." 语义一致）。
+     */
+    private suspend fun buildSftpFs(): String {
+        val host = entity.host.trim()
+            .removePrefix("sftp://")
+            .removeSuffix("/")
 
-    override fun connect() {
-        sshClient = SSHClient().apply {
-            addHostKeyVerifier(PromiscuousVerifier())
-            connect(entity.host, extra.port)
-
-            when (extra.mode) {
-                SFTPAuthMode.PASSWORD -> {
-                    authPassword(entity.user, entity.pass)
-                }
-
-                SFTPAuthMode.PUBLIC_KEY -> {
-                    val passwordFinder = object : PasswordFinder {
-                        var retryCount = 0
-
-                        override fun reqPassword(resource: Resource<*>?): CharArray {
-                            return entity.pass.toCharArray()
-                        }
-
-                        override fun shouldRetry(resource: Resource<*>?): Boolean {
-                            return ++retryCount < 3
-                        }
-                    }
-                    log { "Authenticating with public key..." }
-                    val keyProvider = loadKeys(extra.privateKey, null, passwordFinder)
-                    log { "Loaded keys!" }
-                    authPublickey(entity.user, keyProvider)
-                    log { "Authenticated with public key!" }
-                }
+        val sb = StringBuilder(":sftp,")
+        sb.append("host='").append(host).append("',")
+        sb.append("port=").append(extra.port).append(",")
+        sb.append("user='").append(entity.user).append("',")
+        when (extra.mode) {
+            SFTPAuthMode.PASSWORD -> {
+                sb.append("pass='").append(obscure(entity.pass)).append("'")
             }
 
-            sftpClient = newSFTPClient()
+            SFTPAuthMode.PUBLIC_KEY -> {
+                // key_pem 内联 PEM，换行符转义为字面 \n（与 RcloneServe 一致）
+                val pem = extra.privateKey.replace("\n", "\\n")
+                sb.append("key_pem='").append(pem).append("'")
+            }
+        }
+        sb.append(",disable_hashcheck=true")
+        sb.append(",shell_type=none")
+        sb.append(",set_modtime=false")
+        sb.append(",chunk_size=255k")
+        sb.append(":")
+        return sb.toString()
+    }
+
+    private fun rcloneList(remote: String): JSONObject {
+        val out = runBlocking {
+            rootService.rcloneRpc(
+                "operations/list",
+                JSONObject()
+                    .put("fs", buildSftpFs())
+                    .put("remote", remote)
+                    .toString()
+            )
+        }
+        return JSONObject(out)
+    }
+
+    private fun rcloneMkdir(remote: String) {
+        runBlocking {
+            rootService.rcloneRpc(
+                "operations/mkdir",
+                JSONObject()
+                    .put("fs", buildSftpFs())
+                    .put("remote", remote)
+                    .toString()
+            )
         }
     }
 
-    override fun disconnect() {
-        // 幂等：已断开（testConnection/withClient 的双重 disconnect）时直接返回，
-        // 不再经 withSSHClient 判空抛出 "SSHClient is null."
-        if (sshClient == null) {
-            sftpClient = null
-            return
-        }
-        // 不经 withSSHClient，直接访问已判非空的 sshClient，避免二次抛异常隐患
-        runCatching { sshClient?.disconnect() }
-        sshClient = null
-        sftpClient = null
-    }
+    // librclone 无长连接概念，connect/disconnect 保留为空实现以满足接口。
+    override fun connect() {}
+
+    override fun disconnect() {}
 
     override fun mkdir(dst: String) {
-        log { "mkdir: $dst" }
-        withSFTPClient { it.mkdir(dst) }
+        val remote = normalizePath(dst)
+        log { "mkdir(rclone): $remote" }
+        rcloneMkdir(remote)
     }
 
     override fun mkdirRecursively(dst: String) {
-        withSFTPClient { it.mkdirs(dst) }
-    }
-
-    private fun openFile(src: String): RemoteFile {
-        return withSFTPClient { it.open(src, setOf(OpenMode.READ, OpenMode.WRITE, OpenMode.CREAT)) }
+        // rclone operations/mkdir 即 mkdir -p 语义，天然递归
+        mkdir(dst)
     }
 
     override fun renameTo(
@@ -115,138 +139,98 @@ class SFTPClientImpl(private val entity: CloudEntity, private val extra: SFTPExt
         dst: String,
         onProgress: ((currentPart: Int, totalParts: Int, currentFile: Int, totalFiles: Int) -> Unit)?
     ) {
-        log { "Rename $src to $dst" }
-        withSFTPClient { it.rename(src, dst) }
+        // 备份已统一走 rustic 快照链路，SFTP 不再需要 renameTo。
+        log { "renameTo is deprecated for SFTP, skipping: $src to $dst" }
     }
 
-    override fun upload(src: String, dst: String, onUploading: (read: Long, total: Long) -> Unit, isCanceled: (() -> Boolean)?) = run {
-        val name = PathUtil.getFileName(src)
-        val dstPath = "$dst/$name"
-        log { "upload: $src to $dstPath" }
-        val dstFile = openFile(dstPath)
-        val dstStream = dstFile.RemoteFileOutputStream()
-        val srcFile = File(src)
-        val srcFileSize = srcFile.length()
-        val srcInputStream = srcFile.inputStream()
-        val countingStream = CountingOutputStreamImpl(dstStream, srcFileSize, onUploading)
-        srcInputStream.copyTo(countingStream)
-        srcInputStream.close()
-        countingStream.close()
-        dstFile.close()
-        if (countingStream.byteCount == 0L) throw IOException("Failed to write remote file: 0 byte.")
-        onUploading(countingStream.byteCount, countingStream.byteCount)
+    override fun upload(
+        src: String,
+        dst: String,
+        onUploading: (read: Long, total: Long) -> Unit,
+        isCanceled: (() -> Boolean)?
+    ) {
+        // 备份/配置上传已统一走 rustic 快照链路，SFTPClientImpl 不再提供上传能力。
+        throw UnsupportedOperationException("SFTP upload is handled by rustic; direct upload is no longer supported.")
     }
 
     override fun download(src: String, dst: String, onDownloading: (written: Long, total: Long) -> Unit) {
-        val name = PathUtil.getFileName(src)
-        val dstPath = "${dst}/$name"
-        log { "download: $src to $dstPath" }
-        val dstFile = File(dstPath)
-        val dstStream = FileOutputStream(dstFile)
-        val srcFile = openFile(src)
-        val srcFileSize = srcFile.length()
-        val srcFileStream = srcFile.RemoteFileInputStream()
-        val countingStream = CountingOutputStreamImpl(dstStream, srcFileSize, onDownloading)
-        srcFileStream.copyTo(countingStream)
-        srcFileStream.close()
-        dstStream.close()
+        // 恢复已统一走 rustic 快照链路，SFTPClientImpl 不再提供下载能力。
+        throw UnsupportedOperationException("SFTP download is handled by rustic; direct download is no longer supported.")
     }
 
     override fun deleteFile(src: String) {
-        log { "deleteFile: $src" }
-        withSFTPClient { it.rm(src) }
+        throw UnsupportedOperationException("SFTP deleteFile is handled by rustic; not supported here.")
     }
 
     override fun removeDirectory(src: String): Boolean {
-        log { "removeDirectory: $src" }
-        withSFTPClient { it.rmdir(src) }
-        return true
+        throw UnsupportedOperationException("SFTP removeDirectory is handled by rustic; not supported here.")
     }
 
-    override fun clearEmptyDirectoriesRecursively(src: String) = withSFTPClient { client ->
-        val emptyDirs = mutableListOf<String>()
-        val paths = mutableListOf(src)
-
-        while (paths.isNotEmpty()) {
-            val dir = paths.removeAt(0)
-            val files = client.ls(dir)
-            if (files.isEmpty()) {
-                emptyDirs.add(dir)
-            } else {
-                for (file in files) {
-                    val path = "${dir}/${file.name}"
-                    if (file.isDirectory) {
-                        paths.add(path)
-                    }
-                }
-            }
-        }
-
-        // Remove reversed empty dirs.
-        for (path in emptyDirs.reversed()) removeDirectory(path)
+    override fun clearEmptyDirectoriesRecursively(src: String) {
+        // 目录浏览不再维护空目录清理，无需处理。
     }
 
     override fun deleteRecursively(src: String): Boolean {
-        withSFTPClient {
-            for (item in it.ls(src)) {
-                if (item.isDirectory) {
-                    deleteRecursively(item.path)
-                } else {
-                    deleteFile(item.path)
-                }
-            }
-
-            removeDirectory(src)
-        }
-        return true
+        throw UnsupportedOperationException("SFTP deleteRecursively is handled by rustic; not supported here.")
     }
 
     override fun listFiles(src: String): DirChildrenParcelable {
-        log { "listFiles: $src" }
-        val files = ArrayList<FileParcelable>()
-        val directories = ArrayList<FileParcelable>()
-        val dirInfo = withSFTPClient { it.ls(src) }
-        for (item in dirInfo) {
-            if (item.isDirectory) {
-                directories.add(FileParcelable(item.name, item.attributes.atime))
-            } else {
-                files.add(FileParcelable(item.name, item.attributes.atime))
+        log { "listFiles(rclone): $src" }
+        val files = mutableListOf<FileParcelable>()
+        val directories = mutableListOf<FileParcelable>()
+
+        val remote = normalizePath(src)
+        val json = rcloneList(remote)
+
+        // operations/list 返回 {"list":[{"Path","Name","Size","MimeType","ModTime","IsDir"}, ...]}
+        val arr = json.optJSONArray("list")
+        if (arr != null) {
+            for (i in 0 until arr.length()) {
+                val item = arr.getJSONObject(i)
+                val name = item.optString("Name").takeIf { it.isNotEmpty() } ?: continue
+                // ModTime 为 RFC3339（如 2024-01-01T00:00:00Z），解析失败给 0
+                val mtime = runCatching {
+                    java.time.Instant.parse(item.optString("ModTime")).toEpochMilli()
+                }.getOrDefault(0L)
+                val parcelable = FileParcelable(name, mtime)
+                if (item.optBoolean("IsDir")) directories.add(parcelable)
+                else files.add(parcelable)
             }
         }
+
         files.sortBy { it.name }
         directories.sortBy { it.name }
         return DirChildrenParcelable(files = files, directories = directories)
     }
 
     override fun walkFileTree(src: String): List<PathParcelable> {
-        val pathParcelableList = mutableListOf<PathParcelable>()
-        val srcFile = withSFTPClient { it.stat(src) }
-        if (srcFile.type != FileMode.Type.DIRECTORY) {
-            pathParcelableList.add(PathParcelable(src))
-        } else {
-            val files = listFiles(src)
-            for (i in files.files) {
-                pathParcelableList.add(PathParcelable("${src}/${i.name}"))
-            }
-            for (i in files.directories) {
-                pathParcelableList.addAll(walkFileTree("${src}/${i.name}"))
-            }
-        }
-        return pathParcelableList
+        // 递归遍历仅用于旧的下载/reload 流程，已统一到 rustic，不再支持。
+        throw UnsupportedOperationException("SFTP walkFileTree is handled by rustic; not supported here.")
     }
 
-    override fun exists(src: String): Boolean = runCatching { withSFTPClient { it.statExistence(src) } != null }.getOrElse { false }
+    override fun exists(src: String): Boolean {
+        throw UnsupportedOperationException("SFTP exists is handled by rustic; not supported here.")
+    }
 
-    override fun size(src: String): Long = runCatching { withSFTPClient { it.size(src) } }.getOrElse { 0 }
+    override fun size(src: String): Long {
+        throw UnsupportedOperationException("SFTP size is handled by rustic; not supported here.")
+    }
 
     override suspend fun testConnection() {
-        connect()
-        disconnect()
+        // 能成功列举 home 目录即视为连通（host/port/凭据可用）。失败时 rcloneRpc 抛异常上抛。
+        log { "testConnection(rclone): host=${entity.host} port=${extra.port} user=${entity.user} mode=${extra.mode}" }
+        rootService.rcloneRpc(
+            "operations/list",
+            JSONObject()
+                .put("fs", buildSftpFs())
+                .put("remote", ".")
+                .toString()
+        )
     }
 
     private fun handleOriginalPath(path: String): String = run {
         val pathSplit = path.toPathList().toMutableList()
-        // Remove “$Cloud:”
+        // Remove "$Cloud:"
         pathSplit.removeFirstOrNull()
         // Add "."
         pathSplit.add(0, ".")
@@ -255,11 +239,11 @@ class SFTPClientImpl(private val entity: CloudEntity, private val extra: SFTPExt
 
     override suspend fun setRemote(context: Context, onSet: suspend (remote: String, extra: String) -> Unit) {
         val extra = entity.getExtraEntity<SFTPExtra>()!!
-        connect()
         val prefix = "${context.getString(R.string.cloud)}:"
         val pickYou = PickYouLauncher(
             checkPermission = false,
-            traverseBackend = { listFiles(it.replaceFirst(prefix, ".")) },
+            // 保持原 sshj 实现的语义：prefix 替换为 "."，即默认从 home 目录开始浏览。
+            traverseBackend = { listFiles(it.replaceFirst(prefix, "")) },
             mkdirsBackend = { parent, child ->
                 runCatching { mkdirRecursively(handleOriginalPath("$parent/$child")) }.isSuccess
             },
@@ -272,6 +256,5 @@ class SFTPClientImpl(private val entity: CloudEntity, private val extra: SFTPExt
             val pathString = pickYou.awaitLaunch(context)
             onSet(handleOriginalPath(pathString), GsonUtil().toJson(extra))
         }
-        disconnect()
     }
 }
