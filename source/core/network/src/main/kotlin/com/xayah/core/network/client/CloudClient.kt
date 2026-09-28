@@ -40,7 +40,7 @@ interface CloudClient {
 fun CloudEntity.getCloud(rootService: RemoteRootService) = when (this.type) {
     CloudType.FTP -> {
         val extra = getExtraEntity<FTPExtra>()!!
-        FTPClientImpl(this, extra)
+        FTPClientImpl(this, extra, rootService)
     }
 
     CloudType.WEBDAV -> {

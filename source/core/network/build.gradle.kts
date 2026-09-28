@@ -29,7 +29,6 @@ dependencies {
     implementation(libs.gson)
 
     // Backends
-    implementation(libs.apache.commons.net)
     implementation(libs.smbj) {
         exclude(group = "org.bouncycastle", module = "bcprov-jdk15on")
     }
