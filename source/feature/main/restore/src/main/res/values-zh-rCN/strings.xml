@@ -61,4 +61,8 @@
     <!-- 搜索 -->
     <string name="restore_search_hint">搜索应用名或包名</string>
     <string name="otg_usb">OTG USB</string>
+    <string name="select_all">全选</string>
+    <string name="unselect_all">取消全选</string>
+    <string name="reverse_selection">反选</string>
+    <string name="restore_multi_snapshot_hint">检测到同一应用存在多个备份快照，已默认勾选最新版本，请确认需恢复的快照是否正确</string>
 </resources>

@@ -69,4 +69,9 @@
     <!-- 搜索 -->
     <string name="restore_search_hint">Search app name or package name</string>
     <string name="otg_usb">OTG USB</string>
+    <!-- 批量选择 -->
+    <string name="select_all">Select all</string>
+    <string name="unselect_all">Unselect all</string>
+    <string name="reverse_selection">Reverse selection</string>
+    <string name="restore_multi_snapshot_hint">Multiple backup snapshots detected for the same app. The latest version has been selected by default. Please confirm the correct snapshot to restore.</string>
 </resources>

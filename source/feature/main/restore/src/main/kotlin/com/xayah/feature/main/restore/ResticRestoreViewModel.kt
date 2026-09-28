@@ -3,6 +3,7 @@ package com.xayah.feature.main.restore
 import android.util.Log
 import android.content.Context
 import android.content.pm.PackageManager
+import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.SavedStateHandle
@@ -103,6 +104,10 @@ class ResticRestoreViewModel @Inject constructor(
     private var hasLoaded = false
     private val _uiState = MutableStateFlow<ResticRestoreUiState>(ResticRestoreUiState.Loading)
     val uiState: StateFlow<ResticRestoreUiState> = _uiState.asStateFlow()
+
+    // 已选 group 的 key 集合：随 ViewModel 存活。
+    // 列表页 → 详情页 → 返回 不丢失；列表页被 pop 出栈（ViewModel 销毁）后重新进入即为全新空集合
+    val selectedKeys = mutableStateListOf<String>()
 
     // 图标版本信号：图标解压完成后自增，触发列表项 PackageIconImage 重新取图
     private val _iconVersion = MutableStateFlow(0)

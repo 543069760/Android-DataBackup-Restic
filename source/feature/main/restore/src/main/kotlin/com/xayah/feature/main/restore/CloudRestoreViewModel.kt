@@ -2,6 +2,7 @@ package com.xayah.feature.main.restore
 
 import android.content.Context
 import android.util.Log
+import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.xayah.core.database.dao.PackageDao
@@ -72,6 +73,10 @@ class CloudRestoreViewModel @Inject constructor(
     private var accountName: String = ""
     private val _uiState = MutableStateFlow<CloudRestoreUiState>(CloudRestoreUiState.Loading)
     val uiState: StateFlow<CloudRestoreUiState> = _uiState.asStateFlow()
+
+    // 已选 group 的 key 集合：随 ViewModel 存活。
+    // 列表页 → 详情页 → 返回 不丢失；列表页被 pop 出栈（ViewModel 销毁）后重新进入即为全新空集合
+    val selectedKeys = mutableStateListOf<String>()
 
     /** 按 CloudType 从注册表取对应后端；找不到 key 抛 NoSuchElementException（fail-fast，替代原 else 兜底） */
     private fun backend(cloudEntity: CloudEntity): CloudResticBackend =
@@ -206,6 +211,7 @@ class CloudRestoreViewModel @Inject constructor(
 
     fun setCloudEntity(accountName: String) {
         val cleanAccountName = accountName.replace("accountName=", "").decodeURL()
+        selectedKeys.clear()   // 切换/进入账户时先清空，避免残留旧账户的已选 key
         this.accountName = cleanAccountName // 存储账户名
         Log.d("CloudRestore", "setCloudEntity 被调用，账户名: $accountName")
         viewModelScope.launch {

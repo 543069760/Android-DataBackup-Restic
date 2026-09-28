@@ -40,6 +40,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import com.xayah.core.ui.component.DropdownMenuItem
+import com.xayah.core.ui.component.IconButton
+import com.xayah.core.ui.component.ModalDropdownMenu
 import com.xayah.core.model.DataType
 import com.xayah.core.ui.component.BodyMediumText
 import com.xayah.core.ui.component.SearchBar
@@ -67,8 +74,8 @@ fun CloudRestorePage(
     val accountId = encodeAccountId(accountName.replace("accountName=", "").decodeURL())
     val scope = rememberCoroutineScope()
 
-    // 已选 group 的 key 集合（不再有多选态开关，复选框常驻）
-    val selectedKeys: SnapshotStateList<String> = remember { mutableStateListOf<String>() }
+    // 已选 group 的 key 集合：提升为 ViewModel 持有，详情页往返不清空
+    val selectedKeys = viewModel.selectedKeys
     var isPreparing by remember { mutableStateOf(false) }
 
     // 搜索关键字：仅用于过滤可见列表，绝不影响 selectedKeys 与互斥选择逻辑
@@ -79,6 +86,50 @@ fun CloudRestorePage(
     // 统一的退出选择：清空已选集合，避免二次进入 Setup 时累加
     fun exitSelection() {
         selectedKeys.clear()
+    }
+
+    // ---- 批量选择（全选/反选） ----
+
+    fun appKey(g: ResticBackupGroup) = "${g.userId}-${g.packageName}"
+
+    fun selectableGroups(): List<ResticBackupGroup> =
+        (uiState as? CloudRestoreUiState.Success)?.groups
+            ?.filter { g -> g.backups.any { it.dataType == DataType.PACKAGE_CONFIG } }
+            ?: emptyList()
+
+    fun hasMultiSnapshotApp(): Boolean =
+        selectableGroups().groupBy { appKey(it) }.values.any { it.size > 1 }
+
+    // 与单个勾选一致的互斥：同 (userId, packageName) 只保留一个 key
+    fun selectExclusive(g: ResticBackupGroup) {
+        val key = keyOf(g)
+        val prefix = "${g.userId}-${g.packageName}-"
+        selectedKeys.removeAll { it.startsWith(prefix) && it != key }
+        if (!selectedKeys.contains(key)) selectedKeys.add(key)
+    }
+
+    fun selectAllLatest() {
+        selectableGroups().groupBy { appKey(it) }.values.forEach { list ->
+            list.maxByOrNull { it.timestamp }?.let { selectExclusive(it) }
+        }
+    }
+
+    fun reverseAllLatest() {
+        selectableGroups().groupBy { appKey(it) }.values.forEach { list ->
+            val latest = list.maxByOrNull { it.timestamp } ?: return@forEach
+            val prefix = "${latest.userId}-${latest.packageName}-"
+            if (selectedKeys.any { it.startsWith(prefix) }) {
+                selectedKeys.removeAll { it.startsWith(prefix) }
+            } else {
+                selectedKeys.add(keyOf(latest))
+            }
+        }
+    }
+
+    var pendingBulkAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    fun runBulk(action: () -> Unit) {
+        if (hasMultiSnapshotApp()) pendingBulkAction = action else action()
     }
 
     LaunchedEffect(accountName) {
@@ -106,6 +157,31 @@ fun CloudRestorePage(
             stringResource(R.string.restore_selected_count, selectedKeys.size)
         else
             stringResource(R.string.restore_cloud_restic_restore_title),
+        topBarActions = {
+            var checkListExpanded by remember { mutableStateOf(false) }
+            Box(modifier = Modifier.wrapContentSize(Alignment.TopStart)) {
+                IconButton(icon = Icons.Rounded.Checklist) {
+                    checkListExpanded = true
+                }
+                ModalDropdownMenu(
+                    expanded = checkListExpanded,
+                    onDismissRequest = { checkListExpanded = false }
+                ) {
+                    DropdownMenuItem(text = stringResource(R.string.select_all)) {
+                        checkListExpanded = false
+                        runBulk { selectAllLatest() }
+                    }
+                    DropdownMenuItem(text = stringResource(R.string.unselect_all)) {
+                        checkListExpanded = false
+                        selectedKeys.clear()
+                    }
+                    DropdownMenuItem(text = stringResource(R.string.reverse_selection)) {
+                        checkListExpanded = false
+                        runBulk { reverseAllLatest() }
+                    }
+                }
+            }
+        },
         floatingActionButton = {
             AnimatedVisibility(
                 visible = selectedKeys.isNotEmpty(),
@@ -282,5 +358,26 @@ fun CloudRestorePage(
                 }
             }
         }
+    }
+    // 多快照提示：确认后执行暂存的批量操作
+    pendingBulkAction?.let { action ->
+        AlertDialog(
+            onDismissRequest = { pendingBulkAction = null },
+            title = { Text(stringResource(R.string.restore_dialog_notice)) },
+            text = { Text(stringResource(R.string.restore_multi_snapshot_hint)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingBulkAction = null
+                    action()
+                }) {
+                    Text(stringResource(android.R.string.ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingBulkAction = null }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            }
+        )
     }
 }

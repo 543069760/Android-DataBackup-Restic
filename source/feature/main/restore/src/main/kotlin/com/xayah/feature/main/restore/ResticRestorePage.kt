@@ -52,6 +52,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import com.xayah.core.ui.component.DropdownMenuItem
+import com.xayah.core.ui.component.IconButton
+import com.xayah.core.ui.component.ModalDropdownMenu
 import com.xayah.core.model.DataType
 import com.xayah.core.ui.component.PackageIconImage
 import com.xayah.core.ui.component.SearchBar
@@ -88,8 +95,8 @@ fun ResticRestorePage(
     val iconVersion by viewModel.iconVersion.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
 
-    // 已选 group 的 key 集合（不再有多选态开关，复选框常驻）
-    val selectedKeys = remember { mutableStateListOf<String>() }
+    // 已选 group 的 key 集合：提升为 ViewModel 持有，详情页往返不清空
+    val selectedKeys = viewModel.selectedKeys
     var isPreparing by remember { mutableStateOf(false) }
 
     // 搜索关键字：仅用于过滤可见列表，绝不影响 selectedKeys 与互斥选择逻辑
@@ -109,6 +116,48 @@ fun ResticRestorePage(
 
     fun exitSelection() {
         selectedKeys.clear()
+    }
+
+    // ---- 批量选择（全选/反选），与 selectExclusive 保持同一互斥语义 ----
+
+    // 同 app 分组维度：(userId, packageName)
+    fun appKey(g: ResticBackupGroup) = "${g.userId}-${g.packageName}"
+
+    // 仅含 PACKAGE_CONFIG 的 group 可参与批量选择
+    fun selectableGroups(): List<ResticBackupGroup> =
+        (uiState as? ResticRestoreUiState.Success)?.groups
+            ?.filter { g -> g.backups.any { it.dataType == DataType.PACKAGE_CONFIG } }
+            ?: emptyList()
+
+    // 是否存在同一 app 多个快照版本（决定是否需要提示）
+    fun hasMultiSnapshotApp(): Boolean =
+        selectableGroups().groupBy { appKey(it) }.values.any { it.size > 1 }
+
+    // 全选：每组取 timestamp 最大的 group
+    fun selectAllLatest() {
+        selectableGroups().groupBy { appKey(it) }.values.forEach { list ->
+            list.maxByOrNull { it.timestamp }?.let { selectExclusive(it) }
+        }
+    }
+
+    // 反选：该组已有勾选则整组移除，否则勾选该组 timestamp 最大者（保证同 app 互斥）
+    fun reverseAllLatest() {
+        selectableGroups().groupBy { appKey(it) }.values.forEach { list ->
+            val latest = list.maxByOrNull { it.timestamp } ?: return@forEach
+            val prefix = "${latest.userId}-${latest.packageName}-"
+            if (selectedKeys.any { it.startsWith(prefix) }) {
+                selectedKeys.removeAll { it.startsWith(prefix) }
+            } else {
+                selectedKeys.add(groupKey(latest))
+            }
+        }
+    }
+
+    // 待确认执行的批量操作（有多快照 app 时先弹提示框）
+    var pendingBulkAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    fun runBulk(action: () -> Unit) {
+        if (hasMultiSnapshotApp()) pendingBulkAction = action else action()
     }
 
     LaunchedEffect(Unit) {
@@ -137,6 +186,31 @@ fun ResticRestorePage(
             stringResource(R.string.restore_selected_count, selectedKeys.size)
         else
             stringResource(R.string.restore_restic_restore_title),
+        topBarActions = {
+            var checkListExpanded by remember { mutableStateOf(false) }
+            Box(modifier = Modifier.wrapContentSize(Alignment.TopStart)) {
+                IconButton(icon = Icons.Rounded.Checklist) {
+                    checkListExpanded = true
+                }
+                ModalDropdownMenu(
+                    expanded = checkListExpanded,
+                    onDismissRequest = { checkListExpanded = false }
+                ) {
+                    DropdownMenuItem(text = stringResource(R.string.select_all)) {
+                        checkListExpanded = false
+                        runBulk { selectAllLatest() }
+                    }
+                    DropdownMenuItem(text = stringResource(R.string.unselect_all)) {
+                        checkListExpanded = false
+                        selectedKeys.clear()
+                    }
+                    DropdownMenuItem(text = stringResource(R.string.reverse_selection)) {
+                        checkListExpanded = false
+                        runBulk { reverseAllLatest() }
+                    }
+                }
+            }
+        },
         floatingActionButton = {
             AnimatedVisibility(
                 visible = selectedKeys.isNotEmpty(),
@@ -304,6 +378,27 @@ fun ResticRestorePage(
                 }
             }
         }
+    }
+    // 多快照提示：确认后执行暂存的批量操作
+    pendingBulkAction?.let { action ->
+        AlertDialog(
+            onDismissRequest = { pendingBulkAction = null },
+            title = { Text(stringResource(R.string.restore_dialog_notice)) },
+            text = { Text(stringResource(R.string.restore_multi_snapshot_hint)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingBulkAction = null
+                    action()
+                }) {
+                    Text(stringResource(android.R.string.ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingBulkAction = null }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            }
+        )
     }
 }
 
