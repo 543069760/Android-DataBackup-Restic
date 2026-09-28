@@ -223,6 +223,8 @@ rustic_core (Rust)  ──►  本地 / S3 仓库（经 opendal backend）
 
 请从 [Releases](https://github.com/543069760/Android-DataBackup-S3/releases) 获取 APK。
 
+---
+
 **原作者 [XayahSuSuSu](https://github.com/XayahSuSuSu/Android-DataBackup)**：
 
 - PayPal：https://paypal.me/XayahSuSuSu

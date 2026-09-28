@@ -203,6 +203,8 @@ rustic_core (Rust)  ──►  Local / S3 repository (via opendal backend)
 
 Get the APK from [Releases](https://github.com/543069760/Android-DataBackup-S3/releases).
 
+---
+
 **Original Author [XayahSuSuSu](https://github.com/XayahSuSuSu/Android-DataBackup)**:
 
 - PayPal: https://paypal.me/XayahSuSuSu
