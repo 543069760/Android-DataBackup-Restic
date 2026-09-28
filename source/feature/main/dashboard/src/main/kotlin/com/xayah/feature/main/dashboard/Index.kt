@@ -107,13 +107,13 @@ fun PageDashboard() {
                 ).first
                 when (state) {
                     DismissState.CONFIRM -> {
-                        uiState.latestRelease?.assets?.firstOrNull {
-                            it.url.contains("revived") &&  // 添加 revived 关键字
-                                    it.url.contains(BuildConfigUtil.FLAVOR_feature) &&
-                                    it.url.contains(BuildConfigUtil.FLAVOR_abi)
-                        }?.apply {
-                            viewModel.emitIntent(IndexUiIntent.ToBrowser(context = context, url = this.url))
-                        }
+                        // 精确跳转到该版本的 release 页面（html_url 即 releases/tag/v{name}.{code}）
+                        val release = uiState.latestRelease
+                        val url = release?.url?.takeIf { it.isNotEmpty() }
+                            ?: release?.assets?.firstOrNull {
+                                it.url.lowercase().contains("revived")
+                            }?.url
+                        url?.let { viewModel.emitIntent(IndexUiIntent.ToBrowser(context = context, url = it)) }
                     }
 
                     DismissState.CANCEL -> {
