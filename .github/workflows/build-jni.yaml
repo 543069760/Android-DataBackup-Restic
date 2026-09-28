@@ -285,7 +285,7 @@ jobs:
       - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
-          name: APKs-v${{ steps.calc_version.outputs.name }}-b${{ steps.calc_version.outputs.code }}
+          name: APKs-v${{ steps.calc_version.outputs.name }}-${{ steps.calc_version.outputs.code }}
           path: build-output/*.apk
 
       # ── 组装稳定版发布说明：固定正文 + changelog ─────────────────────────
