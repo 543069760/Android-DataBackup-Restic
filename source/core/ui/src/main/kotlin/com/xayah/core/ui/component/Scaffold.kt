@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FabPosition                        // <-- 新增
+import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -43,7 +45,7 @@ fun MainIndexSubScaffold(
     updateAvailable: Boolean,
     onVersionChipClick: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
-    floatingActionButton: @Composable () -> Unit = {},               // <-- 新增
+    floatingActionButton: @Composable () -> Unit = {},
     content: @Composable (BoxScope.() -> Unit)
 ) {
     Scaffold(
@@ -51,36 +53,34 @@ fun MainIndexSubScaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(SizeTokens.Level4)
-                    ) {
-                        // 第1行: APP名称
+                    // M3E：标题一行，下方胶囊（pill）显示 Build <versionCode>
+                    Column {
                         Text(text = title)
 
-                        // 第2行: 版本信息和更新徽章
+                        // Build 胶囊：有更新时右上角红点 + 文本在 "Build xxx" 与 "有更新" 间轮换
                         BadgedBox(
+                            modifier = Modifier.padding(top = SizeTokens.Level6),
                             badge = {
                                 if (updateAvailable)
-                                    Badge(modifier = Modifier.size(SizeTokens.Level6))
+                                    Badge(modifier = Modifier.size(SizeTokens.Level8))
                             }
                         ) {
                             RoundChip(onClick = if (updateAvailable) onVersionChipClick else null) {
                                 var version by remember {
-                                    mutableStateOf("${BuildConfigUtil.VERSION_NAME} ${BuildConfigUtil.FLAVOR_feature.capitalizeString()}")
+                                    mutableStateOf("Build ${BuildConfigUtil.VERSION_CODE}")
                                 }
-                                val updateAvailableText = stringResource(id = R.string.update_available)   // 新增：Composable 作用域内预取
+                                val updateAvailableText = stringResource(id = R.string.update_available)
                                 LaunchedEffect(updateAvailable) {
                                     while (updateAvailable) {
                                         delay(3000)
                                         val tmp = version
-                                        version = updateAvailableText   // ← 原为 context.getString(R.string.update_available)
+                                        version = updateAvailableText
                                         delay(3000)
                                         version = tmp
                                     }
                                 }
                                 AnimatedTextContainer(targetState = version) { text ->
-                                    LabelLargeText(modifier = Modifier.paddingHorizontal(SizeTokens.Level12), text = text, maxLines = 1)
+                                    LabelMediumText(modifier = Modifier.paddingHorizontal(SizeTokens.Level12), text = text, maxLines = 1)
                                 }
                             }
                         }
