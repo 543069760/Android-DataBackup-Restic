@@ -431,9 +431,11 @@ class ResticRestoreViewModel @Inject constructor(
         }
     }
 
-    /** 优先用 labels.json 的名称，其次 PackageManager，最后包名 */
+    /** 优先用 labels.json 的名称（退化值视为未命中），其次 PackageManager，最后包名 */
     private fun resolveAppLabel(labelMap: Map<String, String>, userId: Int, packageName: String): String {
-        labelMap["${userId}-${packageName}"]?.takeIf { it.isNotEmpty() }?.let { return it }
+        labelMap["${userId}-${packageName}"]
+            ?.takeIf { it.isNotEmpty() && it != packageName }   // 过滤历史遗留的退化值
+            ?.let { return it }
         return try {
             val pm = context.packageManager
             val packageInfo = pm.getPackageInfo(packageName, 0)

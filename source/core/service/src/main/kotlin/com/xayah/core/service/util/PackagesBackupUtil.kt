@@ -293,6 +293,40 @@ class PackagesBackupUtil @Inject constructor(
     fun getIconsAndLabelsDst(dstDir: String) = "${dstDir}/$IconRelativeDir.${tarCt.suffix}"
 
     /**
+     * 判定 labels.json 的某个 value 是否为「退化值」（取名失败回退到了包名 / 空）。
+     * key 形如 "<userId>-<packageName>"；userId 为整数，第一个 '-' 之后即包名（包名不含 '-'，可安全截取）。
+     */
+    private fun isDegradedLabel(key: String, value: String?): Boolean {
+        if (value.isNullOrBlank()) return true
+        return value == key.substringAfter("-")
+    }
+
+    /** 过滤掉 map 中的退化条目，只保留真实显示名 */
+    private fun Map<String, String>.filterRealLabels(): Map<String, String> =
+        filter { (k, v) -> !isDegradedLabel(k, v) }
+
+    /** 读取某个目录下的 labels.json；不存在或解析失败返回 emptyMap，且已剔除退化条目 */
+    private fun readRealLabels(dir: File): Map<String, String> =
+        File(dir, "labels.json").let { f ->
+            if (f.exists())
+                runCatching { json.decodeFromString<Map<String, String>>(f.readText()) }
+                    .getOrElse { emptyMap() }
+                    .filterRealLabels()
+            else emptyMap()
+        }
+
+    /** 本机 label 来源：本次激活备份的应用 + 全部已安装未拉黑应用，均已剔除退化值 */
+    private suspend fun collectLocalLabels(): Pair<Map<String, String>, Map<String, String>> {
+        val labelMap = packageRepository.queryActivated(OpType.BACKUP)
+            .associate { "${it.userId}-${it.packageName}" to it.packageInfo.label }
+            .filterRealLabels()
+        val installedMap = packageRepository.queryPackages(OpType.BACKUP, blocked = false)
+            .associate { "${it.userId}-${it.packageName}" to it.packageInfo.label }
+            .filterRealLabels()
+        return labelMap to installedMap
+    }
+
+    /**
      * 备份应用图标与名称:先把本次已激活备份应用的 label 映射写成 labels.json
      * 放进 icon 目录(与 png 同级),再连同图标一起压进 icon.tar。
      * labels.json 的 key = "<userId>-<packageName>",value = 应用名(label)。
@@ -300,14 +334,6 @@ class PackagesBackupUtil @Inject constructor(
      */
     suspend fun backupIconsAndLabels(dstDir: String, remoteIconDir: File? = null): ShellResult = run {
         log { "Backing up icons and labels..." }
-
-        // 判定 labels.json 的某个 value 是否为「退化值」（取名失败回退到了包名 / 空）
-        // key 形如 "<userId>-<packageName>"；userId 为整数，第一个 '-' 之后即包名
-        fun isDegradedLabel(key: String, value: String?): Boolean {
-            if (value.isNullOrBlank()) return true
-            val pkgName = key.substringAfter("-")   // 包名不含 '-'，可安全截取
-            return value == pkgName
-        }
         // 独立暂存目录：与恢复落地点 filesDir/icon/ 彻底解耦，根除套娃
         val stagingRoot = File(context.cacheDir, "icon_backup_staging")
         val stagingIconDir = File(stagingRoot, IconRelativeDir)   // .../icon_backup_staging/icon
@@ -353,48 +379,33 @@ class PackagesBackupUtil @Inject constructor(
             log { "remote png merged into live+staging: total=$remotePngMerged" }
         }
 
-        // 2) labels.json：累积合并 + 全量映射；即使 png 合并部分失败也必须执行
+        // 2) labels.json：累积合并 + 全量映射；即使 png 合并部分失败也必须执行。
+        //    所有来源（本机 activated/installed、本地累积、远端）统一先剔除退化值，
+        //    保证 labels.json 只持久化真实显示名，存量污染（旧版本写入的包名）在此自愈。
         runCatching {
-            val activated = packageRepository.queryActivated(OpType.BACKUP)
-            val labelMap: Map<String, String> = activated.associate { pkg ->
-                "${pkg.userId}-${pkg.packageName}" to pkg.packageInfo.label
-            }
-            val installedMap: Map<String, String> =
-                packageRepository.queryPackages(OpType.BACKUP, blocked = false)
-                    .associate { pkg -> "${pkg.userId}-${pkg.packageName}" to pkg.packageInfo.label }
-                    .filterValues { it.isNotEmpty() }
-            // 读旧累积 labels.json（仍从持久的 live 目录读，保留跨次累积）
-            val oldMap: Map<String, String> = File(liveIconDir, "labels.json").let { lf ->
-                if (lf.exists())
-                    runCatching { json.decodeFromString<Map<String, String>>(lf.readText()) }
-                        .getOrElse { emptyMap() }
-                else emptyMap()
-            }
-            // 远端 labels（远端覆盖本机）
-            val remoteMap: Map<String, String> =
-                if (remoteIconDir != null) File(remoteIconDir, "labels.json").let { rf ->
-                    if (rf.exists())
-                        runCatching { json.decodeFromString<Map<String, String>>(rf.readText()) }
-                            .getOrElse { emptyMap() }
-                    else emptyMap()
-                } else emptyMap()
+            val (labelMap, installedMap) = collectLocalLabels()
+
+            // 读旧累积 labels.json（从持久 live 目录读），剔除退化条目
+            val oldMap = readRealLabels(liveIconDir)
+
+            // 远端 labels，同样先清洗退化值，防止远端包名回流污染
+            val remoteMap = if (remoteIconDir != null) readRealLabels(remoteIconDir) else emptyMap()
 
             val mergedMap = oldMap + installedMap + labelMap
-            // 质量优先合并：
-            // - 本机缺失该键，或本机值为退化值（空/等于包名）→ 采用远端值（补充/救回）
-            // - 本机已有真实友好名 → 保留本机值，不被远端退化值覆盖
+            // 质量优先合并（此时所有源均已只含真实名）：
+            // - 本机缺失该键 → 远端补充（救回本机未安装应用的显示名）
+            // - 本机已有真实友好名 → 保留本机值
             val finalMap: Map<String, String> = run {
                 val result = mergedMap.toMutableMap()
-                var overriddenByRemote = 0   // 远端补充/覆盖了本机的条数
-                var keptLocal = 0            // 本机真实名被保留、拒绝远端覆盖的条数
+                var overriddenByRemote = 0   // 远端补充了本机缺失的条数
+                var keptLocal = 0            // 本机真实名被保留的条数
                 remoteMap.forEach { (k, remoteVal) ->
                     val localVal = result[k]
                     if (isDegradedLabel(k, localVal)) {
-                        // 本机缺失或退化：用远端（远端即便也退化，结果不更差）
-                        if (remoteVal != localVal) overriddenByRemote++
+                        // mergedMap 已无退化值，命中此分支即本机缺失：采用远端真实名
+                        overriddenByRemote++
                         result[k] = remoteVal
                     } else {
-                        // 本机是真实友好名：保留，不让远端退化值盖掉
                         keptLocal++
                     }
                 }
@@ -414,24 +425,12 @@ class PackagesBackupUtil @Inject constructor(
             log { "Failed to write labels.json: ${it.message}" }
         }
 
-        // 2.5) 打包前保障：staging 必须有 labels.json，否则用当前可得的 map 补写一次
+        // 2.5) 打包前保障：staging 必须有 labels.json，否则用当前可得的 map 补写一次（同样剔除退化值）
         runCatching {
             val stagingLabels = File(stagingIconDir, "labels.json")
             if (!stagingLabels.exists()) {
-                val activated = packageRepository.queryActivated(OpType.BACKUP)
-                val labelMap = activated.associate { pkg ->
-                    "${pkg.userId}-${pkg.packageName}" to pkg.packageInfo.label
-                }
-                val installedMap =
-                    packageRepository.queryPackages(OpType.BACKUP, blocked = false)
-                        .associate { pkg -> "${pkg.userId}-${pkg.packageName}" to pkg.packageInfo.label }
-                        .filterValues { it.isNotEmpty() }
-                val oldMap: Map<String, String> = File(liveIconDir, "labels.json").let { lf ->
-                    if (lf.exists())
-                        runCatching { json.decodeFromString<Map<String, String>>(lf.readText()) }
-                            .getOrElse { emptyMap() }
-                    else emptyMap()
-                }
+                val (labelMap, installedMap) = collectLocalLabels()
+                val oldMap = readRealLabels(liveIconDir)
                 stagingLabels.writeText(json.encodeToString(oldMap + installedMap + labelMap))
             }
             log { "labels.json presence before compress=${stagingLabels.exists()}, size=${stagingLabels.length()}" }
