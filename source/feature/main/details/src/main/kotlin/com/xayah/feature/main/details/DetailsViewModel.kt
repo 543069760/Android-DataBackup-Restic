@@ -236,15 +236,13 @@ class DetailsViewModel @Inject constructor(
 
     fun block(blocked: Boolean) {
         viewModelScope.launchOnDefault {
-            when (uiState.value) {
+            when (val state = uiState.value) {
                 is Success.App -> {
-                    val state = uiState.value.castTo<Success.App>()
-                    appsRepo.blockByIds(listOf(state.app.id))
+                    appsRepo.setBlocked(state.app.id, !blocked)
                 }
 
                 is Success.File -> {
-                    val state = uiState.value.castTo<Success.File>()
-                    filesRepo.blockByIds(listOf(state.file.id))
+                    filesRepo.setBlocked(state.file.id, !blocked)
                 }
 
                 else -> {}

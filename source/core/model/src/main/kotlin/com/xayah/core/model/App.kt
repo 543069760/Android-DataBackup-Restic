@@ -8,7 +8,8 @@ data class App(
     val isSystemApp: Boolean,
     val selectionFlag: Int,
     val selected: Boolean,
-    val backupTimestamp: Long = 0L,  // 新增
+    val backupTimestamp: Long = 0L,
     val isProtected: Boolean = false,
-    var resticSnapshotId: String? = null // 新增
+    val blocked: Boolean = false,
+    var resticSnapshotId: String? = null
 )

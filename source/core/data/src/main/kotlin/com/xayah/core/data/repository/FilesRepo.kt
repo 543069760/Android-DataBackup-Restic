@@ -96,6 +96,11 @@ class FilesRepo @Inject constructor(
         filesDao.blockByIds(ids)
     }
 
+    /** 设置/解除拉黑；复用 MediaRepository.setBlocked，与黑名单设置页行为一致 */
+    suspend fun setBlocked(id: Long, blocked: Boolean) {
+        mediaRepo.setBlocked(id, blocked)
+    }
+
     suspend fun deleteSelected(ids: List<Long>) {
         val filesDir = pathUtil.getLocalBackupFilesDir()
         val deletedIds = mutableListOf<Long>()

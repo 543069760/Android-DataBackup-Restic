@@ -139,12 +139,14 @@ internal fun AppDetails(
 
         Spacer(Modifier.height(SizeTokens.Level12))
 
-        val displayName = if (app.indexInfo.backupTimestamp > 0L) {
-            "${app.packageInfo.label} (${DateUtil.formatTimestamp(app.indexInfo.backupTimestamp, DateUtil.PATTERN_YMD_HMS)})"
-        } else {
-            app.packageInfo.label
+        // 应用名单独一行；有备份时间时再单独一行显示，避免与名称挤在同一行
+        HeadlineMediumText(text = app.packageInfo.label, color = ThemedColorSchemeKeyTokens.OnSurface.value)
+        if (app.indexInfo.backupTimestamp > 0L) {
+            BodyLargeText(
+                text = DateUtil.formatTimestamp(app.indexInfo.backupTimestamp, DateUtil.PATTERN_YMD_HMS),
+                color = ThemedColorSchemeKeyTokens.OnSurfaceVariant.value
+            )
         }
-        HeadlineMediumText(text = displayName, color = ThemedColorSchemeKeyTokens.OnSurface.value)
         BodyLargeText(text = app.packageName, color = ThemedColorSchemeKeyTokens.OnSurfaceVariant.value)
         LabelsFlow(opType = opType, app = app, refs = uiState.refs) { isShow = true }
 

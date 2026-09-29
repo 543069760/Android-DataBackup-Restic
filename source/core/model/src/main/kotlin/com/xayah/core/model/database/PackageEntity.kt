@@ -285,8 +285,9 @@ fun PackageEntity.asExternalModel() = App(
     isSystemApp = isSystemApp,
     selectionFlag = selectionFlag,
     selected = extraInfo.activated,
-    backupTimestamp = indexInfo.backupTimestamp,  // 新增
+    backupTimestamp = indexInfo.backupTimestamp,
     isProtected = extraInfo.isProtected,
+    blocked = extraInfo.blocked,
     resticSnapshotId = resticSnapshotId.let {
         // 添加日志
         Log.d("ResticFlow", "asExternalModel() - packageName: $packageName, resticSnapshotId: $it")

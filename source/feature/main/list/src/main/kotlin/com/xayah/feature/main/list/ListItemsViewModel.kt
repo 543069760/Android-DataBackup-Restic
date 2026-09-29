@@ -59,7 +59,14 @@ class ListItemsViewModel @Inject constructor(
     fun onSelectedChanged(id: Long, selected: Boolean) {
         viewModelScope.launchOnDefault {
             when (target) {
-                Target.Apps -> appsRepo.selectApp(id, selected)
+                Target.Apps -> {
+                    // 黑名单应用任何时候都不允许被选中（UI 置灰之外的兜底）；取消选中仍放行
+                    val app = (uiState.value as? Success.Apps)?.appList?.firstOrNull { it.id == id }
+                    if (!(app?.blocked == true && selected)) {
+                        appsRepo.selectApp(id, selected)
+                    }
+                }
+
                 Target.Files -> filesRepo.selectFile(id, selected)
             }
         }

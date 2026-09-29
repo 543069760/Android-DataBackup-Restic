@@ -400,9 +400,9 @@ fun ActionChip(
     ActionButton(
         modifier = modifier,
         enabled = enabled,
-        icon = if (selected) Icons.Rounded.Check else icon,
+        icon = icon,
         colorContainer = if (selected) ThemedColorSchemeKeyTokens.PrimaryContainer else ThemedColorSchemeKeyTokens.SurfaceContainerHigh,
-        onColorContainer = if (selected) ThemedColorSchemeKeyTokens.PrimaryContainer else ThemedColorSchemeKeyTokens.OnSurface,
+        onColorContainer = if (selected) ThemedColorSchemeKeyTokens.OnPrimaryContainer else ThemedColorSchemeKeyTokens.OnSurface,
         onClick = onClick
     ) {
         Column(modifier = Modifier.weight(1f)) {

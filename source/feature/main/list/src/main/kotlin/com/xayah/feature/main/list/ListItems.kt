@@ -3,6 +3,7 @@ package com.xayah.feature.main.list
 import android.util.Log
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -17,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.rounded.Folder
@@ -96,6 +98,7 @@ fun LazyListScope.listItems(
                         label = item.label,
                         backupTimestamp = item.backupTimestamp,
                         isProtected = item.isProtected,
+                        blocked = item.blocked,
                         flag = item.selectionFlag,
                         selected = item.selected,
                         resticSnapshotId = item.resticSnapshotId,
@@ -147,6 +150,7 @@ fun AppItem(
     flag: Int,
     selected: Boolean,
     resticSnapshotId: String?,
+    blocked: Boolean,
     onChangeFlag: (Long, Int) -> Unit,
     onSelectedChanged: (Long, Boolean) -> Unit,
     onClick: () -> Unit,
@@ -162,11 +166,16 @@ fun AppItem(
             PackageIconImage(packageName = packageName, size = SizeTokens.Level32)
 
             Column(modifier = Modifier.weight(1f)) {
-                // 第1行: APP名称(不包含时间戳)
+                // 第1行: APP名称
                 TitleLargeText(
                     text = label.ifEmpty { stringResource(id = R.string.unknown) },
                     maxLines = 1
                 )
+
+                // 黑名单胶囊独立一行，位于名称与包名之间
+                if (blocked) {
+                    BlacklistBadge()
+                }
 
                 // 第2行: 包名
                 BodyMediumText(
@@ -194,8 +203,7 @@ fun AppItem(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }else {
-                    // 添加日志
+                } else {
                     Log.d("ResticFlow", "AppItem UI - resticSnapshotId is null for $packageName")
                 }
             }
@@ -204,7 +212,7 @@ fun AppItem(
                 if (isProtected) {
                     Icon(modifier = Modifier.fillMaxHeight(), imageVector = Icons.Outlined.Shield, contentDescription = null)
                 }
-                AnimatedDataIndicator(flag) {
+                AnimatedDataIndicator(flag, enabled = !blocked) {
                     onChangeFlag(id, flag)
                 }
             }
@@ -213,7 +221,8 @@ fun AppItem(
             )
             Checkbox(
                 checked = selected,
-                onCheckedChange = { onSelectedChanged(id, selected.not()) }
+                onCheckedChange = { onSelectedChanged(id, selected.not()) },
+                enabled = !blocked
             )
         }
     }
@@ -268,7 +277,7 @@ fun FileItem(
                         maxLines = 1
                     )
                 }
-               // 显示快照ID（如果有）
+                // 显示快照ID（如果有）
                 if (resticSnapshotId != null) {
                     Log.d("ResticFlow", "FileItem UI - displaying snapshot for $name: ${resticSnapshotId.substring(0, 5)}...")
                     Text(
@@ -301,6 +310,7 @@ fun FileItem(
 @Composable
 fun AnimatedDataIndicator(
     flag: Int,
+    enabled: Boolean = true,
     onClick: (Int) -> Unit,
 ) {
     AnimatedContent(targetState = flag, label = AnimationTokens.AnimatedContentLabel) { f ->
@@ -336,9 +346,27 @@ fun AnimatedDataIndicator(
                     PackageEntity.FLAG_ALL -> ThemedColorSchemeKeyTokens.GreenPrimary.value
                     else -> ThemedColorSchemeKeyTokens.YellowPrimary.value
                 },
+                enabled = enabled,
             ) {
                 onClick.invoke(f)
             }
         }
     }
+}
+
+/** 红色「黑名单」胶囊，跟在应用名后；不参与 weight，始终完整显示 */
+@Composable
+private fun BlacklistBadge() {
+    Text(
+        text = stringResource(id = R.string.blacklist),
+        style = MaterialTheme.typography.labelSmall,
+        color = ThemedColorSchemeKeyTokens.Error.value,
+        maxLines = 1,
+        modifier = Modifier
+            .background(
+                color = ThemedColorSchemeKeyTokens.Error.value.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(50)
+            )
+            .padding(horizontal = SizeTokens.Level8, vertical = SizeTokens.Level2)
+    )
 }

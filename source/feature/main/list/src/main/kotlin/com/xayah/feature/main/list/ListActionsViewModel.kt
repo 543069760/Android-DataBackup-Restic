@@ -116,7 +116,8 @@ class ListActionsViewModel @Inject constructor(
             when (uiState.value) {
                 is Success.Apps -> {
                     val state = uiState.value.castTo<Success.Apps>()
-                    appsRepo.selectAll(state.appList.map { it.id })
+                    // 黑名单应用在任何时候都不参与全选
+                    appsRepo.selectAll(state.appList.filter { !it.blocked }.map { it.id })
                 }
 
                 is Success.Files -> {
@@ -154,7 +155,8 @@ class ListActionsViewModel @Inject constructor(
             when (uiState.value) {
                 is Success.Apps -> {
                     val state = uiState.value.castTo<Success.Apps>()
-                    appsRepo.reverseAll(state.appList.map { it.id })
+                    // 黑名单应用在任何时候都不参与反选
+                    appsRepo.reverseAll(state.appList.filter { !it.blocked }.map { it.id })
                 }
 
                 is Success.Files -> {

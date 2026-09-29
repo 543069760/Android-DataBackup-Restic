@@ -107,7 +107,7 @@ class AppsRepo @Inject constructor(
         backupDir: String
     ): Flow<List<App>> = combine(
         listData, pkgUserSet, refs, labels, when (opType) {
-            OpType.BACKUP -> appsDao.queryPackagesFlow(opType = opType, blocked = false)
+            OpType.BACKUP -> appsDao.queryPackagesFlow(opType = opType)
             OpType.RESTORE -> appsDao.queryPackagesFlow(
                 opType = opType, cloud = cloudName, backupDir = backupDir
             )
@@ -139,7 +139,7 @@ class AppsRepo @Inject constructor(
                 packageRepo.getSortComparatorNew(
                     sortIndex = data.sortIndex, sortType = data.sortType
                 )
-            ).sortedByDescending { p -> p.extraInfo.activated }.toList()
+            ).sortedByDescending { p -> p.extraInfo.activated || p.extraInfo.blocked }.toList()
             .map(PackageEntity::asExternalModel)
     }.flowOn(defaultDispatcher)
 
@@ -187,6 +187,10 @@ class AppsRepo @Inject constructor(
         appsDao.blockByIds(ids)
     }
 
+    /** 设置/解除拉黑；复用 PackageRepository.setBlocked，与黑名单设置页行为一致 */
+    suspend fun setBlocked(id: Long, blocked: Boolean) {
+        packageRepo.setBlocked(id, blocked)
+    }
     suspend fun setEnabled(id: Long, enabled: Boolean) {
         appsDao.setEnabled(id, enabled)
     }
