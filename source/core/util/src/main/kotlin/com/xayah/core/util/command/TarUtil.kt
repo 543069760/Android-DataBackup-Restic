@@ -33,13 +33,26 @@ object Tar {
             out.add("Failed to call tar cli: ${it.message}")
             -1
         }
-        runCatching { out.addAll(stdErr.readLines()) }
+        // stderr 去重兜底：tar 逐文件告警（如 flistxattr）累积数万行会撑爆详情页 log。
+        // 重复告警折叠为一条并标注次数，保持原有行序。
+        runCatching {
+            val lines = stdErr.readLines()
+            val counts = lines.groupingBy { it }.eachCount()
+            lines.distinct().forEach { line ->
+                val c = counts.getValue(line)
+                out.add(if (c > 1) "$line (x$c)" else line)
+            }
+        }
         stdOut.delete()
         stdErr.delete()
         ShellResult(code = status, input = argv.toList(), out = out)
     }
 
-    // 落盘压缩：产出真实 .tar 文件
+    // 落盘压缩：产出真实 .tar 文件（媒体备份路径）
+    // 不带 --xattrs/--acls/--selinux：本 build 的 tar 无 ACL/SELinux 支持（参数只产生 "not available" 告警），
+    // 且 /sdcard/OTG（FUSE/sdcardfs）不支持 xattr，--xattrs 会对每个文件打 "Cannot flistxattr" 告警，
+    // 文件多（如 DCIM）时 stderr 累积数万行撑爆详情页 log，展开时测量高度超 Constraints 上限导致崩溃。
+    // 媒体文件的 SELinux 标签由挂载层按路径策略合成，无需归档保存。
     suspend fun compressToFile(
         cacheDir: String,
         callTar: CallTar,
@@ -49,7 +62,7 @@ object Tar {
         src: String,
         dst: String,
     ): ShellResult {
-        val argv = mutableListOf("tar", "--xattrs", "--xattrs-include=*", "--acls", "--selinux", "--totals")
+        val argv = mutableListOf("tar", "--totals")
         exclusionList.trim().forEach { argv.add("--exclude=$it") }
         if (h.isNotEmpty()) argv.add(h)
         argv.addAll(listOf("-cpf", dst, "-C", srcDir, "--", src))
@@ -92,6 +105,8 @@ object Tar {
     }
 
     // 落盘压缩（多文件）：把 srcDir 下多个文件打进同一个 .tar（backupApk 用）
+    // 保留 --xattrs：app 数据在 /data（ext4/f2fs），flistxattr 可正常捕获 security.selinux 等属性；
+    // 去掉 --acls/--selinux：本 build 的 tar 无此支持，参数仅产生 "not available" 告警（SELinux 恢复由 chcon 负责）。
     suspend fun compressFilesToFile(
         cacheDir: String,
         callTar: CallTar,
@@ -99,7 +114,7 @@ object Tar {
         files: List<String>,
         dst: String,
     ): ShellResult {
-        val argv = mutableListOf("tar", "--xattrs", "--xattrs-include=*", "--acls", "--selinux", "--totals")
+        val argv = mutableListOf("tar", "--xattrs", "--xattrs-include=*", "--totals")
         argv.addAll(listOf("-cpf", dst, "-C", srcDir, "--"))
         argv.addAll(files)
         return runToFiles(cacheDir, argv.toTypedArray(), callTar)
@@ -116,7 +131,7 @@ object Tar {
     ): ShellResult {
         val argv = mutableListOf(
             "tar",
-            "--xattrs", "--xattrs-include=*", "--acls", "--selinux",
+            "--xattrs", "--xattrs-include=*",
             "--totals",
             "-C", cur,
             "-cpf", dst,
@@ -135,7 +150,8 @@ object Tar {
         src: String,
         dst: String,
     ): ShellResult {
-        val argv = mutableListOf("tar", "--xattrs", "--xattrs-include=*", "--acls", "--selinux", "--totals")
+        // 保留 --xattrs（/data 上生效）；去掉 --acls/--selinux（本 build 无支持，仅产生告警）
+        val argv = mutableListOf("tar", "--xattrs", "--xattrs-include=*", "--totals")
         if (h.isNotEmpty()) argv.add(h)
         exclusionList.trim().forEach { argv.add("--exclude=$it") }
         argv.addAll(listOf("-cpf", dst, "-C", srcDir, "--", src))

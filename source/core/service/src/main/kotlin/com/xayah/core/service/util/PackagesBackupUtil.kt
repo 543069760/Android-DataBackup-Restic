@@ -72,9 +72,12 @@ class PackagesBackupUtil @Inject constructor(
         msg
     }
 
-    // JNI tar 的公共 argv 前缀（xattr/selinux 往返一致，两端必须相同）
+    // JNI tar 的公共 argv 前缀。
+    // 保留 --xattrs：/data（ext4/f2fs）上真实捕获 security.selinux 等扩展属性；
+    // 去掉 --acls/--selinux：本 build 的 tar 编译时未启用 ACL/SELinux，参数仅产生固定告警；
+    // SELinux 恢复保真由 PackagesRestoreUtil 中的 SELinux.getContext + chcon 兜底（tar 记录优先、代码兜底）。
     private val tarHeader =
-        arrayOf("tar", "--xattrs", "--xattrs-include=*", "--acls", "--selinux", "--totals")
+        arrayOf("tar", "--xattrs", "--xattrs-include=*", "--totals")
 
     /** callTar lambda：交给 root 进程执行 GNU tar */
     private val callTar = Tar.CallTar { stdOut, stdErr, argv ->
