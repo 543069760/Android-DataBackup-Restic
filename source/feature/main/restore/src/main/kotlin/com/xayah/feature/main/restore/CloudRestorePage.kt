@@ -24,11 +24,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.SnapshotStateList
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -42,6 +41,8 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material.icons.rounded.UnfoldLess
+import androidx.compose.material.icons.rounded.UnfoldMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import com.xayah.core.ui.component.DropdownMenuItem
@@ -71,6 +72,10 @@ fun CloudRestorePage(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val iconVersion by viewModel.iconVersion.collectAsStateWithLifecycle()
+    // 列表聚合模式（默认开启）：同 app 收敛为一行，展开查看该 app 的全部快照
+    val groupedMode by viewModel.groupedMode.collectAsStateWithLifecycle()
+    // 聚合模式下各 app 组的展开状态：key = "${userId}-${packageName}"
+    val expandedGroups = remember { mutableStateMapOf<String, Boolean>() }
     val accountId = encodeAccountId(accountName.replace("accountName=", "").decodeURL())
     val scope = rememberCoroutineScope()
 
@@ -159,6 +164,12 @@ fun CloudRestorePage(
             stringResource(R.string.restore_cloud_restic_restore_title),
         topBarActions = {
             var checkListExpanded by remember { mutableStateOf(false) }
+            // 聚合模式切换：同 app 只显示一行（默认），点开展示多版本快照
+            IconButton(
+                icon = if (groupedMode) Icons.Rounded.UnfoldLess else Icons.Rounded.UnfoldMore
+            ) {
+                viewModel.toggleGroupedMode()
+            }
             Box(modifier = Modifier.wrapContentSize(Alignment.TopStart)) {
                 IconButton(icon = Icons.Rounded.Checklist) {
                     checkListExpanded = true
@@ -285,54 +296,94 @@ fun CloudRestorePage(
                                 modifier = Modifier.weight(1f),
                                 verticalArrangement = Arrangement.spacedBy(SizeTokens.Level8)
                             ) {
-                                items(
-                                    filteredGroups,
-                                    key = { item: ResticBackupGroup -> "${item.userId}-${item.packageName}-${item.timestamp}" }
-                                ) { group: ResticBackupGroup ->
-                                    val hasConfigSnapshot =
-                                        group.backups.any { it.dataType == DataType.PACKAGE_CONFIG }
-                                    val key = keyOf(group)
-                                    val checked = selectedKeys.contains(key)
+                                if (groupedMode) {
+                                    // 聚合模式：按 (userId, packageName) 分组，每组一行，展开显示全部快照
+                                    val groupedList = filteredGroups
+                                        .groupBy { appKey(it) }
+                                        .values
+                                        .map { list -> list.sortedByDescending { it.timestamp } }
+                                        .sortedByDescending { it.first().timestamp }
 
-                                    ResticBackupGroupItem(
-                                        group = group,
-                                        selectable = hasConfigSnapshot,   // 不完整备份不可选
-                                        selected = checked,
-                                        onSelectedChange = { want ->
-                                            if (want) {
-                                                // ★ (packageName, userId) 维度互斥：勾选新版本前，先剔除同一应用同用户的其它已选版本
-                                                val dup = selectedKeys.filter { k ->
-                                                    val parts = k.split("-", limit = 3)
-                                                    parts.size == 3 &&
-                                                            parts[0] == group.userId.toString() &&
-                                                            parts[1] == group.packageName
+                                    items(
+                                        groupedList,
+                                        key = { list: List<ResticBackupGroup> -> "${list.first().userId}-${list.first().packageName}" }
+                                    ) { snapshots: List<ResticBackupGroup> ->
+                                        val key = appKey(snapshots.first())
+                                        val expanded = expandedGroups[key] ?: false
+                                        val hasSelected = snapshots.any { selectedKeys.contains(keyOf(it)) }
+
+                                        ResticAppGroupItem(
+                                            snapshots = snapshots,
+                                            expanded = expanded,
+                                            hasSelected = hasSelected,
+                                            onToggleExpand = { expandedGroups[key] = !expanded },
+                                            context = LocalContext.current,
+                                            accountId = accountId,
+                                            iconVersion = iconVersion,
+                                            selectedKeys = selectedKeys,
+                                            onSnapshotSelect = label@ { group, checked ->
+                                                val selectable = group.backups.any { it.dataType == DataType.PACKAGE_CONFIG }
+                                                if (!selectable) return@label
+                                                if (checked) selectExclusive(group) else selectedKeys.remove(keyOf(group))
+                                            },
+                                            onSnapshotClick = { group ->
+                                                // 行点击统一进入详情页（勾选交给右侧复选框）
+                                                try {
+                                                    val groupJson = Json.encodeToString(group)
+                                                    val encodedJson = URLEncoder.encode(groupJson, "UTF-8")
+                                                    val cleanAccountName = accountName.replace("accountName=", "")
+                                                    val encodedAccountName = URLEncoder.encode(cleanAccountName, "UTF-8")
+                                                    val url = MainRoutes.CloudBackupDetail.getRoute(
+                                                        encodedJson,
+                                                        encodedAccountName
+                                                    )
+                                                    navController.navigateSingle(url)
+                                                } catch (e: Exception) {
+                                                    Log.e("CloudRestorePage", "点击事件处理失败", e)
                                                 }
-                                                selectedKeys.removeAll(dup)
-                                                if (!selectedKeys.contains(key)) selectedKeys.add(key)
-                                            } else {
-                                                selectedKeys.remove(key)
                                             }
-                                        },
-                                        onClick = {
-                                            // 行点击统一进入详情页（勾选交给右侧复选框）
-                                            try {
-                                                val groupJson = Json.encodeToString(group)
-                                                val encodedJson = URLEncoder.encode(groupJson, "UTF-8")
-                                                val cleanAccountName = accountName.replace("accountName=", "")
-                                                val encodedAccountName = URLEncoder.encode(cleanAccountName, "UTF-8")
-                                                val url = MainRoutes.CloudBackupDetail.getRoute(
-                                                    encodedJson,
-                                                    encodedAccountName
-                                                )
-                                                navController.navigateSingle(url)
-                                            } catch (e: Exception) {
-                                                Log.e("CloudRestorePage", "点击事件处理失败", e)
-                                            }
-                                        },
-                                        context = LocalContext.current,
-                                        accountId = accountId,
-                                        iconVersion = iconVersion
-                                    )
+                                        )
+                                    }
+                                } else {
+                                    // 平铺模式：原有逐快照行
+                                    items(
+                                        filteredGroups,
+                                        key = { item: ResticBackupGroup -> "${item.userId}-${item.packageName}-${item.timestamp}" }
+                                    ) { group: ResticBackupGroup ->
+                                        val hasConfigSnapshot =
+                                            group.backups.any { it.dataType == DataType.PACKAGE_CONFIG }
+                                        val key = keyOf(group)
+                                        val checked = selectedKeys.contains(key)
+
+                                        ResticBackupGroupItem(
+                                            group = group,
+                                            selectable = hasConfigSnapshot,   // 不完整备份不可选
+                                            selected = checked,
+                                            onSelectedChange = { want ->
+                                                // (userId, packageName) 维度互斥：勾选新版本前剔除同 app 同用户的其它已选版本
+                                                if (want) selectExclusive(group) else selectedKeys.remove(key)
+                                            },
+                                            onClick = {
+                                                // 行点击统一进入详情页（勾选交给右侧复选框）
+                                                try {
+                                                    val groupJson = Json.encodeToString(group)
+                                                    val encodedJson = URLEncoder.encode(groupJson, "UTF-8")
+                                                    val cleanAccountName = accountName.replace("accountName=", "")
+                                                    val encodedAccountName = URLEncoder.encode(cleanAccountName, "UTF-8")
+                                                    val url = MainRoutes.CloudBackupDetail.getRoute(
+                                                        encodedJson,
+                                                        encodedAccountName
+                                                    )
+                                                    navController.navigateSingle(url)
+                                                } catch (e: Exception) {
+                                                    Log.e("CloudRestorePage", "点击事件处理失败", e)
+                                                }
+                                            },
+                                            context = LocalContext.current,
+                                            accountId = accountId,
+                                            iconVersion = iconVersion
+                                        )
+                                    }
                                 }
                             }
                         }

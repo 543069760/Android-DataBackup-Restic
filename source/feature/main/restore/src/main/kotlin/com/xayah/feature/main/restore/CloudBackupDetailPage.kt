@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,7 +50,7 @@ import com.xayah.core.util.encodeAccountId
 import com.xayah.core.util.decodeURL
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun CloudBackupDetailPage(
     navController: NavController,
@@ -165,25 +167,57 @@ fun CloudBackupDetailPage(
                 )
 
                 Column {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        TitleLargeText(text = group.appLabel)
-                        if (group.userId != 0) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                shape = RoundedCornerShape(50)
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.restore_clone_app),
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                )
+                    // 第一行：app 名称独占一行，不再被胶囊挤压
+                    TitleLargeText(text = group.appLabel)
+
+                    // 第二行：分身标记 + 用户 ID + 备份不完整胶囊（FlowRow，空间不足自动折行）
+                    val hasConfigSnapshot = group.backups.any { it.dataType == DataType.PACKAGE_CONFIG }
+                    if (group.userId != 0 || !hasConfigSnapshot) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            if (group.userId != 0) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    shape = RoundedCornerShape(50)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.restore_clone_app),
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                                val (chipBg, chipFg) = userChipColors(group.userId)
+                                Surface(
+                                    color = chipBg,
+                                    shape = RoundedCornerShape(50)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.restore_user_id, group.userId),
+                                        color = chipFg,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            if (!hasConfigSnapshot) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.errorContainer,
+                                    shape = RoundedCornerShape(50)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.restore_backup_incomplete),
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
                             }
                         }
                     }
+
                     BodyMediumText(
                         text = group.packageName,
                         color = ThemedColorSchemeKeyTokens.Outline.value

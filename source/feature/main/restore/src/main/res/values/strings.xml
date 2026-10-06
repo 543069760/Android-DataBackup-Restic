@@ -74,4 +74,6 @@
     <string name="unselect_all">Unselect all</string>
     <string name="reverse_selection">Reverse selection</string>
     <string name="restore_multi_snapshot_hint">Multiple backup snapshots detected for the same app. The latest version has been selected by default. Please confirm the correct snapshot to restore.</string>
+    <string name="restore_group_backup_count">%1$d backups</string>
+    <string name="restore_user_id">CloneUserID %1$d</string>
 </resources>

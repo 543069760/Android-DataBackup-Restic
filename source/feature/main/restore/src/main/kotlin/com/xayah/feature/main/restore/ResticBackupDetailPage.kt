@@ -29,6 +29,8 @@ import androidx.navigation.NavController
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.rememberCoroutineScope
 import com.xayah.core.ui.component.LocalSlotScope
@@ -47,7 +49,7 @@ import com.xayah.feature.main.restore.R
 import com.xayah.feature.main.restore.ResticBackupGroup
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalAnimationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalAnimationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun ResticBackupDetailPage(
     navController: NavController,
@@ -163,22 +165,50 @@ fun ResticBackupDetailPage(
                 )
 
                 Column {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        TitleLargeText(text = group.appLabel)
-                        if (group.userId != 0) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                shape = RoundedCornerShape(50)
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.restore_clone_app),
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                )
+                    TitleLargeText(text = group.appLabel)
+                    val hasConfigSnapshot = group.backups.any { it.dataType == DataType.PACKAGE_CONFIG }
+                    if (group.userId != 0 || !hasConfigSnapshot) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            if (group.userId != 0) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    shape = RoundedCornerShape(50)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.restore_clone_app),
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                                val (chipBg, chipFg) = userChipColors(group.userId)
+                                Surface(
+                                    color = chipBg,
+                                    shape = RoundedCornerShape(50)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.restore_user_id, group.userId),
+                                        color = chipFg,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            if (!hasConfigSnapshot) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.errorContainer,
+                                    shape = RoundedCornerShape(50)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.restore_backup_incomplete),
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
                             }
                         }
                     }

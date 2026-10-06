@@ -65,4 +65,6 @@
     <string name="unselect_all">取消全选</string>
     <string name="reverse_selection">反选</string>
     <string name="restore_multi_snapshot_hint">检测到同一应用存在多个备份快照，已默认勾选最新版本，请确认需恢复的快照是否正确</string>
+    <string name="restore_group_backup_count">共 %1$d 个备份</string>
+    <string name="restore_user_id">分身用户ID %1$d</string>
 </resources>

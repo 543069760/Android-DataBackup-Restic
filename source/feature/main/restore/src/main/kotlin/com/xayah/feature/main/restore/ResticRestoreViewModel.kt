@@ -113,6 +113,14 @@ class ResticRestoreViewModel @Inject constructor(
     private val _iconVersion = MutableStateFlow(0)
     val iconVersion: StateFlow<Int> = _iconVersion.asStateFlow()
 
+    // 列表聚合模式：true = 同 app 只显示一行、点开展示多版本快照；false = 平铺（原行为）
+    private val _groupedMode = MutableStateFlow(true)
+    val groupedMode: StateFlow<Boolean> = _groupedMode.asStateFlow()
+
+    fun toggleGroupedMode() {
+        _groupedMode.value = !_groupedMode.value
+    }
+
     // 添加进度状态跟踪
     private val _resticProgress = MutableStateFlow<ResticProgressState>(ResticProgressState())
     val resticProgress: StateFlow<ResticProgressState> = _resticProgress.asStateFlow()

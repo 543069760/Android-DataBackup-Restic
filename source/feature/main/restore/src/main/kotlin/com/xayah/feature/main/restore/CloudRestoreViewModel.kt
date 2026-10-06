@@ -199,7 +199,14 @@ class CloudRestoreViewModel @Inject constructor(
     // 图标版本信号：图标解压完成后自增，触发列表项 PackageIconImage 重新取图
     private val _iconVersion = MutableStateFlow(0)
     val iconVersion: StateFlow<Int> = _iconVersion.asStateFlow()
+    // 列表聚合模式：true = 同 app 只显示一行、点开展示多版本快照；false = 平铺
+    // 默认开启聚合模式，用户可通过顶栏按钮切换到平铺
+    private val _groupedMode = MutableStateFlow(true)
+    val groupedMode: StateFlow<Boolean> = _groupedMode.asStateFlow()
 
+    fun toggleGroupedMode() {
+        _groupedMode.value = !_groupedMode.value
+    }
     private val _resticProgress = MutableStateFlow(ResticProgressState())
     val resticProgress: StateFlow<ResticProgressState> = _resticProgress.asStateFlow()
 
