@@ -64,6 +64,37 @@ object Rustic {
         )
     }
 
+    /**
+     * 流式快照：rustic 直接从 fd（pipe 读端）读数据做 CDC 去重，tar 归档不落盘。
+     * fd 所有权由 Rust 侧接管（成功/失败均会关闭），调用方不要再 close。
+     * @param fd 管道读端文件描述符（tar -cpf - 的 stdout 对端）
+     * @param filename 快照内的逻辑文件名，如 "user.tar"
+     * @return JSON：{"snapshotId":"...","fedBytes":N}，fedBytes 用于和 tar --totals 对账
+     */
+    fun createSnapshotFromFd(
+        repositoryPath: String,
+        password: String,
+        fd: Int,
+        filename: String,
+        tags: List<String> = emptyList(),
+        options: Map<String, String> = emptyMap(),
+        callback: Any? = null,
+        cancelId: Long = 0L,
+    ): String {
+        val (optionKeys, optionValues) = options.toKeyValueArrays()
+        return nativeCreateSnapshotFromFd(
+            repositoryPath,
+            password,
+            optionKeys,
+            optionValues,
+            fd,
+            filename,
+            tags.toTypedArray(),
+            callback,
+            cancelId,
+        )
+    }
+
     fun cancelBackup(cancelId: Long) {
         android.util.Log.i("RusticCancel", "kt Rustic.cancelBackup id=$cancelId (about to call native)")
         nativeCancelBackup(cancelId)
@@ -196,6 +227,18 @@ object Rustic {
         optionKeys: Array<String>,
         optionValues: Array<String>,
         sourcePaths: Array<String>,
+        tags: Array<String>,
+        callback: Any?,
+        cancelId: Long,
+    ): String
+
+    private external fun nativeCreateSnapshotFromFd(
+        repositoryPath: String,
+        password: String,
+        optionKeys: Array<String>,
+        optionValues: Array<String>,
+        fd: Int,
+        filename: String,
         tags: Array<String>,
         callback: Any?,
         cancelId: Long,

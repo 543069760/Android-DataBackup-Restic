@@ -4,9 +4,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use rusqlite::{Connection, params};
 use rustic_backend::{BackendOptions, OpenDALBackend};
+use std::os::unix::io::FromRawFd;
+
 use rustic_core::{
-    BackupOptions, CheckOptions, ConfigOptions, Credentials, Excludes, KeyOptions, LimitOption,
-    LocalDestination, LsOptions, OpenStatus, PathList, PruneOptions, Repository,
+    BackupOptions, CheckOptions, ConfigOptions, Credentials, Excludes, FdSource, KeyOptions,
+    LimitOption, LocalDestination, LsOptions, OpenStatus, PathList, PruneOptions, Repository,
     RepositoryBackends, RepositoryOptions, RestoreOptions, SnapshotOptions, WriteBackend,
 };
 
@@ -135,8 +137,18 @@ pub fn create_snapshot_with_progress<C: RusticProgressCallback>(
     let counter: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
 
     // 关键修复：把 cancel flag 传进去，opendal 后端才会被 wrap_write_backends 包住。
-    let backends =
-        backends_with_progress(repository_path, options, counter.clone(), cancel.clone(), cancel_id)?;
+    // 失败时必须 unregister——此时 poll 线程尚未 spawn，只需注销 cancel 注册，
+    // 否则 cancel map 里残留条目，同一 cancel_id 复用时行为不确定。
+    let backends = match backends_with_progress(
+        repository_path, options, counter.clone(), cancel.clone(), cancel_id,
+    ) {
+        Ok(b) => b,
+        Err(e) => {
+            crate::cancel::unregister(cancel_id);
+            log::info!("[RusticCancel] unregister id={} (backends err)", cancel_id);
+            return Err(e);
+        }
+    };
 
     let stop = Arc::new(AtomicBool::new(false));
     let poll_handle = {
@@ -212,6 +224,176 @@ fn create_snapshot_from_repository(
             Err(e.into())
         }
     }
+}
+
+/// fd 直通流式备份：tar stdout 经 pipe 直接喂给 rustic，tar 归档不落盘。
+///
+/// 与 create_snapshot_with_progress 的差异仅在于备份源：
+/// 后者传 PathList（磁盘文件路径集合），本函数传 FdSource（pipe 读端 fd）。
+///
+/// 返回值：JSON 字符串 {"snapshotId":"<hex>","fedBytes":<u64>}，
+/// fedBytes 是 rustic 实际从 fd 读到的字节数，供 Kotlin 侧与 tar --totals 对账。
+/// 注意：即使返回 Err，已写入仓库的 pack 仍可能存在（孤儿数据，等 prune 回收），
+/// 若错误发生在快照提交之后，JSON 里的 snapshotId 不可得，由 Kotlin 侧按 fedBytes/totals 判定后另行 forget。
+///
+/// fd 所有权约定：本函数接管 fd——正常路径在 to_indexed_ids 成功后
+/// 立即转为 File 并交给 FdSource 持有；to_indexed_ids / repo open 失败时
+/// 由本函数显式 close；调用方（RemoteRootServiceImpl）在任何情况下都不要重复关闭。
+pub fn create_snapshot_from_fd_with_progress<C: RusticProgressCallback>(
+    repository_path: &str,
+    password: &str,
+    fd: std::os::unix::io::RawFd,
+    stdin_filename: &str,
+    tags: &[String],
+    options: &HashMap<String, String>,
+    callback: C,
+    cancel_id: i64,
+) -> Result<String> {
+    // 只 register 一次；这个 flag 既给后端 wrapper 用，也给 backup 用。
+    let cancel = crate::cancel::register(cancel_id);
+    log::info!("[RusticCancel] register id={} (fd source)", cancel_id);
+
+    let shared = Arc::new(SharedProgress::new(Arc::new(callback)));
+    let counter: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
+
+    // 与 create_snapshot_with_progress 相同：cancel flag 传进后端 wrapper。
+    // 失败时必须 unregister——此时 poll 线程尚未 spawn，只需注销 cancel 注册，
+    // 否则 cancel map 里残留条目，同一 cancel_id 复用时行为不确定。
+    let backends = match backends_with_progress(
+        repository_path,
+        options,
+        counter.clone(),
+        cancel.clone(),
+        cancel_id,
+    ) {
+        Ok(b) => b,
+        Err(e) => {
+            crate::cancel::unregister(cancel_id);
+            log::info!(
+                "[RusticCancel] unregister id={} (fd source, backends err)",
+                cancel_id
+            );
+            return Err(e);
+        }
+    };
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let poll_handle = {
+        let shared = shared.clone();
+        let counter = counter.clone();
+        let stop = stop.clone();
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                shared.set_written_absolute(counter.load(Ordering::Relaxed));
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+        })
+    };
+
+    let repo = Repository::new_with_progress(
+        &RepositoryOptions::default(),
+        &backends,
+        AndroidProgressBars::new(shared.clone()),
+    )
+    .and_then(|r| r.open(&Credentials::password(password)));
+
+    // rustic 侧实际读到的字节数，由 FdSource 内的 CountingFdReader 累计，
+    // 用于 Kotlin 侧与 tar stderr 里 "Total bytes written: N" 做完整性对账。
+    let fed: Arc<AtomicU64> = Arc::new(AtomicU64::new(0));
+
+    let result = match repo {
+        Ok(repo) => {
+            // 与 create_snapshot_from_repository 同构，但 source 换 FdSource。
+            let repo = match repo.to_indexed_ids() {
+                Ok(r) => r,
+                Err(e) => {
+                    drop(unsafe { std::fs::File::from_raw_fd(fd) }); // 关 fd，防泄漏
+                    stop.store(true, Ordering::Relaxed);
+                    let _ = poll_handle.join();
+                    shared.set_written_absolute(counter.load(Ordering::Relaxed));
+                    shared.finish();
+                    crate::cancel::unregister(cancel_id);
+                    return Err(e.into());
+                }
+            };
+
+            let backup_path = std::path::PathBuf::from(stdin_filename);
+            let file = unsafe { std::fs::File::from_raw_fd(fd) };
+            let source = FdSource::new(backup_path.clone(), file, fed.clone());
+
+            let snapshot_options = match tags
+                .iter()
+                .try_fold(SnapshotOptions::default(), |opts, tag| opts.add_tags(tag))
+            {
+                Ok(o) => o,
+                Err(e) => {
+                    drop(source); // 连带关 fd
+                    stop.store(true, Ordering::Relaxed);
+                    let _ = poll_handle.join();
+                    shared.set_written_absolute(counter.load(Ordering::Relaxed));
+                    shared.finish();
+                    crate::cancel::unregister(cancel_id);
+                    return Err(e.into());
+                }
+            };
+
+            // to_snapshot 失败同样要全清理：drop(source) 关 fd、停 poll 线程、注销 cancel。
+            let snap = match snapshot_options.to_snapshot() {
+                Ok(s) => s,
+                Err(e) => {
+                    drop(source); // 连带关 fd
+                    stop.store(true, Ordering::Relaxed);
+                    let _ = poll_handle.join();
+                    shared.set_written_absolute(counter.load(Ordering::Relaxed));
+                    shared.finish();
+                    crate::cancel::unregister(cancel_id);
+                    return Err(e.into());
+                }
+            };
+
+            log::info!("[RusticCancel] repo.backup_from_source start (fd={})", fd);
+
+            match repo.backup_from_source(
+                &BackupOptions::default(),
+                &source,
+                std::slice::from_ref(&backup_path),
+                snap,
+                &cancel,
+            ) {
+                Ok(snapshot) => Ok(format!(
+                    "{{\"snapshotId\":\"{}\",\"fedBytes\":{}}}",
+                    snapshot.id.to_string(),
+                    fed.load(Ordering::Relaxed)
+                )),
+                Err(e) => {
+                    if cancel.load(Ordering::SeqCst) {
+                        log::info!("[RusticCancel] backup_from_source cancelled");
+                        Err("The backup was cancelled by the user.".into())
+                    } else {
+                        log::info!(
+                            "[RusticCancel] backup_from_source err={e} fed={}",
+                            fed.load(Ordering::Relaxed)
+                        );
+                        Err(e.into())
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            // repo 没打开成功，FdSource 未构造，fd 没人接管 → 这里显式关。
+            drop(unsafe { std::fs::File::from_raw_fd(fd) });
+            Err(e.into())
+        }
+    };
+
+    stop.store(true, Ordering::Relaxed);
+    let _ = poll_handle.join();
+    shared.set_written_absolute(counter.load(Ordering::Relaxed));
+    shared.finish();
+
+    crate::cancel::unregister(cancel_id);
+    log::info!("[RusticCancel] unregister id={} (fd source)", cancel_id);
+    result
 }
 
 pub fn restore_snapshot(
@@ -488,7 +670,7 @@ fn backends(
     repository_path: &str,
     options: &HashMap<String, String>,
     flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    cancel_id: i64,
+    _cancel_id: i64,
 ) -> Result<RepositoryBackends> {
     // 剔除压缩保留 key：它只服务于 init_repository，绝不能进入 opendal 后端配置，
     // 否则 BackendOptions::to_backends() 可能因未知 key 报错。
@@ -527,9 +709,9 @@ fn backends_with_progress(
         // 关键修复：COS 写后端也要过 wrapper，否则取消 flag 永远不被读。
         Ok(crate::cancel_backend::wrap_write_backends(backends, flag))
     } else {
-            // 非 opendal（含 rest: SFTP、本地裸路径）：backends() 内部已做 cancel 包裹，
-            // 再套一层计数后端，使 rest: 写出字节也能累加到 counter，进度不再恒为 0。
-            let backends = backends(repository_path, options, flag, cancel_id)?;
-            Ok(crate::counting_backend::wrap_write_backends_with_counter(backends, counter))
-        }
+        // 非 opendal（含 rest: SFTP、本地裸路径）：backends() 内部已做 cancel 包裹，
+        // 再套一层计数后端，使 rest: 写出字节也能累加到 counter，进度不再恒为 0。
+        let backends = backends(repository_path, options, flag, cancel_id)?;
+        Ok(crate::counting_backend::wrap_write_backends_with_counter(backends, counter))
+    }
 }

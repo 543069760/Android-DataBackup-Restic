@@ -82,7 +82,13 @@ class RusticInstrumentedTest {
         assertTrue("Snapshot ID should not be blank", snapshotId.isNotBlank())
 
         logStep("Restoring snapshot $snapshotId to ${workspace.restorePath}")
-        Rustic.restoreSnapshot(location, PASSWORD, snapshotId, workspace.restorePath, options)
+        Rustic.restoreSnapshot(
+            repositoryPath = location,
+            password = PASSWORD,
+            snapshotId = snapshotId,
+            destinationPath = workspace.restorePath,
+            options = options,
+        )
 
         logStep("Checking repository integrity via opendal:fs")
         Rustic.checkRepository(location, PASSWORD, options)

@@ -4,15 +4,16 @@ use jni::EnvUnowned;
 use jni::errors::ThrowRuntimeExAndDefault;
 use jni::objects::{JObject, JObjectArray, JString};
 use jni::signature::{Primitive, ReturnType};
-use jni::sys::{jboolean, jlong};
+use jni::sys::{jboolean, jint, jlong};
 use jni::{JValue, jni_sig, jni_str};
 
 use crate::error::NativeError;
 use crate::jni_progress::JniProgressCallback;
 use crate::repository::{
-    check_repository, create_snapshot, create_snapshot_with_progress, forget_snapshot,
-    get_version, init_repository, list_snapshots_db, prune_repository, repository_config_id,
-    repository_exists, restore_snapshot, restore_snapshot_with_progress, validate_repository,
+    check_repository, create_snapshot, create_snapshot_from_fd_with_progress,
+    create_snapshot_with_progress, forget_snapshot, get_version, init_repository,
+    list_snapshots_db, prune_repository, repository_config_id, repository_exists,
+    restore_snapshot, restore_snapshot_with_progress, validate_repository,
 };
 use crate::opendal_ops::{opendal_create_dir, opendal_list};
 
@@ -171,6 +172,42 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeCreateSnapshot<'loc
             };
 
             env.new_string(snapshot_id).map_err(NativeError::from)
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeCreateSnapshotFromFd<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    repository_path: JString<'local>,
+    password: JString<'local>,
+    option_keys: JObjectArray<'local, JString<'local>>,
+    option_values: JObjectArray<'local, JString<'local>>,
+    fd: jint,
+    filename: JString<'local>,
+    tags: JObjectArray<'local, JString<'local>>,
+    callback: JObject<'local>,
+    cancel_id: jlong,
+) -> JString<'local> {
+    unowned_env
+        .with_env(|env| -> Result<JString<'local>, NativeError> {
+            let options = string_arrays_to_map(env, &option_keys, &option_values)?;
+            let tags = string_array_to_vec(env, &tags)?;
+            let repository_path = repository_path.to_string();
+            let password = password.to_string();
+            let filename = filename.to_string();
+            if callback.as_raw().is_null() {
+                            return Err(NativeError::from("callback must not be null for fd snapshot"));
+                        }
+            let vm = env.get_java_vm()?;
+            let callback = env.new_global_ref(&callback)?;
+            let callback = JniProgressCallback::new(env, vm, callback)?;
+            let out = create_snapshot_from_fd_with_progress(
+                &repository_path, &password, fd as i32, &filename, &tags, &options,
+                callback, cancel_id,
+            ).map_err(NativeError::from)?;
+            env.new_string(out).map_err(NativeError::from)
         })
         .resolve::<ThrowRuntimeExAndDefault>()
 }

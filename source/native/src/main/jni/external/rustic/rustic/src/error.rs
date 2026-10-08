@@ -17,3 +17,15 @@ impl From<Box<dyn Error>> for NativeError {
         Self(value.to_string())
     }
 }
+
+impl From<String> for NativeError {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&str> for NativeError {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
