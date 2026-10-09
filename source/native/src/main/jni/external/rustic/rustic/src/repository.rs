@@ -319,6 +319,8 @@ pub fn create_snapshot_from_fd_with_progress<C: RusticProgressCallback>(
 
             let backup_path = std::path::PathBuf::from(stdin_filename);
             let file = unsafe { std::fs::File::from_raw_fd(fd) };
+            // BufReader 已内置在 FdSource::entries() 内（fdsource.rs 的 FD_BUF_CAPACITY），
+            // 这里直接传裸 File——缓冲层只能有一处，否则 fed 计数位置和类型都会对不上。
             let source = FdSource::new(backup_path.clone(), file, fed.clone());
 
             let snapshot_options = match tags
@@ -353,13 +355,27 @@ pub fn create_snapshot_from_fd_with_progress<C: RusticProgressCallback>(
 
             log::info!("[RusticCancel] repo.backup_from_source start (fd={})", fd);
 
-            match repo.backup_from_source(
-                &BackupOptions::default(),
-                &source,
-                std::slice::from_ref(&backup_path),
-                snap,
-                &cancel,
-            ) {
+            // fd 直通语义下禁用 parent 匹配与源大小预扫描：
+                        // - parent_opts.force：FdSource 的 node 元数据恒为"零元数据"
+                        //   （size=0/mtime 空），archiver/parent.rs 的 is_parent 按
+                        //   node_type+size+mtime+ctime+inode 比对 parent tree 同名节点，
+                        //   凡历史快照存在 apk.tar/user.tar 即 Matched 跳读 → fedBytes=0
+                        //   且快照复用（甚至跨应用串用）父节点 blob。pipe 内容每次都可能
+                        //   不同，没有可比对的 stat，必须强制全量读取；blob 级 dedup 由
+                        //   index 去重自动生效，不受影响。
+                        // - no_scan：源是 pipe fd，ReadSource::size() 的探测无意义且可能
+                        //   消费数据，禁用以省一次徒劳扫描。
+                        let backup_opts = BackupOptions::default()
+                            .no_scan(true)
+                            .parent_opts(rustic_core::ParentOptions::default().force(true));
+
+                        match repo.backup_from_source(
+                            &backup_opts,
+                            &source,
+                            std::slice::from_ref(&backup_path),
+                            snap,
+                            &cancel,
+                        ) {
                 Ok(snapshot) => Ok(format!(
                     "{{\"snapshotId\":\"{}\",\"fedBytes\":{}}}",
                     snapshot.id.to_string(),

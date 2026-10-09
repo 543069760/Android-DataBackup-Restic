@@ -197,20 +197,19 @@ abstract class AbstractProcessingViewModel(
                 runCatching { service.destroyService(true) }
                     .onFailure { e -> log { "[$CANCEL_LOG] proxy destroyService error: ${e.message}" } }
 
-                if (currentTaskId > 0) {
-                    log { "[$CANCEL_LOG] deleting task record, taskId=$currentTaskId" }
-                    mTaskRepo.deleteTask(currentTaskId)
-                }
-                _taskId.value = -1
-
                 // 7. 关闭 loading 提示
                 emitEffect(IndexUiEffect.DismissSnackbar)
+                emitEffectOnIO(IndexUiEffect.ShowSnackbar(
+                    message = "Backup canceled",
+                    type = SnackbarType.Error
+                ))
 
-                // 8. 更新状态为IDLE
-                emitState(state.copy(state = OperationState.IDLE))
+                // 8. 取消按"失败完成"收尾：状态发 DONE，UI 走正常完成页渲染
+                //    （成功/失败计数从 task 实体读——service 侧已 +1 failureCount）。
+                emitState(state.copy(state = OperationState.DONE))
 
-                // 9. 发送导航返回Effect
-                emitEffect(IndexUiEffect.NavBack)
+                // 9. 不发送 NavBack——停留在完成页让用户看到失败结果，
+                //    返回动作交给用户自己点返回键/详情按钮。
             }
 
             is ProcessingUiIntent.DestroyService -> {

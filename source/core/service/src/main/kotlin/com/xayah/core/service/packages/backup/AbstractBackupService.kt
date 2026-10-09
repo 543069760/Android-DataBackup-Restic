@@ -230,7 +230,7 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
     }
 
     // Restic 辅助方法：更新数据库中的快照信息（存根）
-    private suspend fun updateResticInfo(packageName: String, snapshotId: String) {
+    protected suspend fun updateResticInfo(packageName: String, snapshotId: String) {
         Log.d("ResticFlow", "updateResticInfo() called - packageName: $packageName, snapshotId: $snapshotId")
 
         try {

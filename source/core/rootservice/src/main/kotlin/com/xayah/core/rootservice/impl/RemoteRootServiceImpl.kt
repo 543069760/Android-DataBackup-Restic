@@ -53,11 +53,15 @@ import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
+import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.thread
 import kotlin.io.path.pathString
 import org.rclone.gomobile.Gomobile
 
 internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRootService.Stub() {
     private val lock = Any()
+    private val fdBackupCancelWriters = java.util.concurrent.ConcurrentHashMap<Long, ParcelFileDescriptor>()
     private var systemContext: Context
     private var packageManager: PackageManager
     private var packageManagerHidden: PackageManagerHidden
@@ -588,10 +592,16 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
     // 取消若也抢同一把锁会一直死等，取消永远无法生效。
     override fun cancelRusticBackup(cancelId: Long) {
         android.util.Log.i("RusticCancel", "impl.cancelRusticBackup id=$cancelId (about to call Rustic, NOT in lock)")
+        // 先关 fd 备份的取消令牌（若该 cancelId 是 fd 备份）——
+        // POLLHUP 让 native 侧立刻 kill tar 子进程，管道写端断流，
+        // rustic 读端收 EOF 快速返回，不再拖着把整份数据读完。
+        fdBackupCancelWriters.remove(cancelId)?.let { w ->
+            android.util.Log.i("RusticCancel", "closing fd-backup cancel token for id=$cancelId")
+            runCatching { w.close() }
+        }
         Rustic.cancelBackup(cancelId)
         android.util.Log.i("RusticCancel", "impl.cancelRusticBackup id=$cancelId returned")
     }
-
     // 兜底：协作式取消（cancelRusticBackup）无效时，由 binder 线程池空闲线程执行，
     // 直接硬杀整个 root 守护进程（含卡在阻塞 socket 上的备份线程）。
     // 绝不能用 synchronized(lock)：卡死的 createRusticSnapshot 正持有 lock。
@@ -661,5 +671,138 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
 
     override fun callTarCli(stdOut: String, stdErr: String, argv: Array<String>): Int {
         return TarWrapper.callCli(stdOut, stdErr, argv)
+    }
+
+    override fun backupTarToRustic(
+        repositoryPath: String,
+        password: String,
+        filename: String,
+        argv: Array<String>,
+        tags: MutableList<String>,
+        options: MutableMap<Any?, Any?>?,
+        callback: ICallback?,
+        cancelId: Long,
+        // 注意：本函数 = synchronized(lock) 会持锁整段备份时长（几十秒级），
+        // 期间所有其他 synchronized(lock) 的 rootservice 调用排队——与
+        // createRusticSnapshot(L579) 相同的既有取舍。cancelRusticBackup(L589)
+        // 和 forceStopSelf(L598) 刻意不走这把锁，取消链路不受影响。
+        // 函数体内无依赖 lock 的可变状态（fdBackupCancelWriters 是
+        // ConcurrentHashMap 自带线程安全）；若确认备份期间无其他模块调用
+        // 加锁方法（UI 侧读文件/查统计等），可去掉 synchronized(lock)。
+    ): String = synchronized(lock) {
+        val stdErrFile = File.createTempFile("fd-bak-err", ".tmp", context.cacheDir)
+        val pipe = ParcelFileDescriptor.createPipe()
+        val rfd = pipe[0]
+        val wfd = pipe[1]
+        // dup() 保证返回一个全新的 fd（不依赖 fromFd 是否 dup 的实现细节）
+        val tarOut = wfd.dup()
+        Log.i("FdBackup", "pipe fds: rfd=${rfd.fd} wfd=${wfd.fd} tarOut=${tarOut.fd}")
+        wfd.close()
+
+        val cancelPipe = ParcelFileDescriptor.createPipe()
+        val cancelRead = cancelPipe[0]
+        val cancelWrite = cancelPipe[1]
+        Log.i("FdBackup", "cancel fds: r=${cancelRead.fd} w=${cancelWrite.fd}")
+        fdBackupCancelWriters[cancelId] = cancelWrite
+        val tarCodeRef = AtomicInteger(-1)
+        var snapshotId: String? = null
+        var fedBytes = -1L
+        try {
+            // tarOut 已在 try 外由 wfd.dup() 创建、wfd 已关闭——
+            // 写端只剩 tarOut 一份引用，tar 退出 close 后内核即向读端发 EOF。
+            // 注意：不要再 here 做 fromFd(wfd.fd)——wfd 已关，dup 出来的是坏 fd。
+            val tarThread = thread(start = true, name = "tar-fd-writer") {
+                try {
+                    // 第 5 个参数 cancelWrite.fd：tar 子进程 fork 时继承了写端副本，
+                    // native 侧在 dup2 后将其关闭——否则 Kotlin 侧 close 写端后内核引用
+                    // 仍 ≥1，cancelRead 永远收不到 POLLHUP，abort 失效。
+                    tarCodeRef.set(TarWrapper.callCliFd(tarOut.fd, stdErrFile.absolutePath, argv, cancelRead.fd, cancelWrite.fd))
+                } finally {
+                    runCatching { tarOut.close() }      // 写端引用归零 → 读端 EOF
+                    runCatching { cancelRead.close() }
+                }
+            }
+            // detachFd 后 rfd 对象立即失效——先存原始号再打日志，
+            // 访问 detach 后的 rfd.fd 会抛 IllegalStateException("Already closed")
+            val dataFd = rfd.detachFd()
+            Log.i("FdBackup", "createSnapshotFromFd dataFd=$dataFd tarOut=${tarOut.fd} cancelRead=${cancelRead.fd} cancelWrite=${cancelWrite.fd}")
+            val json = runCatching {
+                Rustic.createSnapshotFromFd(
+                    repositoryPath, password, dataFd, filename,
+                    tags, options.toStringMap(), callback, cancelId,
+                )
+            }.getOrElse { e ->
+                // rustic 侧取消（cancel flag 命中写后端）会以错误形式返回——统一归并为取消
+                if (e.message?.contains("cancel", ignoreCase = true) == true)
+                    throw kotlinx.coroutines.CancellationException("rustic backup canceled: ${e.message}")
+                throw e
+            }
+            // 取消窗口内 rustic 可能返回空/错误 JSON——同样按取消处理，
+            // 不交给后面的四要素判定（那会走 FATAL+forget，可能误杀好快照）。
+            // 取消令牌被 cancelRusticBackup 消费（map 中 cancelId 消失）才算取消；
+            // 其余空结果按真实错误处理，交给四要素判定/异常路径。
+            val wasCanceled = fdBackupCancelWriters[cancelId] == null
+            val snapshotIdEmpty = runCatching { JSONObject(json).optString("snapshotId") }
+                .getOrNull().isNullOrEmpty()
+            if (wasCanceled && (json.isNullOrEmpty() || snapshotIdEmpty)) {
+                throw kotlinx.coroutines.CancellationException("rustic backup canceled: empty/error result after cancel")
+            }
+            Log.i("FdBackup", "rustic returned: $json")
+
+            // rustic 正常返回后：tar 可能还堵在 pipe_write（全量 dedup 提前返回场景），
+            // 关取消令牌触发 native 侧 SIGKILL，join 加超时兜底，不让 binder 线程无限挂住。
+            tarThread.join(5_000)   // join(millis) 返回 Unit，存活与否要看 isAlive
+            if (tarThread.isAlive) {
+                Log.w("FdBackup", "tar still alive after rustic return, aborting via cancelFd")
+                runCatching { cancelWrite.close() }   // POLLHUP → native SIGKILL tar 子进程
+                tarThread.join(2_000)
+                if (tarThread.isAlive) {
+                    Log.e("FdBackup", "tar-fd-writer thread still alive after abort; tarCode will be -1")
+                }
+            }
+            val tarCode = tarCodeRef.get()
+            if (tarCode == -3) {
+                // tar 被 cancelFd 杀掉 = 取消路径
+                throw kotlinx.coroutines.CancellationException("rustic backup canceled: tar aborted via cancelFd (tarCode=$tarCode)")
+            }
+            val stderrText = stdErrFile.readText()
+            val totals = Regex("""Total bytes written:\s*(\d+)""")
+                .find(stderrText)?.groupValues?.get(1)?.toLongOrNull()
+            val warnings = Regex("""(?:File removed before we read it|file changed as we read it)""")
+                .findAll(stderrText).count()
+            val obj = JSONObject(json)
+            snapshotId = obj.optString("snapshotId").takeIf { it.isNotEmpty() }
+            fedBytes = obj.optLong("fedBytes", -1L)
+            Log.i("FdBackup", "tarCode=$tarCode totals=$totals fedBytes=$fedBytes warnings=$warnings snapshot=$snapshotId")
+
+            // 四要素判定（收紧版）：parent 禁用后 rustic 每次全量读管道，
+            // 正常路径必然 fedBytes == totals > 0 且 tarCode ∈ {0,1}。
+            // fedBytes <= 0 只可能是空快照 bug（snapshotId 有效但快照是 0B 空壳，
+            // 恢复列表里无法使用）——一律 FATAL + forget，不再做任何豁免。
+            // tarCode=-3（cancelFd abort）也归 FATAL：那是取消/异常路径的标记。
+            val fatal = tarCode !in 0..1 ||
+                    totals == null ||
+                    fedBytes <= 0 ||
+                    fedBytes != totals
+            if (fatal) {
+                Log.w("FdBackup", "FATAL: tarCode=$tarCode totals=$totals fedBytes=$fedBytes snapshot=$snapshotId stderr=$stderrText")
+                if (snapshotId != null) {
+                    runCatching {
+                        Rustic.forgetSnapshot(repositoryPath, password, snapshotId!!, options.toStringMap())
+                    }
+                }
+                throw IllegalStateException("tar/rustic fd backup failed: tarCode=$tarCode totals=$totals fedBytes=$fedBytes stderr=$stderrText")
+            }
+            obj.put("tarCode", tarCode).put("warnings", warnings)
+            obj.toString()
+        } finally {
+            fdBackupCancelWriters.remove(cancelId, cancelWrite)
+            runCatching { cancelWrite.close() }
+            runCatching { cancelRead.close() }
+            runCatching { tarOut.close() }
+            runCatching { wfd.close() }
+            runCatching { rfd.close() }
+            stdErrFile.delete()
+        }
     }
 }

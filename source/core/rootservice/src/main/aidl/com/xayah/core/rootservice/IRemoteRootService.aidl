@@ -28,6 +28,8 @@ interface IRemoteRootService {
     void revokeRuntimePermission(String packageName, String permName, in UserHandle user);
     int getPermissionFlags(String packageName, String permName, in UserHandle user);
     int callTarCli(String stdOut, String stdErr, in String[] argv);
+    String backupTarToRustic(String repositoryPath, String password, String filename,
+        in String[] argv, in List<String> tags, in Map options, ICallback callback, long cancelId);
     void updatePermissionFlags(String packageName, String permName, in UserHandle user, int flagMask, int flagValues);
     List<String> getPackageSourceDir(String packageName, int userId);
     boolean queryInstalled(String packageName, int userId);

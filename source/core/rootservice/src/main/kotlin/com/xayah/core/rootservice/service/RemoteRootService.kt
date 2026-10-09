@@ -441,6 +441,29 @@ class RemoteRootService(private val context: Context) {
     suspend fun createRusticSnapshot(repositoryPath: String, password: String, sourcePaths: List<String>, tags: List<String> = emptyList(), options: Map<String, String> = emptyMap(), callback: ICallback? = null, cancelId: Long = 0L): String =
         runCatching { getService().createRusticSnapshot(repositoryPath, password, sourcePaths, tags, options, callback, cancelId) }.onFailure(onFailure).getOrThrow()
 
+    /**
+     * fd 流式备份：root 进程内建 pipe，后台线程跑 tar -cpf -，前台
+     * Rustic.createSnapshotFromFd 阻塞读；返回 JSON：
+     * {"snapshotId":"...","fedBytes":N,"tarCode":X,"warnings":M}
+     *
+     * 参数顺序与 IRemoteRootService.aidl / RemoteRootServiceImpl 保持一致
+     * （filename 第三、argv 第四），调用处统一用命名参数防止错位——
+     * binder 跨进程调用编译器不校验位置参数。
+     */
+    suspend fun backupTarToRustic(
+        repositoryPath: String,
+        password: String,
+        filename: String,
+        argv: Array<String>,
+        tags: List<String> = emptyList(),
+        options: Map<String, String> = emptyMap(),
+        callback: ICallback? = null,
+        cancelId: Long = 0L,
+    ): String =
+        runCatching {
+            getService().backupTarToRustic(repositoryPath, password, filename, argv, tags, options, callback, cancelId)
+        }.onFailure(onFailure).getOrThrow()
+
     suspend fun cancelRusticBackup(cancelId: Long) =
         runCatching { getService().cancelRusticBackup(cancelId) }.onFailure(onFailure)
 

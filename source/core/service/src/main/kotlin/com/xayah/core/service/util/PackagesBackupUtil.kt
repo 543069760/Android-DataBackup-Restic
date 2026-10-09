@@ -17,6 +17,7 @@ import com.xayah.core.model.database.PackageEntity
 import com.xayah.core.model.database.TaskDetailPackageEntity
 import com.xayah.core.network.client.CloudClient
 import com.xayah.core.rootservice.service.RemoteRootService
+import com.xayah.core.rootservice.ICallback
 import com.xayah.core.util.IconRelativeDir
 import com.xayah.core.util.LogUtil
 import com.xayah.core.util.PathUtil
@@ -65,6 +66,14 @@ class PackagesBackupUtil @Inject constructor(
 
         data class Error(val out: List<String>) : ArgvResult
     }
+
+    /** fd 备份结果：shell 结果 + 快照元数据（供调用方入库/统计） */
+    data class StreamBackupResult(
+        val shell: ShellResult,
+        val snapshotId: String? = null,
+        val fedBytes: Long = -1L,
+        val tarCode: Int = -1,
+    )
 
     private fun log(onMsg: () -> String): String = run {
         val msg = onMsg()
@@ -210,10 +219,7 @@ class PackagesBackupUtil @Inject constructor(
         val sizeBytes = rootService.calculateSize(srcDir)
         t.updateInfo(dataType = dataType, state = OperationState.PROCESSING, bytes = sizeBytes)
 
-        val argv = mutableListOf(
-            "tar", "--xattrs", "--xattrs-include=*", "--acls", "--selinux",
-            "--totals", "-cpf", "-", "-C", srcDir, "--"
-        )
+        val argv = mutableListOf(*tarHeader, "-cpf", "-", "-C", srcDir, "--")
         argv.addAll(apkFiles)
 
         ArgvResult.Ready(
@@ -286,6 +292,111 @@ class PackagesBackupUtil @Inject constructor(
             argv = argv.toTypedArray(),
             sizeBytes = sizeBytes,
             stdinFilename = "${dataType.type}.tar",
+        )
+    }
+
+    /**
+     * fd 流式入库：ArgvResult.Ready → remoteRootService.backupTarToRustic。
+     * 返回 Pair<ShellResult, snapshotId?>：ShellResult.code=0 成功（exit=1 部分成功也归 0），
+     * snapshotId 供调用方 updateResticInfo 入库（恢复链路靠它定位快照）。
+     * 完整性由 impl 侧四要素判定承担（exit∈{0,1} + totals + fedBytes 对账 + stderr 模式），
+     * 本层只做 JSON 解析、进度回调兜底与 dataStats/displayStats 记账，不再调 testArchive。
+     */
+    suspend fun streamBackupToRustic(
+        ready: ArgvResult.Ready,
+        p: PackageEntity,
+        dataType: DataType,
+        repositoryPath: String,
+        password: String,
+        tags: List<String>,
+        options: Map<String, String> = emptyMap(),
+        callback: ICallback? = null,
+        onProgress: ((readBytes: Long, writtenSpeed: Long) -> Unit)? = null,
+        cancelId: Long = 0L,
+    ): StreamBackupResult = run {
+        val out = mutableListOf<String>()
+        log { "[FdBackup] streamBackupToRustic enter: pkg=${p.packageName} type=$dataType filename=${ready.stdinFilename} sizeBytes=${ready.sizeBytes} argv=${ready.argv.toList()}" }
+        android.util.Log.i(
+            "FdBackup",
+            "tar -> rustic fd backup: pkg=${p.packageName} type=$dataType stdinFilename=${ready.stdinFilename} sizeBytes=${ready.sizeBytes} argv=${ready.argv.toList()}"
+        )
+
+        // Rust 侧 createSnapshotFromFd 对 callback.is_null() 早退，null 必失败 → 兜底最小实现。
+        // 只打 logcat 不进 UI：read=已读字节(源口径)，written=写仓库字节，speed=写速。
+        // 进度条沿用现有"速度 | 累积字节"的不确定模式，无百分比分母（fd 流 readTotal 恒 0）。
+        // 始终自建 stub：打 logcat + 透传 onProgress 给 UI 侧；
+        // 外部传入的 callback（若有）继续转发，语义不变。
+        val effectiveCallback = object : ICallback.Stub() {
+            override fun onProgress(
+                readBytes: Long,
+                readTotal: Long,
+                readProgress: Float,
+                writtenBytes: Long,
+                writtenSpeed: Long,
+            ) {
+                android.util.Log.d(
+                    "FdBackup",
+                    "progress read=$readBytes/$readTotal written=$writtenBytes speed=${writtenSpeed.formatToStorageSizePerSecond()}"
+                )
+                onProgress?.invoke(readBytes, writtenSpeed)
+                callback?.onProgress(readBytes, readTotal, readProgress, writtenBytes, writtenSpeed)
+            }
+
+            override fun onRestorePlan(
+                filesTotal: Long,
+                bytesTotal: Long,
+                filesSkipped: Long,
+                bytesSkipped: Long,
+            ) {
+                callback?.onRestorePlan(filesTotal, bytesTotal, filesSkipped, bytesSkipped)
+            }
+        }
+
+        val startMs = System.currentTimeMillis()
+        val json = try {
+            rootService.backupTarToRustic(
+                repositoryPath,
+                password,
+                ready.stdinFilename,
+                ready.argv,
+                tags,
+                options,
+                effectiveCallback,
+                cancelId,
+            )
+        } catch (e: Exception) {
+            // impl 侧 FATAL 已 forget 快照，此处只透传失败
+            out.add(log { "[FdBackup] FATAL: ${e.message}" })
+            android.util.Log.e("FdBackup", "backupTarToRustic failed: pkg=${p.packageName} type=$dataType", e)
+            return@run StreamBackupResult(shell = ShellResult(code = -1, input = listOf(), out = out))
+        }
+        val elapsedMs = System.currentTimeMillis() - startMs
+
+        val result = org.json.JSONObject(json)
+        val snapshotId = result.optString("snapshotId", "")
+        val fedBytes = result.optLong("fedBytes", -1L)
+        val tarCode = result.optInt("tarCode", -1)
+        val warnings = result.optInt("warnings", 0)
+
+        val mbps = if (elapsedMs > 0) fedBytes * 1000.0 / 1024 / 1024 / elapsedMs else 0.0
+        android.util.Log.i(
+            "FdBackup",
+            "stream done pkg=${p.packageName} type=$dataType filename=${ready.stdinFilename} snapshotId=$snapshotId fedBytes=$fedBytes tarCode=$tarCode warnings=$warnings elapsed=${elapsedMs}ms avg=${"%.1f".format(mbps)}MB/s"
+        )
+        out.add(log { "[FdBackup] snapshot=$snapshotId fedBytes=$fedBytes tarCode=$tarCode warnings=$warnings elapsed=${elapsedMs}ms avg=${"%.1f".format(mbps)}MB/s" })
+        if (tarCode == 1 || warnings > 0) {
+            out.add(log { "[FdBackup] WARNING: tar exit=$tarCode, $warnings volatile-file warnings (see FdBackup logcat in root process)" })
+        }
+
+        // 对齐旧链路语义：dataBytes=预估源大小（扫描结果），displayBytes=实际 tar 产出（fedBytes 对账值）
+        p.setDataBytes(dataType, ready.sizeBytes)
+        p.setDisplayBytes(dataType, fedBytes)
+
+        StreamBackupResult(
+            shell = ShellResult(code = 0, input = listOf(), out = out),
+            snapshotId = snapshotId.takeIf { it.isNotEmpty() },
+            fedBytes = fedBytes,
+            tarCode = tarCode,
         )
     }
 
