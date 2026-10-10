@@ -131,6 +131,10 @@ class RestoreViewModelImpl @Inject constructor(
             }
 
             is FinishSetup -> {
+                Log.d(
+                    "RestoreNavTrace",
+                    "FinishSetup enter, ts=${System.currentTimeMillis()}"
+                )
                 if (state.storageType == StorageMode.Cloud) {
                     _isTesting.value = true
                     emitEffect(IndexUiEffect.DismissSnackbar)
@@ -147,6 +151,10 @@ class RestoreViewModelImpl @Inject constructor(
                         emitEffect(IndexUiEffect.DismissSnackbar)
                         mContext.saveResticActiveIsOtg(isOtg)
                         withMainContext {
+                            Log.d(
+                                "RestoreNavTrace",
+                                "navigate PackagesRestoreProcessing + startRestore, ts=${System.currentTimeMillis()}"
+                            )
                             intent.navController.popBackStack()
                             intent.navController.navigateSingle(MainRoutes.PackagesRestoreProcessing.route)
                             mLocalService.startRestore(currentPackageNameFilter)
@@ -161,6 +169,10 @@ class RestoreViewModelImpl @Inject constructor(
                     // OTG 瞬态标记：await 写入完成后再启动服务，防止读到旧值
                     mContext.saveResticActiveIsOtg(isOtg)
                     withMainContext {
+                        Log.d(
+                            "RestoreNavTrace",
+                            "navigate PackagesRestoreProcessing + startRestore, ts=${System.currentTimeMillis()}"
+                        )
                         intent.navController.popBackStack()
                         intent.navController.navigateSingle(MainRoutes.PackagesRestoreProcessing.route)
                         mLocalService.startRestore(currentPackageNameFilter)

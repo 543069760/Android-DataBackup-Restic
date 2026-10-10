@@ -129,6 +129,18 @@ class ResticRepositoryCos @Inject constructor(
         }
     }
 
+    override suspend fun <T> withStreamBackupContext(
+        cloudEntity: CloudEntity,
+        remotePath: String,
+        block: suspend (repoPath: String, options: Map<String, String>) -> T
+    ): T = withContext(Dispatchers.IO) {
+        val extra = ResticShared.json.decodeFromString<S3Extra>(cloudEntity.extra)
+        val options = buildS3BackendOptions(extra, remotePath)
+        Log.i("ResticCosRoot", "withStreamBackupContext remotePath=$remotePath root=${options["root"]}")
+        // opendal:cos 无 serve，直接把 repoPath/options 交给 block 执行
+        block("opendal:cos", options)
+    }
+
     override suspend fun listSnapshots(
         cloudEntity: CloudEntity, password: String
     ): List<ResticSnapshot> = listSnapshotsFromCos(cloudEntity, password)

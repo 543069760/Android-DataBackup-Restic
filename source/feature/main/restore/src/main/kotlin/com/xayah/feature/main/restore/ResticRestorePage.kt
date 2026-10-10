@@ -239,6 +239,10 @@ fun ResticRestorePage(
             ) {
                 ExtendedFloatingActionButton(
                     onClick = {
+                        Log.d(
+                            "RestoreNavTrace",
+                            "List NEXT clicked, isPreparing=$isPreparing, uiState=${uiState::class.simpleName}, ts=${System.currentTimeMillis()}"
+                        )
                         if (isPreparing) return@ExtendedFloatingActionButton
                         val groups = (uiState as? ResticRestoreUiState.Success)?.groups ?: emptyList()
                         val selectedGroups = groups.filter { selectedKeys.contains(groupKey(it)) }
@@ -257,6 +261,10 @@ fun ResticRestorePage(
                                         isOtg = isOtg
                                     )
                                     exitSelection()
+                                    Log.d(
+                                        "RestoreNavTrace",
+                                        "List navigate PackagesRestoreProcessingGraph, ts=${System.currentTimeMillis()}"
+                                    )
                                     navController.navigateSingle(route)
                                 } else {
                                     Log.e("ResticRestorePage", "prepareBatchRestore 返回 false，无可恢复项")

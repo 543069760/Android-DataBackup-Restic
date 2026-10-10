@@ -201,6 +201,10 @@ fun CloudRestorePage(
             ) {
                 ExtendedFloatingActionButton(
                     onClick = {
+                        Log.d(
+                            "RestoreNavTrace",
+                            "List NEXT clicked, isPreparing=$isPreparing, uiState=${uiState::class.simpleName}, ts=${System.currentTimeMillis()}"
+                        )
                         if (isPreparing) return@ExtendedFloatingActionButton
                         val groups = (uiState as? CloudRestoreUiState.Success)?.groups ?: emptyList()
                         val selectedGroups = groups.filter { selectedKeys.contains(keyOf(it)) }
@@ -213,6 +217,10 @@ fun CloudRestorePage(
                                     exitSelection()   // ★ 成功后立即清空，再导航；防止退回列表时残留累加
                                     // 第二阶段统一走本地写回：packageName 空 → getPackages 返回全部激活包
                                     val route = MainRoutes.PackagesRestoreProcessingGraph.getRoute(packageName = "")
+                                    Log.d(
+                                        "RestoreNavTrace",
+                                        "List navigate PackagesRestoreProcessingGraph, ts=${System.currentTimeMillis()}"
+                                    )
                                     navController.navigateSingle(route)
                                 } else {
                                     // ★ 失败不清空，保留用户选择以便重试

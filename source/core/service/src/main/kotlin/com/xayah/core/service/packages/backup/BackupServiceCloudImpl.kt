@@ -131,215 +131,199 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
         t: TaskDetailPackageEntity,
         dstDir: String
     ) {
-        try {
-            // 在开始备份前检查取消标志
-            if (isCanceled()) {
-                Log.d(mTAG, "Backup canceled before processing $type")
+        // 开始前检查取消标志
+        if (isCanceled()) {
+            Log.d(mTAG, "Backup canceled before processing $type")
+            return
+        }
+
+        // CONFIG 是 JSON 小文件不是 tar 流，走文件路径快照；tag 四段式与数据快照同批次。
+        // 关键：tag 必须带 user_ 前缀，否则 ResticShared.parseAppsDb 会静默跳过，云端恢复列表看不到。
+        if (type == DataType.PACKAGE_CONFIG) {
+            t.update(dataType = type, state = OperationState.PROCESSING)
+            val configFile = File("$dstDir/package_restore_config.json")
+            if (!configFile.exists()) {
+                t.update(dataType = type, state = OperationState.ERROR, log = "config json missing: ${configFile.absolutePath}")
+                t.update(dataType = type, progress = 1f)
+                t.update(processingIndex = t.processingIndex + 1)
                 return
             }
-
-            Log.d(mTAG, "Starting backup for ${p.packageName}, type: $type")
-            val remoteAppDir = getRemoteAppDir(p.archivesRelativeDir)
-
-            val result = if (type == DataType.PACKAGE_APK) {
-                Log.d(mTAG, "Backing up APK for ${p.packageName}")
-                try {
-                    mPackagesBackupUtil.backupApk(
-                        p = p,
-                        t = t,
-                        r = r,
-                        dstDir = dstDir,
-                        isCanceled = { isCanceled() }
-                    )
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    Log.e(mTAG, "APK backup failed for ${p.packageName}", e)
-                    throw e
-                }
-            } else {
-                Log.d(mTAG, "Backing up data for ${p.packageName}, type: $type")
-                try {
-                    mPackagesBackupUtil.backupData(
-                        p = p,
-                        t = t,
-                        r = r,
-                        dataType = type,
-                        dstDir = dstDir,
-                        isCanceled = { isCanceled() }
-                    )
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    Log.e(mTAG, "Data backup failed for ${p.packageName}, type: $type", e)
-                    throw e
-                }
-            }
-
-            Log.d(
-                mTAG,
-                "Backup compression completed for ${p.packageName}, success: ${result.isSuccess}"
-            )
-
-            // 压缩后再次检查取消标志
-            if (isCanceled()) {
-                Log.d(mTAG, "Backup canceled after compression for $type")
-                return
-            }
-
-            if (result.isSuccess && t.get(type).state != OperationState.SKIP) {
-                // 查找压缩文件
-                val compressedFile = findCompressedFile(dstDir, type)
-                if (compressedFile != null) {
-                    Log.d(mTAG, "Found compressed file: ${compressedFile.absolutePath}")
-
-                    // 根据云存储类型选择备份方式
-                    try {
-                        when (mCloudEntity.type) {
-                            CloudType.S3, CloudType.FTP, CloudType.WEBDAV, CloudType.SFTP, CloudType.AWSS3 -> {
-                                Log.d(mTAG, "Using Restic backup for ${p.packageName}")
-                                val resticSuccess = backupWithResticByType(
-                                    packageName = p.packageName,
-                                    compressedFile = compressedFile,
-                                    dataType = type,
-                                    remotePath = "${p.archivesRelativeDir}",
-                                    t = t
-                                )
-                                if (resticSuccess) {
-                                    Log.d(
-                                        mTAG,
-                                        "Restic backup successful for ${p.packageName} $type"
-                                    )
-                                } else {
-                                    Log.e(mTAG, "Restic backup failed for ${p.packageName} $type")
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        if (e is kotlinx.coroutines.CancellationException) throw e
-                        Log.e(mTAG, "Upload failed for ${p.packageName}, type: $type", e)
-                        t.update(dataType = type, state = OperationState.ERROR, log = e.message)
-                        return
-                    }
+            val backend = backend(mCloudEntity)
+            val password = backend.resolveResticPassword(mCloudEntity)
+            val tag = "user_${p.userId}-${p.packageName}-$mBackupTimestamp-config"
+            val cancelId = System.nanoTime()
+            mCurrentBackupCancelId = cancelId
+            mCurrentProcessingTag = tag
+            try {
+                val result = backend.backupFile(
+                    cloudEntity = mCloudEntity,
+                    remotePath = mCloudEntity.remote,
+                    filePath = configFile.absolutePath,
+                    tags = listOf(tag),
+                    password = password,
+                    cancelId = cancelId,
+                )
+                if (result.first == 0) {
+                    val snapshotId = extractSnapshotIdFromJson(result.second)
+                    if (snapshotId != null) updateCloudResticInfo(p.packageName, snapshotId, p.archivesRelativeDir)
+                    t.update(dataType = type, state = OperationState.DONE, log = "config snapshot ok tag=$tag")
+                    Log.d(mTAG, "config snapshot ok for ${p.packageName} tag=$tag")
                 } else {
-                    Log.w(mTAG, "No compressed file found for ${p.packageName}, type: $type")
+                    t.update(dataType = type, state = OperationState.ERROR, log = "config snapshot failed code=${result.first} msg=${result.second}")
+                    runCatching { t.update(state = OperationState.ERROR) }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                t.update(dataType = type, state = OperationState.ERROR, log = "canceled")
+                runCatching {
+                    t.update(state = OperationState.ERROR)
+                    mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
+                }
+                throw e
+            } catch (e: Exception) {
+                val isCancel = e.message?.contains("rustic backup canceled") == true ||
+                        e.message?.contains("cancelled by the user") == true
+                t.update(dataType = type, state = OperationState.ERROR,
+                    log = if (isCancel) "canceled" else (e.message ?: "unknown"))
+                if (isCancel) {
+                    runCatching {
+                        t.update(state = OperationState.ERROR)
+                        mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
+                    }
+                    throw kotlinx.coroutines.CancellationException("backup canceled: ${e.message}")
+                }
+                Log.w(mTAG, "config snapshot exception for ${p.packageName}: ${e.message}")
+            } finally {
+                mCurrentBackupCancelId = 0L
+                mCurrentProcessingTag = null
             }
-
             t.update(dataType = type, progress = 1f)
             t.update(processingIndex = t.processingIndex + 1)
-            Log.d(mTAG, "Backup completed successfully for ${p.packageName}, type: $type")
-
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            Log.e(mTAG, "Backup failed for ${p.packageName}, type: $type", e)
-            t.update(dataType = type, state = OperationState.ERROR, log = e.message)
-            throw e
+            return
         }
+
+        // fd 流式链路：prepareXxxArgv → withStreamBackupContext → streamBackupToRustic，不再落盘、不跑 testArchive
+        val argvResult = if (type == DataType.PACKAGE_APK) {
+            mPackagesBackupUtil.prepareApkArgv(p = p, r = r, t = t)
+        } else {
+            mPackagesBackupUtil.prepareDataArgv(p = p, r = r, t = t, dataType = type)
+        }
+
+        when (argvResult) {
+            is PackagesBackupUtil.ArgvResult.Skip -> {
+                // prepare 内部已 updateInfo(SKIP)，仅推进进度
+            }
+
+            is PackagesBackupUtil.ArgvResult.Error -> {
+                // prepare 内部已 updateInfo(ERROR, log)，透传日志即可
+                Log.e(mTAG, "prepareArgv failed for ${p.packageName} $type: ${argvResult.out}")
+            }
+
+            is PackagesBackupUtil.ArgvResult.Ready -> {
+                if (isCanceled()) {
+                    Log.d(mTAG, "canceled before stream for ${p.packageName} $type")
+                    t.update(dataType = type, progress = 1f)
+                    t.update(processingIndex = t.processingIndex + 1)
+                    return
+                }
+
+                val backend = backend(mCloudEntity)
+                val password = backend.resolveResticPassword(mCloudEntity)
+                val tag = "user_${p.userId}-${p.packageName}-$mBackupTimestamp-${type.type}"
+                val cancelId = System.nanoTime()
+                // 登记取消链路：cancel() 通过 mCurrentBackupCancelId 调 cancelRusticBackup
+                mCurrentBackupCancelId = cancelId
+                mCurrentProcessingTag = tag
+
+                Log.i(mTAG, "cloud fd-backup start pkg=${p.packageName} type=${type.type} sizeBytes=${argvResult.sizeBytes} cancelId=$cancelId")
+                t.update(dataType = type, state = OperationState.PROCESSING)
+                var lastContentUpdate = 0L
+                val startMs = System.currentTimeMillis()
+
+                try {
+                    val streamResult = backend.withStreamBackupContext(mCloudEntity, mCloudEntity.remote) { repoPath, options ->
+                        mPackagesBackupUtil.streamBackupToRustic(
+                            ready = argvResult,
+                            p = p,
+                            dataType = type,
+                            repositoryPath = repoPath,
+                            password = password,
+                            tags = listOf(tag),
+                            options = options,
+                            cancelId = cancelId,
+                            onProgress = { readBytes, _ ->
+                                val now = System.currentTimeMillis()
+                                if (now - lastContentUpdate >= 500) {
+                                    lastContentUpdate = now
+                                    // 与云端现有体验一致：平均速度 | 累积量（fd 流无分母，无百分比）
+                                    val elapsedMs = (now - startMs).coerceAtLeast(1L)
+                                    val avgSpeed = if (readBytes > 0) readBytes * 1000L / elapsedMs else 0L
+                                    val bytesText = readBytes.toDouble().formatSize()
+                                    val speedText = if (avgSpeed > 0) avgSpeed.formatToStorageSizePerSecond() else ""
+                                    val content = if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
+                                    // t.update 是 suspend——onProgress 在 binder 线程被调，用 runBlocking 桥接
+                                    runBlocking {
+                                        t.update(dataType = type, state = OperationState.PROCESSING, content = content)
+                                    }
+                                }
+                            }
+                        )
+                    }
+
+                    if (streamResult.shell.isSuccess) {
+                        streamResult.snapshotId?.let { updateCloudResticInfo(p.packageName, it, p.archivesRelativeDir) }
+                        // 定格 DONE，副标题 "平均速度 | 大小"
+                        val bytesText = streamResult.fedBytes.toDouble().formatSize()
+                        val elapsedMs = System.currentTimeMillis() - startMs
+                        val speedText = if (elapsedMs > 0 && streamResult.fedBytes > 0)
+                            (streamResult.fedBytes * 1000 / elapsedMs).formatToStorageSizePerSecond()
+                        else ""
+                        t.update(
+                            dataType = type,
+                            state = OperationState.DONE,
+                            bytes = streamResult.fedBytes,
+                            content = if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText,
+                        )
+                        Log.d(mTAG, "cloud fd-backup ok for ${p.packageName} $type snapshot=${streamResult.snapshotId}")
+                    } else {
+                        t.update(dataType = type, state = OperationState.ERROR, log = streamResult.shell.outString)
+                        runCatching { t.update(state = OperationState.ERROR) }
+                        Log.e(mTAG, "cloud fd-backup failed for ${p.packageName} $type: ${streamResult.shell.outString}")
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    t.update(dataType = type, state = OperationState.ERROR, log = "canceled")
+                    runCatching {
+                        t.update(state = OperationState.ERROR)
+                        mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
+                    }
+                    throw e
+                } catch (e: Exception) {
+                    // impl 侧抛的 CancellationException 过 binder 会被包成 IllegalStateException，
+                    // 类型丢失但 message 保留；命中消息匹配必须重抛 CancellationException。
+                    val isCancel = e.message?.contains("rustic backup canceled") == true ||
+                            e.message?.contains("cancelled by the user") == true ||
+                            e.message?.contains("tar aborted via cancelFd") == true
+                    t.update(dataType = type, state = OperationState.ERROR,
+                        log = if (isCancel) "canceled" else (e.message ?: "unknown"))
+                    if (isCancel) {
+                        runCatching {
+                            t.update(state = OperationState.ERROR)
+                            mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
+                        }
+                        throw kotlinx.coroutines.CancellationException("backup canceled: ${e.message}")
+                    }
+                    Log.e(mTAG, "cloud fd-backup exception for ${p.packageName} $type: ${e.message}", e)
+                } finally {
+                    mCurrentBackupCancelId = 0L
+                    mCurrentProcessingTag = null
+                }
+            }
+        }
+
+        t.update(dataType = type, progress = 1f)
+        t.update(processingIndex = t.processingIndex + 1)
     }
 
     private val json = Json { ignoreUnknownKeys = true }
-
-    /**
-     * 统一 Restic 备份分派：S3/FTP/WEBDAV/SFTP 均通过 CloudResticBackend 注册表多态调用，
-     * 各后端在实现内部自行选择 opendal / librclone serve，密码由 resolveResticPassword 统一解析。
-     */
-    private suspend fun backupWithResticByType(
-        packageName: String,
-        compressedFile: File,
-        dataType: DataType,
-        remotePath: String,
-        t: TaskDetailPackageEntity
-    ): Boolean {
-        return try {
-            val userId = extractUserIdFromPath(compressedFile.absolutePath)
-            val backupType = dataType.type
-            val tag = "$userId-$packageName-$mBackupTimestamp-$backupType"
-            val tags = listOf(tag)
-
-            Log.d("ResticTag", "Setting current tag: $tag")
-            mCurrentProcessingTag = tag
-
-            val cancelId = System.nanoTime()
-            mCurrentBackupCancelId = cancelId
-            Log.i(
-                "RusticCancel",
-                "backupWithRestic enter, package=$packageName, tag=$tag, cancelId=$cancelId"
-            )
-
-            val unifiedRepoPath = mCloudEntity.remote
-            val backupStartAt = System.currentTimeMillis()
-
-            val backend = backend(mCloudEntity)
-            val password = backend.resolveResticPassword(mCloudEntity)
-
-            val result = backend.backupFile(
-                cloudEntity = mCloudEntity,
-                remotePath = unifiedRepoPath,
-                filePath = compressedFile.absolutePath,
-                tags = tags,
-                password = password,
-                progressCallback = object : ResticProgressCallback {
-                    override fun onRestoreProgress(
-                        filesFinished: Long, filesTotal: Long,
-                        bytesWritten: Long, bytesTotal: Long,
-                        filesSkipped: Long, bytesSkipped: Long
-                    ) {
-                        // 恢复进度,备份时不使用
-                    }
-
-                    override fun onBackupProgress(
-                        percentDone: Float, bytesDone: Long,
-                        bytesTotal: Long, filesDone: Long, filesTotal: Long,
-                        speed: Long
-                    ) {
-                        val elapsedMs =
-                            (System.currentTimeMillis() - backupStartAt).coerceAtLeast(1L)
-                        val avgSpeed = if (bytesDone > 0) bytesDone * 1000L / elapsedMs else 0L
-                        val speedText =
-                            if (avgSpeed > 0) avgSpeed.formatToStorageSizePerSecond() else ""
-                        val bytesText = bytesDone.toDouble().formatSize()
-                        val content =
-                            if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
-                        Log.d(mTAG, "Restic backup progress: $content")
-                        runBlocking {
-                            t.update(dataType = dataType, content = content)
-                        }
-                    }
-                },
-                cancelId = cancelId
-            )
-
-            mCurrentProcessingTag = null
-            mCurrentBackupCancelId = 0L
-
-            if (result.first == 0) {
-                val snapshotId = extractSnapshotIdFromJson(result.second)
-                if (snapshotId != null) {
-                    Log.d(
-                        mTAG,
-                        "Restic backup successful for $packageName, snapshotId: $snapshotId"
-                    )
-                    updateCloudResticInfo(packageName, snapshotId, remotePath)
-                }
-                true
-            } else {
-                Log.i(
-                    "RusticCancel",
-                    "backupWithRestic non-zero result, package=$packageName, code=${result.first}, msg=${result.second}"
-                )
-                false
-            }
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            mCurrentProcessingTag = null
-            mCurrentBackupCancelId = 0L
-            Log.e(
-                "RusticCancel",
-                "backupWithRestic failed/cancelled, package=$packageName, msg=${e.message}"
-            )
-            Log.e(mTAG, "Error during Restic backup", e)
-            false
-        }
-    }
 
     /**
      * 从 JSON 输出中提取快照 ID
@@ -350,20 +334,6 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
         } catch (e: Exception) {
             null
         }
-    }
-
-    // 辅助方法：查找压缩文件
-    private fun findCompressedFile(dstDir: String, dataType: DataType): File? {
-        return when (dataType) {
-            DataType.PACKAGE_APK -> File("$dstDir/${DataType.PACKAGE_APK.type}.tar")
-            DataType.PACKAGE_USER -> File("$dstDir/${DataType.PACKAGE_USER.type}.tar")
-            DataType.PACKAGE_USER_DE -> File("$dstDir/${DataType.PACKAGE_USER_DE.type}.tar")
-            DataType.PACKAGE_DATA -> File("$dstDir/${DataType.PACKAGE_DATA.type}.tar")
-            DataType.PACKAGE_OBB -> File("$dstDir/${DataType.PACKAGE_OBB.type}.tar")
-            DataType.PACKAGE_MEDIA -> File("$dstDir/${DataType.PACKAGE_MEDIA.type}.tar")
-            DataType.PACKAGE_CONFIG -> File("$dstDir/package_restore_config.json")
-            else -> null
-        }.takeIf { it?.exists() == true }
     }
 
     private suspend fun updateCloudResticInfo(packageName: String, snapshotId: String, repoPath: String) {

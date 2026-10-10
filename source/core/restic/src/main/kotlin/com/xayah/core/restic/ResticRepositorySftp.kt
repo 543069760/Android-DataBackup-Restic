@@ -66,6 +66,22 @@ class ResticRepositorySftp @Inject constructor(
         cloudEntity, remotePath, filePath, tags, password, progressCallback, cancelId
     )
 
+    override suspend fun <T> withStreamBackupContext(
+        cloudEntity: CloudEntity,
+        remotePath: String,
+        block: suspend (repoPath: String, options: Map<String, String>) -> T
+    ): T = withContext(Dispatchers.IO) {
+        val session = startServe(cloudEntity, remotePath)
+        Log.i("ResticSftpRoot", "withStreamBackupContext restUrl=${session.restUrl} remotePath=$remotePath")
+        try {
+            // serve 必须包住整个 block：block 内含 streamBackupToRustic，其 FATAL 失败路径
+            // 会经 rest: URL（session.restUrl）forget 空壳快照，forget 发生时 serve 必须仍存活。
+            block(session.restUrl, emptyMap())
+        } finally {
+            stopServe(session)
+        }
+    }
+
     override suspend fun listSnapshots(
         cloudEntity: CloudEntity, password: String
     ): List<ResticSnapshot> = listSnapshotsFromSftp(cloudEntity, password)

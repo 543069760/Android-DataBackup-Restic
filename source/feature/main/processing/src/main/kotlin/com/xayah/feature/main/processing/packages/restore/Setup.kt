@@ -104,6 +104,10 @@ fun PagePackagesRestoreProcessingSetup(localNavController: NavHostController, vi
             ) {
                 Button(
                     onClick = {
+                        Log.d(
+                            "RestoreNavTrace",
+                            "Continue clicked, currentIndex=$currentIndex, ts=${System.currentTimeMillis()}"
+                        )
                         viewModel.launchOnIO {
                             // 计算目标 userId 集合
                             val targetUserIds: Set<Int> = if (currentIndex == 0) {
@@ -117,6 +121,10 @@ fun PagePackagesRestoreProcessingSetup(localNavController: NavHostController, vi
                             // 预检
                             val locked = viewModel.queryLockedUserIds(targetUserIds)
                             if (locked.isEmpty()) {
+                                Log.d(
+                                    "RestoreNavTrace",
+                                    "emit FinishSetup, ts=${System.currentTimeMillis()}"
+                                )
                                 viewModel.emitIntent(FinishSetup(navController = localNavController))
                                 return@launchOnIO
                             }
@@ -134,6 +142,10 @@ fun PagePackagesRestoreProcessingSetup(localNavController: NavHostController, vi
                                 // 确认时复检
                                 val stillLocked = viewModel.queryLockedUserIds(targetUserIds)
                                 if (stillLocked.isEmpty()) {
+                                    Log.d(
+                                        "RestoreNavTrace",
+                                        "emit FinishSetup, ts=${System.currentTimeMillis()}"
+                                    )
                                     viewModel.emitIntent(FinishSetup(navController = localNavController))
                                     return@launchOnIO
                                 }

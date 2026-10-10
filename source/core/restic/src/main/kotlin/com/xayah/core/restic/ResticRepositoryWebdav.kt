@@ -51,6 +51,17 @@ class ResticRepositoryWebdav @Inject constructor(
         cloudEntity, remotePath, filePath, tags, password, progressCallback, cancelId
     )
 
+    override suspend fun <T> withStreamBackupContext(
+        cloudEntity: CloudEntity,
+        remotePath: String,
+        block: suspend (repoPath: String, options: Map<String, String>) -> T
+    ): T = withContext(Dispatchers.IO) {
+        val options = buildWebdavBackendOptions(cloudEntity, remotePath)
+        Log.i("ResticWebdavRoot", "withStreamBackupContext remotePath=$remotePath root=${options["root"]}")
+        // opendal:webdav 无 serve，直接把 repoPath/options 交给 block 执行
+        block("opendal:webdav", options)
+    }
+
     override suspend fun listSnapshots(
         cloudEntity: CloudEntity, password: String
     ): List<ResticSnapshot> = listSnapshotsFromWebdav(cloudEntity, password)

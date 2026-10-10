@@ -161,9 +161,21 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
             return
         }
 
+        // ===== 新增：每批恢复开始前，先清掉本次 backupDir 下所有旧的 RESTORE 行，保证从干净状态开始 =====
+        // 避免列表后台异步刷新窗口内多次 startRestore 并发激活时，残留旧行与新行叠加导致 getPackages 查到重复包。
+        val restoreBackupDir = "${mRootDir}/restore/"
+        mPackageDao.deleteByOpTypeAndBackupDir(OpType.RESTORE, restoreBackupDir)
+        Log.d(mTAG, "onPrepareEntities: 已清理旧的 RESTORE 行 backupDir=$restoreBackupDir")
+
         // 只取每个 (pkg,userId) 的 CONFIG 项
         val configItems = mRestoreQueue.filter { it.dataType == DataType.PACKAGE_CONFIG }
         Log.d(mTAG, "onPrepareEntities: 取回 config 项 ${configItems.size} 个")
+        configItems.forEach { item ->
+            Log.d(
+                "RestoreDupTrace",
+                "onPrepareEntities item pkg=${item.packageName} userId=${item.userId} snapshotId=${item.snapshotId} dataType=${item.dataType.type} account='${item.accountName}'"
+            )
+        }
 
         // 1) 先分流：磁盘已有 config 直接复用（串行，仅读 json + DB upsert，很快）；
         //    磁盘缺失的收集起来，走 restic 兜底并发解出
@@ -371,6 +383,12 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
 
         val allPackages = mPackageRepo.queryActivated(OpType.RESTORE, "", backupDir)
         Log.d(mTAG, "查询到总应用数: ${allPackages.size}")
+        allPackages.forEach { row ->
+            Log.d(
+                "RestoreDupTrace",
+                "getPackages row pkg=${row.packageName} userId=${row.userId} id=${row.id} backupDir=${row.indexInfo.backupDir} activated=${row.extraInfo.activated}"
+            )
+        }
 
         val packages = if (mTargetPackageName.isNotEmpty()) {
             allPackages.filter { it.packageName == mTargetPackageName }
@@ -560,7 +578,32 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
                 Log.e(mTAG, "config 读取为空: $configPath")
                 return
             }
-            val existingId = mPackageDao.query(pkg, OpType.RESTORE, userId)?.id ?: 0L
+
+            // 去重键必须与写入行完全一致：pkg + RESTORE + userId + cloud="" + backupDir=".../restore/"
+            // 用返回 List 的 5-arg query（无 LIMIT 1）查出全部现有行，杜绝 LIMIT 1 漏掉重复行。
+            val restoreBackupDir = "${mRootDir}/restore/"
+            val existingRows = mPackageDao.query(pkg, OpType.RESTORE, userId, "", restoreBackupDir)
+
+            val existingId: Long = when {
+                existingRows.isEmpty() -> 0L               // 无行 → INSERT
+                existingRows.size == 1 -> existingRows.first().id  // 唯一行 → 复用其 id UPDATE
+                else -> {
+                    // 多行 → 删除多余行，只保留第一行并复用其 id UPDATE
+                    val keep = existingRows.first()
+                    val extras = existingRows.drop(1).map { it.id }
+                    mPackageDao.deleteByIds(extras)
+                    Log.w(
+                        "RestoreDupTrace",
+                        "activate 发现重复行，已删除多余 ${extras.size} 行 ids=$extras，保留 id=${keep.id}"
+                    )
+                    keep.id
+                }
+            }
+
+            Log.d(
+                "RestoreDupTrace",
+                "activate pkg=$pkg userId=$userId existingRows=${existingRows.size} existingId=$existingId decision=${if (existingId == 0L) "INSERT" else "UPDATE"}"
+            )
 
             val toUpsert = entity.copy(
                 id = existingId,
@@ -569,12 +612,19 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
                     packageName = pkg,
                     userId = userId,
                     cloud = "",
-                    backupDir = "${mRootDir}/restore/"
+                    backupDir = restoreBackupDir
                 ),
                 extraInfo = entity.extraInfo.copy(activated = true)
             )
             mPackageDao.upsert(toUpsert)
             Log.d(mTAG, "config→DB 已激活: $pkg/user_$userId (id=$existingId, ${if (existingId == 0L) "INSERT" else "UPDATE"})")
+
+            // upsert 后回查该包当前所有行，确认是否仍存在第二行
+            val rows = mPackageDao.query(pkg, OpType.RESTORE, userId, "", restoreBackupDir)
+            Log.d(
+                "RestoreDupTrace",
+                "activate after upsert pkg=$pkg userId=$userId rowCount=${rows.size} ids=${rows.map { it.id }} activated=${rows.map { it.extraInfo.activated }}"
+            )
         } catch (e: Exception) {
             Log.e(mTAG, "activatePackageFromConfig 失败: $pkg/user_$userId - ${e.message}", e)
         }

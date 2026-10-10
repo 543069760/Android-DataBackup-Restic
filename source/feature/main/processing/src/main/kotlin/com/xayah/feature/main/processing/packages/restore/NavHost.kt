@@ -1,10 +1,12 @@
 package com.xayah.feature.main.processing.packages.restore
 
+import android.util.Log
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -26,6 +28,12 @@ fun PackagesRestoreProcessingGraph(packageNameFilter: String = "", isOtg: Boolea
     val localNavController = rememberNavController()
     val viewModel = hiltViewModel<RestoreViewModelImpl>()
 
+    // 只在 graph 真正创建（首次进入组合）时打印一次；重组不会重复触发。
+    // 若同一次「下一步」出现两条 "Graph created"，说明 graph 被二重生成（route 重复 push）。
+    LaunchedEffect(Unit) {
+        Log.d("RestoreNavTrace", "Graph created, ts=${System.currentTimeMillis()}")
+    }
+
     AnimatedNavHost(
         navController = localNavController,
         startDestination = MainRoutes.PackagesRestoreProcessingSetup.route,
@@ -43,14 +51,14 @@ fun PackagesRestoreProcessingGraph(packageNameFilter: String = "", isOtg: Boolea
                 finishedSubtitleId = R.string.args_apps_restored,
                 finishedWithErrorsSubtitleId = R.string.args_apps_restored_and_failed,
                 viewModel = viewModel,
-                opType = OpType.RESTORE  // 添加这一行
+                opType = OpType.RESTORE
             )
         }
         composable(MainRoutes.PackagesRestoreProcessingSetup.route) {
             PagePackagesRestoreProcessingSetup(
                 localNavController = localNavController,
                 viewModel = viewModel,
-                packageNameFilter = packageNameFilter  // 添加这行
+                packageNameFilter = packageNameFilter
             )
         }
     }

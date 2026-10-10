@@ -24,6 +24,18 @@ interface CloudResticBackend {
         cancelId: Long = 0L
     ): Pair<Int, String>
 
+    /**
+     * fd 流式备份的"上下文回调"：由各后端准备好 repoPath/options（FTP/SFTP 用 serve 生命周期包住整个 block），
+     * 把 streamBackupToRustic 的调用塞进这个窗口内执行。
+     * 关键：block 内含 streamBackupToRustic，其 FATAL 失败路径会在 impl 侧用同一 repoPath/options forget 空壳快照，
+     *       所以 FTP/SFTP 的 serve 必须存活到 block 完全返回（含失败 forget）之后才能 stop。
+     */
+    suspend fun <T> withStreamBackupContext(
+        cloudEntity: CloudEntity,
+        remotePath: String,
+        block: suspend (repoPath: String, options: Map<String, String>) -> T
+    ): T
+
     suspend fun listSnapshots(
         cloudEntity: CloudEntity, password: String
     ): List<ResticSnapshot>

@@ -177,6 +177,20 @@ class CloudRestoreViewModel @Inject constructor(
                     )
                 }
             }
+
+            // RestoreDupTrace: 写队列前打印完整明细，确认刷新窗口内 selectedGroups 是否对同一包
+            // 产生重复项（同包不同 userId / 同包两条 CONFIG 等）。与服务侧 RestoreDupTrace 对账。
+            Log.d(
+                "RestoreDupTrace",
+                "queue 写入前: succeededGroups=${succeededGroups.size} queueSize=${queue.size}"
+            )
+            queue.forEachIndexed { idx, item ->
+                Log.d(
+                    "RestoreDupTrace",
+                    "queue[$idx] pkg=${item.packageName} userId=${item.userId} dataType=${item.dataType} snapshotId=${item.snapshotId}"
+                )
+            }
+
             File(context.cacheDir, RESTORE_QUEUE_FILE).writeText(Json.encodeToString(queue))
 
             // 刷 DB（内部先删旧 RESTORE 记录，再扫已落盘 config 激活）+ 计算大小
