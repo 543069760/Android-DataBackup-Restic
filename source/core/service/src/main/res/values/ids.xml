@@ -1,4 +1,4 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
     <item name="backing_up" type="string"/>
     <item name="preprocessing" type="string"/>
     <item name="backup_completed" type="string"/>
