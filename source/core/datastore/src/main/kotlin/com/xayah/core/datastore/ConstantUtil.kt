@@ -4,8 +4,9 @@ object ConstantUtil {
     const val STORAGE_EMULATED_PATH = "/storage/emulated"
     private const val DEFAULT_USER_ID = 0
     const val DEFAULT_PATH_PARENT = "${STORAGE_EMULATED_PATH}/${DEFAULT_USER_ID}"
-    const val DEFAULT_PATH_CHILD = "DataBackup"
+    const val DEFAULT_PATH_CHILD = "DataBackuptmp"
     const val DEFAULT_PATH = "${DEFAULT_PATH_PARENT}/${DEFAULT_PATH_CHILD}"
+    const val LEGACY_SHARED_PATH = "${DEFAULT_PATH_PARENT}/DataBackup"
     const val DEFAULT_RUSTIC_REPO_CHILD = "DataBackupRustic"
     const val DEFAULT_RUSTIC_REPO_ROOT = "${DEFAULT_PATH_PARENT}/${DEFAULT_RUSTIC_REPO_CHILD}"
     const val DEFAULT_IDLE_TIMEOUT = -1

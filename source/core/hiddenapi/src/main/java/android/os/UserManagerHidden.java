@@ -19,5 +19,9 @@ public class UserManagerHidden {
     public List<UserInfo> getUsers() {
         throw new RuntimeException("Stub!");
     }
+
+    public boolean isUserUnlocked(int userId) {
+        throw new RuntimeException("Stub!");
+    }
 }
 

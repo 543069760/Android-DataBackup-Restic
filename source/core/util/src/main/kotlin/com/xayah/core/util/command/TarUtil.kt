@@ -204,10 +204,14 @@ object Tar {
         m: Boolean,
         src: String,
         dst: String,
+        stripComponents: Int = 0,
     ): ShellResult {
         val argv = mutableListOf("tar", "--xattrs", "--xattrs-include=*", "--acls", "--selinux", "--totals")
         exclusionList.trim().forEach { argv.add("--exclude=$it") }
         if (clear.isNotEmpty()) argv.add(clear)
+        // --strip-components 必须在 -xpf/-xmpf 之前；--exclude 的匹配发生在 strip 之前，
+        // 所以 exclusionList 仍用完整 <packageName>/... 前缀，无需改动。
+        if (stripComponents > 0) argv.add("--strip-components=$stripComponents")
         // m 由调用方控制；app/文件数据恢复统一传 m = false
         argv.add(if (m) "-xmpf" else "-xpf")
         argv.addAll(listOf(src, "-C", dst))

@@ -292,6 +292,20 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         }.getOrElse { -1 }
     }
 
+    override fun getPackageDataDirs(packageName: String, userId: Int): List<String> = synchronized(lock) {
+        runCatching {
+            val appInfo = packageManagerHidden.getPackageInfoAsUser(packageName, 0, userId).applicationInfo!!
+            // index 0 = CE 真实数据目录(dataDir)，index 1 = DE 真实数据目录(deviceProtectedDataDir)
+            listOf(appInfo.dataDir ?: "", appInfo.deviceProtectedDataDir ?: "")
+        }.getOrElse { listOf("", "") }
+    }
+
+    override fun isUserUnlocked(userId: Int): Boolean = synchronized(lock) {
+        runCatching {
+            userManager.isUserUnlocked(userId)
+        }.getOrElse { false }
+    }
+
     override fun getUserHandle(userId: Int): UserHandle = synchronized(lock) {
         UserHandleHidden.of(userId)
     }

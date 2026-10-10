@@ -397,60 +397,90 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                         DataType.PACKAGE_OBB,
                         DataType.PACKAGE_MEDIA,
                     )
-                    for (type in dataTypes) {
-                        if (isCanceled()) {
-                            log { "Backup canceled, skipping remaining data types for ${p.packageName}" }
-                            break
-                        }
-                        backup(type = type, p = p, r = restoreEntity, t = pkg, dstDir = dstDir)
-                        // 每完成一个 DataType（即使内部被跳过）都推进一个阶段
-                        stageInApp++
-                        notifyStage()
-                    }
 
-                    if (isCanceled()) {
-                        log { "Backup canceled after data backup, skipping config save" }
+                    // FBE 预检：目标用户 CE 未解锁（系统分身锁定态）时提前拦截，
+                    // 不进入数据备份/ config 保存，避免备出只有 apk、缺 user 数据的残缺备份。
+                    // user 0（主用户始终解锁）永不进此分支，行为完全不变。
+                    val userId = p.userId
+                    if (userId != 0 && !mRootService.isUserUnlocked(userId)) {
+                        val msg = mContext.getString(R.string.backup_target_user_locked, userId)
+                        log { "FBE precheck: 目标用户 $userId 未解锁（CE 锁定），跳过 ${p.packageName} 的数据备份。$msg" }
+                        pkg.update(dataType = DataType.PACKAGE_APK, state = OperationState.ERROR, log = msg)
+                        pkg.update(dataType = DataType.PACKAGE_USER, state = OperationState.ERROR, log = msg)
+                        pkg.update(dataType = DataType.PACKAGE_USER_DE, state = OperationState.ERROR, log = msg)
+                        pkg.update(dataType = DataType.PACKAGE_DATA, state = OperationState.ERROR, log = msg)
+                        pkg.update(dataType = DataType.PACKAGE_OBB, state = OperationState.ERROR, log = msg)
+                        pkg.update(dataType = DataType.PACKAGE_MEDIA, state = OperationState.ERROR, log = msg)
                         pkg.update(state = OperationState.ERROR)
                         mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
                     } else {
-                        mPackagesBackupUtil.backupPermissions(p = p)
-                        mPackagesBackupUtil.backupSsaid(p = p)
+                        for (type in dataTypes) {
+                            if (isCanceled()) {
+                                log { "Backup canceled, skipping remaining data types for ${p.packageName}" }
+                                break
+                            }
+                            backup(type = type, p = p, r = restoreEntity, t = pkg, dstDir = dstDir)
+                            // 每完成一个 DataType（即使内部被跳过）都推进一个阶段
+                            stageInApp++
+                            notifyStage()
+                        }
 
                         if (isCanceled()) {
-                            log { "Backup canceled before saving config" }
+                            log { "Backup canceled after data backup, skipping config save" }
                             pkg.update(state = OperationState.ERROR)
                             mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
-                        } else if (pkg.isSuccess) {
-                            p.extraInfo.lastBackupTime = DateUtil.getTimestamp()
-                            val id = restoreEntity?.id ?: 0
-                            restoreEntity = p.copy(
-                                id = id,
-                                indexInfo = p.indexInfo.copy(opType = OpType.RESTORE, cloud = mTaskEntity.cloud, backupDir = mTaskEntity.backupDir, compressionType = CompressionType.TAR),
-                                extraInfo = p.extraInfo.copy(activated = false)
-                            )
-
-                            val configDst = PathUtil.getPackageRestoreConfigDst(dstDir = dstDir)
-                            mRootService.writeJson(data = restoreEntity, dst = configDst)
-                            val configFile = File(configDst)
-                            if (configFile.exists()) {
-                                backup(type = DataType.PACKAGE_CONFIG, p = p, r = restoreEntity, t = pkg, dstDir = dstDir)
-                                log { "Config backup completed for ${p.packageName}" }
-                            }
-                            onConfigSaved(path = configDst, archivesRelativeDir = p.archivesRelativeDir)
-                            mPackageDao.upsert(restoreEntity)
-                            mPackageDao.upsert(p)
-                            pkg.update(packageEntity = p)
-                            mTaskEntity.update(successCount = mTaskEntity.successCount + 1)
                         } else {
-                            log { "Backup failed for ${p.packageName}, cleaning up remote files..." }
-                            runCatching {
-                                onCleanupFailedBackup(archivesRelativeDir = p.archivesRelativeDir)
-                            }.onFailure { e ->
-                                log { "Failed to cleanup remote files: ${e.message}" }
+                            mPackagesBackupUtil.backupPermissions(p = p)
+                            if (isCanceled()) {
+                                log { "Backup canceled before saving config" }
+                                pkg.update(state = OperationState.ERROR)
+                                mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
+                            } else if (pkg.isSuccess) {
+                                p.extraInfo.lastBackupTime = DateUtil.getTimestamp()
+                                val id = restoreEntity?.id ?: 0
+                                restoreEntity = p.copy(
+                                    id = id,
+                                    indexInfo = p.indexInfo.copy(
+                                        opType = OpType.RESTORE,
+                                        cloud = mTaskEntity.cloud,
+                                        backupDir = mTaskEntity.backupDir,
+                                        compressionType = CompressionType.TAR
+                                    ),
+                                    extraInfo = p.extraInfo.copy(activated = false)
+                                )
+
+                                val configDst = PathUtil.getPackageRestoreConfigDst(dstDir = dstDir)
+                                mRootService.writeJson(data = restoreEntity, dst = configDst)
+                                val configFile = File(configDst)
+                                if (configFile.exists()) {
+                                    backup(
+                                        type = DataType.PACKAGE_CONFIG,
+                                        p = p,
+                                        r = restoreEntity,
+                                        t = pkg,
+                                        dstDir = dstDir
+                                    )
+                                    log { "Config backup completed for ${p.packageName}" }
+                                }
+                                onConfigSaved(
+                                    path = configDst,
+                                    archivesRelativeDir = p.archivesRelativeDir
+                                )
+                                mPackageDao.upsert(restoreEntity)
+                                mPackageDao.upsert(p)
+                                pkg.update(packageEntity = p)
+                                mTaskEntity.update(successCount = mTaskEntity.successCount + 1)
+                            } else {
+                                log { "Backup failed for ${p.packageName}, cleaning up remote files..." }
+                                runCatching {
+                                    onCleanupFailedBackup(archivesRelativeDir = p.archivesRelativeDir)
+                                }.onFailure { e ->
+                                    log { "Failed to cleanup remote files: ${e.message}" }
+                                }
+                                mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
                             }
-                            mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
+                            pkg.update(state = if (pkg.isSuccess) OperationState.DONE else OperationState.ERROR)
                         }
-                        pkg.update(state = if (pkg.isSuccess) OperationState.DONE else OperationState.ERROR)
                     }
                 } else {
                     pkg.update(dataType = DataType.PACKAGE_APK, state = OperationState.ERROR)

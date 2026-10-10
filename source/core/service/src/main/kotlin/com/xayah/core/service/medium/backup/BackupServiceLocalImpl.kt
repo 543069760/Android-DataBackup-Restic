@@ -97,46 +97,50 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
     override suspend fun onCleanupIncompleteBackup(currentIndex: Int) {
         Log.d(mTAG, "Cleaning up incomplete local file backup from index: $currentIndex")
 
+        // 只按文件名精确清理本次未完成的 fork 中转产物（media.tar / media_restore_config.json）；
+        // 绝不 deleteRecursively(mRootDir)——迁移窗口内 mRootDir 仍可能是与原版共享的 DataBackup，
+        // 整删会误删原版数据。localFileDir 虽是子目录，但共享窗口内原版也用 files/<media>/ 结构，
+        // 故不整删子目录，只删 fork 自己写入的两个文件名。
         mMediaEntities.forEachIndexed { index, media ->
             if (index >= currentIndex) {
                 val localFileDir = "${mFilesDir}/${media.mediaEntity.archivesRelativeDir}"
-                Log.d(mTAG, "Cleaning up incomplete backup at: $localFileDir")
-                runCatching {
-                    mRootService.deleteRecursively(localFileDir)
-                }.onSuccess {
-                    Log.d(mTAG, "Successfully cleaned up: $localFileDir")
-                }.onFailure { e ->
-                    Log.e(mTAG, "Failed to cleanup: ${e.message}")
+                listOf("media.tar", "media_restore_config.json").forEach { name ->
+                    val f = "$localFileDir/$name"
+                    runCatching {
+                        if (mRootService.exists(f)) mRootService.deleteRecursively(f)
+                    }.onSuccess {
+                        Log.d(mTAG, "Successfully cleaned up fork transit file: $f")
+                    }.onFailure { e ->
+                        Log.e(mTAG, "Failed to cleanup $f: ${e.message}")
+                    }
                 }
             }
         }
 
-        log { "Cleaning up temporary directory: $mRootDir" }
-        runCatching {
-            mRootService.deleteRecursively(mRootDir)
-        }.onSuccess {
-            log { "Successfully deleted temporary directory" }
-        }.onFailure { e ->
-            log { "Failed to delete temporary directory: ${e.message}" }
-        }
-
-        // 【新增】清理停止文件
+        log { "onCleanupIncompleteBackup: skip deleting shared root $mRootDir" }
         cleanupStopFiles()
     }
 
     override suspend fun clear() {
-        log { "Attempting to delete local backup directory: $mRootDir" }
-        val result = runCatching {
-            mRootService.deleteRecursively(mRootDir)
-        }
-        if (result.isSuccess) {
-            log { "Successfully deleted local backup directory" }
-        } else {
-            log { "Failed to delete local backup directory: ${result.exceptionOrNull()?.message}" }
-        }
-
-        // 【新增】清理停止文件
+        // 流式/新链路不往共享根落中转；旧版 fork(中转式)媒体备份会留下 media.tar / media_restore_config.json。
+        // mRootDir 与原版 DataBackup 共享（迁移窗口内尤甚），绝不整目录删除，只按文件名精确清理 fork 自己的中转文件。
+        log { "clear(): skip deleting shared root $mRootDir, only remove fork media transit files" }
+        cleanupForkMediaTransitFiles()
         cleanupStopFiles()
+    }
+
+    /** 清理 fork 自己写入的媒体中转产物（media.tar / media_restore_config.json），不触碰原版数据 */
+    private suspend fun cleanupForkMediaTransitFiles() {
+        mMediaEntities.forEach { media ->
+            val dir = "${mFilesDir}/${media.mediaEntity.archivesRelativeDir}"
+            listOf("media.tar", "media_restore_config.json").forEach { name ->
+                val f = "$dir/$name"
+                runCatching {
+                    if (mRootService.exists(f)) mRootService.deleteRecursively(f)
+                }.onSuccess { log { "清理旧版 fork 媒体中转文件: $f" } }
+                    .onFailure { e -> log { "清理媒体中转文件失败 $f: ${e.message}" } }
+            }
+        }
     }
 
     @Inject

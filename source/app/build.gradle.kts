@@ -155,6 +155,7 @@ dependencies {
     implementation(project(":core:database"))
     implementation(project(":core:data"))
     implementation(project(":core:datastore"))
+    implementation(libs.androidx.datastore.preferences)
     implementation(project(":core:util"))
     implementation(project(":core:work"))
     compileOnly(project(":core:hiddenapi"))

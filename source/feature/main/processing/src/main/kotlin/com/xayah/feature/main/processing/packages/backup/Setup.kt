@@ -41,6 +41,7 @@ import com.xayah.core.datastore.KeyBackupConfigs
 import com.xayah.core.model.StorageMode
 import com.xayah.core.ui.component.Clickable
 import com.xayah.core.ui.component.LocalSlotScope
+import com.xayah.core.ui.component.confirm
 import com.xayah.core.ui.component.PackageIcons
 import com.xayah.core.ui.component.Selectable
 import com.xayah.core.ui.component.Switchable
@@ -75,6 +76,9 @@ fun PagePackagesBackupProcessingSetup(localNavController: NavHostController, vie
     val isTesting by viewModel.isTesting.collectAsStateWithLifecycle()
     val packages by viewModel.packages.collectAsStateWithLifecycle()
     val packagesSize by viewModel.packagesSize.collectAsStateWithLifecycle()
+    val dialogState = LocalSlotScope.current!!.dialogSlot
+    val lockedTitle = stringResource(id = R.string.backup_target_user_locked_title)
+    val lockedMessage = stringResource(id = R.string.backup_target_user_locked_message)
 
     LaunchedEffect(null) {
         viewModel.emitIntentOnIO(UpdateApps)
@@ -97,7 +101,38 @@ fun PagePackagesBackupProcessingSetup(localNavController: NavHostController, vie
                             || uiState.storageType == StorageMode.Otg
                             || (uiState.cloudEntity != null && isTesting.not()),
                     onClick = {
-                        viewModel.emitIntentOnIO(FinishSetup(navController = localNavController))
+                        viewModel.launchOnIO {
+                            // 目标 userId 集合：各包 userId 去重，排除主用户 0
+                            val userIds = viewModel.packages.value
+                                .map { it.userId }
+                                .filter { it != 0 }
+                                .toSet()
+
+                            // 无次级用户 → 照旧启动
+                            if (userIds.isEmpty()) {
+                                viewModel.emitIntent(FinishSetup(navController = localNavController))
+                                return@launchOnIO
+                            }
+
+                            // FBE 预检 + 循环复检
+                            while (true) {
+                                val locked = viewModel.queryLockedUserIds(userIds)
+                                if (locked.isEmpty()) {
+                                    viewModel.emitIntent(FinishSetup(navController = localNavController))
+                                    return@launchOnIO
+                                }
+                                // 存在锁定用户 → 弹对话框提示去分身解锁
+                                val confirmed = dialogState.confirm(
+                                    title = lockedTitle,
+                                    text = lockedMessage
+                                )
+                                if (!confirmed) {
+                                    // 用户取消 → 放弃本次启动
+                                    return@launchOnIO
+                                }
+                                // 确认后循环回到顶部再次 queryLockedUserIds 复检，仍锁定则再弹
+                            }
+                        }
                     }) {
                     Text(text = stringResource(id = R.string._continue))
                 }

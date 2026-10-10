@@ -180,15 +180,30 @@ internal abstract class AbstractRestoreService : AbstractPackagesService() {
                     DataType.PACKAGE_OBB,
                     DataType.PACKAGE_MEDIA,
                 )
-                for (type in dataTypes) {
-                    restore(type = type, userId = userId, p = p, t = pkg, srcDir = srcDir)
-                    // 每完成一个 DataType 推进一个阶段
-                    stageInApp++
-                    notifyStage()
-                    if (pkg.get(type).state == OperationState.ERROR) {
-                        log { "Fail-fast: ${p.packageName} 在 ${type.type} 步骤失败，跳过该 App 剩余恢复步骤。" }
-                        failedFast = true
-                        break
+
+                // FBE 预检：目标用户（次级用户/系统分身）CE 存储未解锁（FBE 锁定）时，
+                // /data/user/<id>/ 加密不可写，tar 会走到 ENOKEY(rc=2)。此处每包只检一次，
+                // 覆盖该包全部 dataType，提前友好报错并跳过 tar。userId==0（主用户，始终解锁）不检，行为不变。
+                if (userId != 0 && !mRootService.isUserUnlocked(userId)) {
+                    val msg = mContext.getString(R.string.restore_target_user_locked)
+                    log { "目标用户 $userId CE 存储未解锁（FBE 锁定）：$msg" }
+                    dataTypes.forEach { type ->
+                        pkg.update(dataType = type, state = OperationState.ERROR, log = msg)
+                    }
+                    failedFast = true
+                }
+
+                if (!failedFast) {
+                    for (type in dataTypes) {
+                        restore(type = type, userId = userId, p = p, t = pkg, srcDir = srcDir)
+                        // 每完成一个 DataType 推进一个阶段
+                        stageInApp++
+                        notifyStage()
+                        if (pkg.get(type).state == OperationState.ERROR) {
+                            log { "Fail-fast: ${p.packageName} 在 ${type.type} 步骤失败，跳过该 App 剩余恢复步骤。" }
+                            failedFast = true
+                            break
+                        }
                     }
                 }
 
@@ -218,6 +233,11 @@ internal abstract class AbstractRestoreService : AbstractPackagesService() {
 
             mTaskEntity.update(processingIndex = mTaskEntity.processingIndex + 1)
         }
+
+        // 边界日志：整个包循环跑完、onProcessing 即将正常返回。
+        // 若此行出现、但 AbstractProcessingService 的 "postProcessing() entered" 不出现，
+        // 说明卡在 processing() 返回之后、postProcessing() 进入之前（主线程 hop / 结构化并发残留子协程）。
+        log { "onProcessing loop done, returning" }
     }
 
     override suspend fun onPostProcessing(entity: ProcessingInfoEntity) {

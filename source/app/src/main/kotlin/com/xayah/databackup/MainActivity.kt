@@ -22,6 +22,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import javax.inject.Inject
+import com.xayah.core.rootservice.service.RemoteRootService
+import com.xayah.core.util.command.SELinux
+import com.xayah.core.datastore.ConstantUtil
+import com.xayah.core.datastore.readBackupSavePath
+import com.xayah.core.datastore.readBackupSavePathSaved
+import com.xayah.core.datastore.saveBackupSavePath
+import kotlinx.coroutines.flow.first
 import com.xayah.core.datastore.readResticActiveIsOtg
 import java.net.URLDecoder
 import com.xayah.core.ui.theme.DataBackupExpressiveTheme
@@ -81,15 +93,14 @@ import com.xayah.feature.main.restore.CloudBackupDetailPage
 
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
+    @Inject
+    lateinit var rootService: RemoteRootService
+
     @ExperimentalCoroutinesApi
     @ExperimentalAnimationApi
     @ExperimentalFoundationApi
     @ExperimentalLayoutApi
     @ExperimentalMaterial3Api
-    //override fun onCreate(savedInstanceState: Bundle?) {
-      //  super.onCreate(savedInstanceState)
-        //WindowCompat.setDecorFitsSystemWindows(window, false)
-
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()  // 必须在 super.onCreate() 之前，避免状态栏颜色闪烁
         super.onCreate(savedInstanceState)
@@ -99,6 +110,9 @@ class MainActivity : AppCompatActivity() {
                 BaseUtil.initializeEnvironment(context = this@MainActivity)
             }
         }
+
+        // 存量 fork 目录迁移：异步执行，不阻塞冷启动，并给 root 服务就绪留出时机
+        migrateLegacyBackupPathAsync()
 
         setContent {
             DataBackupTheme {
@@ -186,7 +200,8 @@ class MainActivity : AppCompatActivity() {
                                 }
                             )
                         ) { backStackEntry ->
-                            val isOtg = backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
+                            val isOtg =
+                                backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
                             ListRoute(isOtg = isOtg)
                         }
                         composable(MainRoutes.Details.route) {
@@ -207,7 +222,8 @@ class MainActivity : AppCompatActivity() {
                                 }
                             )
                         ) { backStackEntry ->
-                            val isOtg = backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
+                            val isOtg =
+                                backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
                             PackagesBackupProcessingGraph(isOtg = isOtg)
                         }
                         composable(
@@ -219,14 +235,23 @@ class MainActivity : AppCompatActivity() {
                                 }
                             )
                         ) { backStackEntry ->
-                            val accountName = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME)?.decodeURL() ?: ""
-                            CloudRestorePage(navController = navController, accountName = accountName)
+                            val accountName =
+                                backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME)
+                                    ?.decodeURL() ?: ""
+                            CloudRestorePage(
+                                navController = navController,
+                                accountName = accountName
+                            )
                         }
                         composable(
                             route = MainRoutes.PackagesRestoreProcessingGraph.route,
                             arguments = listOf(
-                                navArgument(MainRoutes.ARG_ACCOUNT_NAME) { type = NavType.StringType },
-                                navArgument(MainRoutes.ARG_ACCOUNT_REMOTE) { type = NavType.StringType },
+                                navArgument(MainRoutes.ARG_ACCOUNT_NAME) {
+                                    type = NavType.StringType
+                                },
+                                navArgument(MainRoutes.ARG_ACCOUNT_REMOTE) {
+                                    type = NavType.StringType
+                                },
                                 navArgument(MainRoutes.ARG_PACKAGE_NAME_FILTER) {
                                     type = NavType.StringType
                                     nullable = true
@@ -238,12 +263,25 @@ class MainActivity : AppCompatActivity() {
                                 }
                             )
                         ) { backStackEntry ->
-                            val cloudName = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME) ?: ""
-                            val backupDir = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_REMOTE) ?: ""
-                            val packageName = backStackEntry.arguments?.getString(MainRoutes.ARG_PACKAGE_NAME_FILTER) ?: ""
-                            val isOtg = backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
-                            Log.d("Navigation", "PackagesRestoreProcessingGraph: cloudName=$cloudName, backupDir=$backupDir, packageName=$packageName, isOtg=$isOtg")
-                            PackagesRestoreProcessingGraph(packageNameFilter = packageName, isOtg = isOtg)
+                            val cloudName =
+                                backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME)
+                                    ?: ""
+                            val backupDir =
+                                backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_REMOTE)
+                                    ?: ""
+                            val packageName =
+                                backStackEntry.arguments?.getString(MainRoutes.ARG_PACKAGE_NAME_FILTER)
+                                    ?: ""
+                            val isOtg =
+                                backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
+                            Log.d(
+                                "Navigation",
+                                "PackagesRestoreProcessingGraph: cloudName=$cloudName, backupDir=$backupDir, packageName=$packageName, isOtg=$isOtg"
+                            )
+                            PackagesRestoreProcessingGraph(
+                                packageNameFilter = packageName,
+                                isOtg = isOtg
+                            )
                         }
 
                         composable(
@@ -255,20 +293,30 @@ class MainActivity : AppCompatActivity() {
                                 }
                             )
                         ) { backStackEntry ->
-                            val isOtg = backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
+                            val isOtg =
+                                backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
                             MediumBackupProcessingGraph(isOtg = isOtg)
                         }
                         composable(
                             route = MainRoutes.MediumRestoreProcessingGraph.route,
                             arguments = listOf(
-                                navArgument(MainRoutes.ARG_ACCOUNT_NAME) { type = NavType.StringType },
-                                navArgument(MainRoutes.ARG_ACCOUNT_REMOTE) { type = NavType.StringType },
+                                navArgument(MainRoutes.ARG_ACCOUNT_NAME) {
+                                    type = NavType.StringType
+                                },
+                                navArgument(MainRoutes.ARG_ACCOUNT_REMOTE) {
+                                    type = NavType.StringType
+                                },
                                 navArgument(MainRoutes.ARG_MEDIA_NAME) { type = NavType.StringType }
                             )
                         ) { backStackEntry ->
-                            val cloudName = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME) ?: ""
-                            val backupDir = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_REMOTE) ?: ""
-                            val mediaName = backStackEntry.arguments?.getString(MainRoutes.ARG_MEDIA_NAME) ?: ""
+                            val cloudName =
+                                backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME)
+                                    ?: ""
+                            val backupDir =
+                                backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_REMOTE)
+                                    ?: ""
+                            val mediaName =
+                                backStackEntry.arguments?.getString(MainRoutes.ARG_MEDIA_NAME) ?: ""
                             MediumRestoreProcessingGraph(mediaName = mediaName)
                         }
                         composable(MainRoutes.CacheManagement.route) {
@@ -290,7 +338,8 @@ class MainActivity : AppCompatActivity() {
                                 }
                             )
                         ) { backStackEntry ->
-                            val isOtg = backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
+                            val isOtg =
+                                backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
                             ResticRestorePage(navController = navController, isOtg = isOtg)
                         }
 
@@ -298,15 +347,23 @@ class MainActivity : AppCompatActivity() {
                             route = MainRoutes.CloudBackupDetail.route,
                             arguments = listOf(
                                 navArgument(MainRoutes.ARG_GROUP) { type = NavType.StringType },
-                                navArgument(MainRoutes.ARG_ACCOUNT_NAME) { type = NavType.StringType }
+                                navArgument(MainRoutes.ARG_ACCOUNT_NAME) {
+                                    type = NavType.StringType
+                                }
                             )
                         ) { backStackEntry ->
                             Log.d("MainActivity", "CloudBackupDetail 路由被触发")
 
-                            val groupJsonEncoded = backStackEntry.arguments?.getString(MainRoutes.ARG_GROUP)
-                            val accountName = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME) ?: ""
+                            val groupJsonEncoded =
+                                backStackEntry.arguments?.getString(MainRoutes.ARG_GROUP)
+                            val accountName =
+                                backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME)
+                                    ?: ""
 
-                            Log.d("MainActivity", "提取参数 - group: ${groupJsonEncoded?.take(50)}..., accountName: $accountName")
+                            Log.d(
+                                "MainActivity",
+                                "提取参数 - group: ${groupJsonEncoded?.take(50)}..., accountName: $accountName"
+                            )
 
                             val group = groupJsonEncoded?.let { encodedJson ->
                                 try {
@@ -320,9 +377,13 @@ class MainActivity : AppCompatActivity() {
                                     }
 
                                     val groupJsonDecoded = URLDecoder.decode(cleanJson, "UTF-8")
-                                    Log.d("MainActivity", "URL 解码成功: ${groupJsonDecoded.take(50)}...")
+                                    Log.d(
+                                        "MainActivity",
+                                        "URL 解码成功: ${groupJsonDecoded.take(50)}..."
+                                    )
 
-                                    val decodedGroup = Json.decodeFromString<ResticBackupGroup>(groupJsonDecoded)
+                                    val decodedGroup =
+                                        Json.decodeFromString<ResticBackupGroup>(groupJsonDecoded)
                                     Log.d("MainActivity", "JSON 反序列化成功")
                                     decodedGroup
                                 } catch (e: Exception) {
@@ -333,7 +394,11 @@ class MainActivity : AppCompatActivity() {
 
                             group?.let {
                                 Log.d("MainActivity", "导航到 CloudBackupDetailPage")
-                                CloudBackupDetailPage(navController = navController, group = it, accountName = accountName)
+                                CloudBackupDetailPage(
+                                    navController = navController,
+                                    group = it,
+                                    accountName = accountName
+                                )
                             } ?: run {
                                 Log.e("MainActivity", "参数为空，调用 popBackStack()")
                                 navController.popBackStack()
@@ -350,7 +415,8 @@ class MainActivity : AppCompatActivity() {
                             )
                         ) { backStackEntry ->
                             // 1. 提取已编码的参数
-                            val groupJsonEncoded = backStackEntry.arguments?.getString(MainRoutes.ARG_GROUP)
+                            val groupJsonEncoded =
+                                backStackEntry.arguments?.getString(MainRoutes.ARG_GROUP)
 
                             val group = groupJsonEncoded?.let { encodedJson ->
                                 try {
@@ -358,12 +424,17 @@ class MainActivity : AppCompatActivity() {
                                     val groupJsonDecoded = URLDecoder.decode(encodedJson, "UTF-8")
 
                                     // 3. JSON 反序列化
-                                    val decodedGroup = Json.decodeFromString<ResticBackupGroup>(groupJsonDecoded)
+                                    val decodedGroup =
+                                        Json.decodeFromString<ResticBackupGroup>(groupJsonDecoded)
 
                                     Log.d("MainActivity", "Successfully decoded ResticBackupGroup.")
                                     decodedGroup
                                 } catch (e: Exception) {
-                                    Log.e("MainActivity", "Failed to decode ResticBackupGroup for nav: ${e.message}", e)
+                                    Log.e(
+                                        "MainActivity",
+                                        "Failed to decode ResticBackupGroup for nav: ${e.message}",
+                                        e
+                                    )
                                     null
                                 }
                             }
@@ -392,7 +463,8 @@ class MainActivity : AppCompatActivity() {
                             )
                         ) { backStackEntry ->
                             // 1. 提取已编码的参数
-                            val groupJsonEncoded = backStackEntry.arguments?.getString(MainRoutes.ARG_GROUP)
+                            val groupJsonEncoded =
+                                backStackEntry.arguments?.getString(MainRoutes.ARG_GROUP)
 
                             val group = groupJsonEncoded?.let { encodedJson ->
                                 try {
@@ -400,19 +472,31 @@ class MainActivity : AppCompatActivity() {
                                     val groupJsonDecoded = URLDecoder.decode(encodedJson, "UTF-8")
 
                                     // 3. JSON 反序列化
-                                    val decodedGroup = Json.decodeFromString<ResticFileBackupGroup>(groupJsonDecoded)
+                                    val decodedGroup = Json.decodeFromString<ResticFileBackupGroup>(
+                                        groupJsonDecoded
+                                    )
 
-                                    Log.d("MainActivity", "Successfully decoded ResticFileBackupGroup.")
+                                    Log.d(
+                                        "MainActivity",
+                                        "Successfully decoded ResticFileBackupGroup."
+                                    )
                                     decodedGroup
                                 } catch (e: Exception) {
-                                    Log.e("MainActivity", "Failed to decode ResticFileBackupGroup for nav: ${e.message}", e)
+                                    Log.e(
+                                        "MainActivity",
+                                        "Failed to decode ResticFileBackupGroup for nav: ${e.message}",
+                                        e
+                                    )
                                     null
                                 }
                             }
 
                             group?.let {
                                 // 4. 成功后导航到详情页
-                                ResticFilesBackupDetailPage(navController = navController, group = it)
+                                ResticFilesBackupDetailPage(
+                                    navController = navController,
+                                    group = it
+                                )
                             } ?: run {
                                 Log.e("MainActivity", "Group is null, popping back stack.")
                                 // 参数获取失败，返回上一页
@@ -424,25 +508,40 @@ class MainActivity : AppCompatActivity() {
                             route = MainRoutes.CloudFilesBackupDetail.route,
                             arguments = listOf(
                                 navArgument(MainRoutes.ARG_GROUP) { type = NavType.StringType },
-                                navArgument(MainRoutes.ARG_ACCOUNT_NAME) { type = NavType.StringType }
+                                navArgument(MainRoutes.ARG_ACCOUNT_NAME) {
+                                    type = NavType.StringType
+                                }
                             )
                         ) { backStackEntry ->
-                            val groupJsonEncoded = backStackEntry.arguments?.getString(MainRoutes.ARG_GROUP)
-                            val accountName = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME) ?: ""
+                            val groupJsonEncoded =
+                                backStackEntry.arguments?.getString(MainRoutes.ARG_GROUP)
+                            val accountName =
+                                backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME)
+                                    ?: ""
 
                             val group = groupJsonEncoded?.let { encodedJson ->
                                 try {
                                     val groupJsonDecoded = URLDecoder.decode(encodedJson, "UTF-8")
-                                    val decodedGroup = Json.decodeFromString<ResticFileBackupGroup>(groupJsonDecoded)
+                                    val decodedGroup = Json.decodeFromString<ResticFileBackupGroup>(
+                                        groupJsonDecoded
+                                    )
                                     decodedGroup
                                 } catch (e: Exception) {
-                                    Log.e("MainActivity", "Failed to decode CloudFilesBackupDetail: ${e.message}", e)
+                                    Log.e(
+                                        "MainActivity",
+                                        "Failed to decode CloudFilesBackupDetail: ${e.message}",
+                                        e
+                                    )
                                     null
                                 }
                             }
 
                             group?.let {
-                                CloudFilesBackupDetailPage(navController = navController, group = it, accountName = accountName)
+                                CloudFilesBackupDetailPage(
+                                    navController = navController,
+                                    group = it,
+                                    accountName = accountName
+                                )
                             } ?: run {
                                 navController.popBackStack()
                             }
@@ -457,8 +556,13 @@ class MainActivity : AppCompatActivity() {
                                 }
                             )
                         ) { backStackEntry ->
-                            val accountName = backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME)?.decodeURL() ?: ""
-                            CloudFilesRestorePage(navController = navController, accountName = accountName)
+                            val accountName =
+                                backStackEntry.arguments?.getString(MainRoutes.ARG_ACCOUNT_NAME)
+                                    ?.decodeURL() ?: ""
+                            CloudFilesRestorePage(
+                                navController = navController,
+                                accountName = accountName
+                            )
                         }
                         composable(MainRoutes.BackupSettings.route) {
                             PageBackupSettings()
@@ -493,7 +597,8 @@ class MainActivity : AppCompatActivity() {
                                 }
                             )
                         ) { backStackEntry ->
-                            val isOtg = backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
+                            val isOtg =
+                                backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
                             PageStorageStats(isOtg = isOtg)
                         }
                         composable(
@@ -523,7 +628,8 @@ class MainActivity : AppCompatActivity() {
                                 }
                             )
                         ) { backStackEntry ->
-                            val isOtg = backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
+                            val isOtg =
+                                backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
                             ResticInitializationScreen(isOtg = isOtg)
                         }
                     }
@@ -531,4 +637,52 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-}
+
+        /**
+         * 存量迁移：老 fork 曾把 save path 写成与原版共享的 /storage/emulated/0/DataBackup，
+         * fork 的清理逻辑会误删原版 zst 仓库。这里检测到旧共享路径就改写为新专属目录，
+         * 只改 DataStore 指针 + 建新目录并设权限，绝不删除/搬运旧目录（原版数据在里面）。
+         * 异步执行，避免拖慢冷启动，并给 root 服务就绪留出时机。
+         */
+        private fun migrateLegacyBackupPathAsync() {
+            lifecycleScope.launch {
+                runCatching {
+                    val saved = readBackupSavePathSaved().first()
+                    // 全新安装（从没存过）直接用新默认值，无需迁移
+                    if (!saved) return@launch
+                    val current = readBackupSavePath().first()
+                    // 只迁移"历史被写成与原版相同的旧共享路径"这一种情况
+                    if (current != ConstantUtil.LEGACY_SHARED_PATH) return@launch
+
+                    // 吐司切回主线程弹
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            getString(R.string.migrating_transit_dir),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+
+                    // root 目录操作放 IO 线程
+                    withContext(Dispatchers.IO) {
+                        createDirWithPermissions(ConstantUtil.DEFAULT_PATH)
+                    }
+                    saveBackupSavePath(ConstantUtil.DEFAULT_PATH)
+                    Log.d("MainActivity", "已迁移备份保存目录: $current -> ${ConstantUtil.DEFAULT_PATH}")
+                }.onFailure { e ->
+                    Log.e("MainActivity", "备份目录迁移失败: ${e.message}", e)
+                }
+            }
+        }
+
+        private suspend fun createDirWithPermissions(path: String) {
+            rootService.mkdirs(path)
+            rootService.setAllPermissions(path)
+            SELinux.getContext(path = path).also { result ->
+                val pathContext = if (result.isSuccess) result.outString else ""
+                SELinux.chcon(context = pathContext, path = path)
+                val uidGid = applicationInfo.uid.toUInt()
+                SELinux.chown(uid = uidGid, gid = uidGid, path = path)
+            }
+        }
+    }

@@ -367,6 +367,12 @@ class RemoteRootService(private val context: Context) {
     suspend fun getPackageUid(packageName: String, userId: Int): Int =
         runCatching { getService().getPackageUid(packageName, userId) }.onFailure(onFailure).getOrElse { -1 }
 
+    suspend fun getPackageDataDirs(packageName: String, userId: Int): List<String> =
+        runCatching { getService().getPackageDataDirs(packageName, userId) }.onFailure(onFailure).getOrElse { listOf("", "") }
+
+    suspend fun isUserUnlocked(userId: Int): Boolean =
+        runCatching { getService().isUserUnlocked(userId) }.onFailure(onFailure).getOrElse { false }
+
     suspend fun getUserHandle(userId: Int): UserHandle? = runCatching { getService().getUserHandle(userId) }.onFailure(onFailure).getOrNull()
 
     suspend fun queryStatsForPackage(packageInfo: PackageInfo, user: UserHandle): StorageStatsParcelable? =

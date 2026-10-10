@@ -9,6 +9,7 @@ import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.database.dao.PackageDao
 import com.xayah.core.database.dao.TaskDao
 import com.xayah.core.datastore.readBackupDirectory
+import com.xayah.core.datastore.ConstantUtil
 import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.datastore.readResticRepoConfigId
 import com.xayah.core.datastore.readResticRepoPath
@@ -41,6 +42,7 @@ import com.xayah.core.model.OperationState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelAndJoin
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.coroutineContext
@@ -233,7 +235,9 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
             return
         }
         val targetPath = transitDirOf(p.packageName, userId)
-        val snapshotSubPath = snapshotSubPathOf(p.packageName, userId)
+        // 重型 tar 走 fd 流式入库，快照登记的归档路径是裸文件名（apk.tar 等），
+        // 不存在 apps/<pkg>/user_<id>/ 前缀，故 subPath 只能用裸文件名，不能用目录路径。
+        // （目录型 subPath 只适用于 CONFIG 这类真实文件入库的快照）
 
         for (item in items) {
             Log.d(mTAG, "解出重型 tar: ${p.packageName}/user_$userId ${item.dataType.type}")
@@ -305,18 +309,40 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
                 }
             }
 
-            val ok = try {
-                extractOne(
-                    item = item,
-                    includePath = "${item.dataType.type}.tar",
-                    targetPath = targetPath,
-                    snapshotSubPath = snapshotSubPath,
-                    progressCallback = progressCallback
-                )
+            val tarName = "${item.dataType.type}.tar"
+            // 兼容两代备份格式：
+            //  - 新版 fd 流式入库：快照归档路径是裸文件名 "apk.tar"
+            //  - 旧版中转文件入库：快照归档路径是完整绝对路径，用目录型 subPath 定位
+            // 先用裸文件名尝试；没落盘则回退旧版目录 subPath 再试一次。
+            val candidateSubPaths = listOf(
+                tarName,                                            // 候选1：裸文件名 —— 新 fd 流式快照
+                snapshotSubPathOf(p.packageName, userId),           // 候选2：当前保存目录(迁移后=DataBackuptmp)/apps/... —— 兼容自定义 backup_directory
+                legacySnapshotSubPathOf(p.packageName, userId)      // 候选3：旧共享目录 /storage/emulated/0/DataBackup/apps/... —— 旧中转快照
+            )
+            var ok = false
+            var landed = false
+            try {
+                for ((idx, sub) in candidateSubPaths.withIndex()) {
+                    ok = extractOne(
+                        item = item,
+                        includePath = tarName,
+                        targetPath = targetPath,
+                        snapshotSubPath = sub,
+                        progressCallback = progressCallback,
+                        // 仅最后一个候选失败时才 dump 快照 paths，避免每候选都整仓 listSnapshots
+                        dumpOnFail = (idx == candidateSubPaths.lastIndex)
+                    )
+                    landed = File("$targetPath/$tarName").exists()
+                    if (ok && landed) break
+                    Log.w(mTAG, "重型解出未命中: ${item.dataType.type} subPath='$sub' ok=$ok landed=$landed，尝试下一个候选")
+                }
             } finally {
-                // 停止轮询并定格最终值
+                // 停止轮询并等待子协程真正结束（必须有，否则 pollingJob 永不退出，
+                // 其 Job 继承自外层 withIOContext，会拖住 processing() 无法返回 → 卡在后处理之前）。
                 polling.set(false)
-                pollingJob.cancel()
+                // cancel() 只发信号不等待；cancelAndJoin() 挂起等待子协程真正结束，消除残留。
+                pollingJob.cancelAndJoin()
+                // 定格该 dataType 行的最终进度/速度显示
                 val finalSpeed = speedRef.get()
                 val finalSpeedText = if (finalSpeed > 0) finalSpeed.formatToStorageSizePerSecond() else ""
                 val finalWritten = bytesWrittenRef.get()
@@ -328,8 +354,12 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
                 }
                 t.update(dataType = item.dataType, content = finalContent, progress = 1f)
             }
-
-            if (!ok) Log.e(mTAG, "重型解出失败: ${p.packageName} ${item.dataType.type}（后续 restore 会因缺 tar 失败并 fail-fast）")
+            if (ok && landed) {
+                t.update(dataType = item.dataType, state = OperationState.DOWNLOADING)
+            } else {
+                t.update(dataType = item.dataType, state = OperationState.ERROR)
+                Log.e(mTAG, "重型解出失败: ${p.packageName} ${item.dataType.type} ok=$ok landed=$landed（后续 restore 会因缺 tar 失败并 fail-fast）")
+            }
         }
     }
 
@@ -396,6 +426,14 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
         return "$backupBaseDir/apps/$pkg/user_$userId"
     }
 
+    /**
+     * 旧版 fork(中转式) 快照登记的归档路径前缀是旧共享根 /storage/emulated/0/DataBackup，
+     * 与迁移后的 localBackupSaveDir()(=DataBackuptmp) 不同，故需单独一条 LEGACY 候选兜底。
+     * 不是 suspend —— 纯常量拼接，无需读 datastore。
+     */
+    private fun legacySnapshotSubPathOf(pkg: String, userId: Int): String =
+        "${ConstantUtil.LEGACY_SHARED_PATH}/apps/$pkg/user_$userId"
+
     /** 密码解析统一走注册表：各后端 resolveResticPassword 内部 decode 自己的 extra 并回退对应 datastore */
     private suspend fun resolveCloudPassword(cloudEntity: CloudEntity): String? {
         return resticBackends.getValue(cloudEntity.type).resolveResticPassword(cloudEntity)
@@ -403,42 +441,39 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
 
     /**
      * 本地/云端分派解出：accountName 空→本地 restoreSnapshot；非空→按注册表多态分派云端。
-     * progressCallback 预留（下载进度接线属后续步骤），默认 null。
+     * dumpOnFail: 仅当该次 restoreSnapshot 返回 false 时才 dump 快照 paths（整仓 listSnapshots 很贵）。
+     *             双候选回退时只在最后一个候选上置 true，保证整轮最多 dump 一次。
      */
     private suspend fun extractOne(
         item: ResticRestoreQueueItem,
         includePath: String,
         targetPath: String,
         snapshotSubPath: String,
-        progressCallback: ResticRepository.ResticProgressCallback? = null
+        progressCallback: ResticRepository.ResticProgressCallback? = null,
+        dumpOnFail: Boolean = true
     ): Boolean {
-        return try {
+        Log.w(mTAG, "extractOne BEGIN: snapshotId=${item.snapshotId} dataType=${item.dataType.type} account='${item.accountName}' isOtg=${item.isOtg} subPath='$snapshotSubPath' include='$includePath' target='$targetPath'")
+        val ok = try {
             if (item.accountName.isEmpty()) {
-                // 本地/OTG：按【队列项持久化标记 item.isOtg】分流，
-                // 不再读全局 readResticActiveIsOtg()——该全局标记会被 processing 图
-                // (RestoreViewModelImpl.FinishSetup 无条件 saveResticActiveIsOtg(false)) 重置为 false。
-                // item.isOtg 由 prepareBatchRestore 入队时按当时仍正确的 readResticActiveIsOtg() stamp 进队列。
                 val isOtg = item.isOtg
                 val repoPath: String?
                 val password: String?
                 if (isOtg) {
-                    // ===== OTG：精确 OTG 路径键 + verifyRepository，绝不回退本地 =====
                     val otgPath = mContext.readResticOtgRepoPath()
                     if (otgPath.isNullOrEmpty()) {
                         Log.e(mTAG, "extractOne: itemIsOtg=true 但未登记 OTG 仓库路径，保守中止")
                         return false
                     }
                     val otgPwd = mContext.readResticOtgPassword() ?: "databackup_default"
-                    val ok = runCatching { mResticRepo.verifyRepository(otgPath, otgPwd) }.getOrDefault(false)
-                    Log.d("RestoreOtg", "extractOne: itemIsOtg=true repoPath=$otgPath checkOk=$ok")
-                    if (!ok) {
+                    val verifyOk = runCatching { mResticRepo.verifyRepository(otgPath, otgPwd) }.getOrDefault(false)
+                    Log.d("RestoreOtg", "extractOne: itemIsOtg=true repoPath=$otgPath checkOk=$verifyOk")
+                    if (!verifyOk) {
                         Log.e(mTAG, "extractOne: OTG 仓库校验失败（未插盘/仓库被删/密码错），保守中止")
                         return false
                     }
                     repoPath = otgPath
                     password = otgPwd
                 } else {
-                    // ===== 本地：维持原有读键（Passthrough 放行）=====
                     val savedPath = mContext.readResticRepoPath()
                     repoPath = if (savedPath.isNullOrEmpty()) {
                         savedPath
@@ -469,7 +504,7 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
                     Log.e(mTAG, "本地 restic 配置不完整，无法解出")
                     return false
                 }
-                mResticRepo.restoreSnapshot(
+                val r = mResticRepo.restoreSnapshot(
                     repoPath = repoPath,
                     password = password,
                     snapshotId = item.snapshotId,
@@ -478,8 +513,11 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
                     includePath = includePath,
                     progressCallback = progressCallback
                 )
+                // ===== 诊断：仅在失败且允许时才 dump（成功路径完全不列举快照，省掉整仓 listSnapshots）=====
+                if (!r && dumpOnFail) dumpSnapshotPaths(repoPath, password, item.snapshotId)
+                Log.w(mTAG, "extractOne END(local): snapshotId=${item.snapshotId} ok=$r")
+                r
             } else {
-                // 云端：用明文账户名查库
                 val cloudEntity = mCloudRepo.queryByName(item.accountName)
                 if (cloudEntity == null) {
                     Log.e(mTAG, "云端账户未找到: ${item.accountName}")
@@ -490,8 +528,7 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
                     Log.e(mTAG, "云端 restic 密码解析失败: ${item.accountName}")
                     return false
                 }
-                // 注册表多态：getValue 找不到 key 会抛 NoSuchElementException，替代原 else -> COS 兜底（fail-fast）
-                resticBackends.getValue(cloudEntity.type).restoreSnapshot(
+                val r = resticBackends.getValue(cloudEntity.type).restoreSnapshot(
                     cloudEntity = cloudEntity,
                     password = password,
                     snapshotId = item.snapshotId,
@@ -500,11 +537,16 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
                     includePath = includePath,
                     progressCallback = progressCallback
                 )
+                Log.w(mTAG, "extractOne END(cloud/${cloudEntity.type}): snapshotId=${item.snapshotId} ok=$r")
+                r
             }
         } catch (e: Exception) {
-            Log.e(mTAG, "extractOne 异常: ${e.message}", e)
+            Log.e(mTAG, "extractOne 异常: snapshotId=${item.snapshotId} ${e.message}", e)
             false
         }
+        // ===== 诊断：无论成败，列出解出目标目录实际落盘的文件（轻量，纯本地 File 遍历，保留）=====
+        Log.w(mTAG, "extractOne AFTER: ok=$ok target='$targetPath' files=${listDirUnder(targetPath)}")
+        return ok
     }
 
     /**
@@ -536,6 +578,30 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
         } catch (e: Exception) {
             Log.e(mTAG, "activatePackageFromConfig 失败: $pkg/user_$userId - ${e.message}", e)
         }
+    }
+
+    /** 诊断：列出该快照在仓库里登记的 paths（看入库归档路径是否带 apps/<pkg>/user_<id>/ 前缀） */
+    private suspend fun dumpSnapshotPaths(repoPath: String, password: String, snapshotId: String) {
+        try {
+            val snaps = mResticRepo.listSnapshots(repoPath, password)
+            val hit = snaps.firstOrNull { it.id == snapshotId || it.id.startsWith(snapshotId) }
+            if (hit == null) {
+                Log.w(mTAG, "dumpSnapshotPaths: 快照 $snapshotId 不在 listSnapshots 结果里")
+            } else {
+                Log.w(mTAG, "dumpSnapshotPaths: snapshot=${hit.id} paths=${hit.paths} tags=${hit.tags}")
+            }
+        } catch (e: Exception) {
+            Log.w(mTAG, "dumpSnapshotPaths 失败: ${e.message}")
+        }
+    }
+
+    /** 诊断：递归列出目录下文件（相对路径+大小），目录不存在返回 "[dir-missing]" */
+    private fun listDirUnder(dir: String): String {
+        val f = File(dir)
+        if (!f.exists()) return "[dir-missing]"
+        return f.walkTopDown().filter { it.isFile }
+            .joinToString(", ") { "${it.relativeTo(f).path}(${it.length()}B)" }
+            .ifEmpty { "[empty]" }
     }
 
     @Inject

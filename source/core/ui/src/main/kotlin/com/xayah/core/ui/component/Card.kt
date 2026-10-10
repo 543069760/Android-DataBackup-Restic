@@ -170,7 +170,8 @@ fun ProcessingCard(
                     color = if (expanded) ThemedColorSchemeKeyTokens.SurfaceVariant.value.withState(enabled) else ThemedColorSchemeKeyTokens.SurfaceContainerLowest.value,
                     shape = ShapeDefaults.Medium,
                     onClick = {
-                        if (state == OperationState.DONE)
+                        // 已结束的卡片无论成功(DONE)或失败(ERROR, 来自 fail-fast)都允许展开查看明细
+                        if (state == OperationState.DONE || state == OperationState.ERROR)
                             onActionBarClick()
                     }
                 ) {
@@ -196,7 +197,7 @@ fun ProcessingCard(
                             }
                             AnimatedContent(targetState = state, label = AnimationTokens.AnimatedContentLabel) {
                                 when (it) {
-                                    OperationState.DONE -> {
+                                    OperationState.DONE, OperationState.ERROR -> {
                                         Icon(
                                             imageVector = if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
                                             contentDescription = null,

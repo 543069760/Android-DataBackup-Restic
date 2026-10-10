@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="restore_target_user_locked">The target user\'s encrypted storage is locked. This backup belongs to a cloned/secondary user. Please switch to that user and unlock it with the lock-screen credential, then return to the main user and retry the restore.</string>
+    <string name="backup_target_user_locked">The target user (%1$d) is locked. Its credential-encrypted storage is unavailable, so its app data cannot be backed up. Please switch to that user and unlock it with the lock-screen credential, then retry.</string>
+</resources>

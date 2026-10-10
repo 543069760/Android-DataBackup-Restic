@@ -215,4 +215,17 @@ class RestoreViewModelImpl @Inject constructor(
     val packages: StateFlow<List<PackageEntity>> = _packages.stateInScope(listOf())
     val packagesSize: StateFlow<String> = _packagesSize.stateInScope("")
     val restoreUsers: StateFlow<List<DialogRadioItem<Any>>> = _restoreUsers.stateInScope(listOf(DialogRadioItem(enum = Any(), title = mContext.getString(R.string.backup_user))))
+
+    /**
+     * FBE 预检：目标用户 CE 存储是否已解锁。
+     * user 0（主用户）始终解锁，直接返回 true。
+     */
+    suspend fun isUserUnlocked(userId: Int): Boolean =
+        if (userId == 0) true else mRootService.isUserUnlocked(userId)
+
+    /**
+     * 返回集合中处于锁定态（未解锁）的 userId 列表；为空表示全部可恢复。
+     */
+    suspend fun queryLockedUserIds(userIds: Set<Int>): List<Int> =
+        userIds.filter { it > 0 && !mRootService.isUserUnlocked(it) }
 }

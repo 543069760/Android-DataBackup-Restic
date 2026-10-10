@@ -9,6 +9,7 @@ import com.xayah.core.database.dao.PackageDao
 import com.xayah.core.data.repository.CloudRepository
 import com.xayah.core.datastore.readBackupDirectory
 import com.xayah.core.datastore.readResticPassword
+import com.xayah.core.datastore.ConstantUtil
 import com.xayah.core.model.DataType
 import com.xayah.core.model.OpType
 import com.xayah.core.model.ResticProgressState
@@ -128,27 +129,21 @@ class CloudRestoreViewModel @Inject constructor(
                                     return@withPermit PrepareResult(group, false)
                                 }
 
-                                val snapshotSubPath = "$backupBaseDir/apps/${group.packageName}/user_${group.userId}"
                                 val fullTargetPath = "${targetBasePath}apps/${group.packageName}/user_${group.userId}/"
 
-                                // 云端通过注册表多态解出 config
-                                val ok = runCatching {
-                                    backend(cloudEntity).restoreSnapshot(
-                                        cloudEntity = cloudEntity, password = password,
-                                        snapshotId = configBackup.snapshotId,
-                                        targetPath = fullTargetPath,
-                                        snapshotSubPath = snapshotSubPath,
-                                        includePath = "package_restore_config.json"
-                                    )
-                                }.getOrElse { e ->
-                                    Log.e(TAG, "prepareBatchRestore: ${group.packageName} config 解出异常: ${e.message}", e)
-                                    false
-                                }
+                                val ok = restoreSnapshotWithFallback(
+                                    cloudEntity = cloudEntity,
+                                    password = password,
+                                    snapshotId = configBackup.snapshotId,
+                                    fullTargetPath = fullTargetPath,
+                                    includePath = "package_restore_config.json",
+                                    pkg = group.packageName,
+                                    userId = group.userId,
+                                    verifyFileName = "package_restore_config.json"   // 命中判据含落盘校验
+                                )
 
-                                // 校验落盘的 config 文件存在
-                                val configExists = File(fullTargetPath, "package_restore_config.json").exists()
-                                if (!ok || !configExists) {
-                                    Log.e(TAG, "prepareBatchRestore: ${group.packageName} config 解出/校验失败，跳过并清理")
+                                if (!ok) {
+                                    Log.e(TAG, "prepareBatchRestore: ${group.packageName} config 所有候选都未命中，跳过并清理")
                                     runCatching { File(fullTargetPath).deleteRecursively() }
                                     return@withPermit PrepareResult(group, false)
                                 }
@@ -437,6 +432,54 @@ class CloudRestoreViewModel @Inject constructor(
         }
     }
 
+    /**
+     * 云端 restoreSnapshot 的多候选回退：
+     * 候选1 current：当前保存目录(迁移后=DataBackuptmp)/apps/... —— 新备份 / 自定义 backup_directory
+     * 候选2 legacy ：旧共享目录 /storage/emulated/0/DataBackup/apps/... —— 旧中转云快照
+     * 命中判据：restoreSnapshot 返回 true 且目标文件已落盘（restoreSnapshot 对 node 命不中是捕获异常返回 false）。
+     */
+    private suspend fun restoreSnapshotWithFallback(
+        cloudEntity: CloudEntity,
+        password: String,
+        snapshotId: String,
+        fullTargetPath: String,
+        includePath: String,
+        pkg: String,
+        userId: Int,
+        verifyFileName: String? = null,              // 需要校验落盘的文件名（config 用）；null 则只看返回值
+        progressCallback: ResticRepository.ResticProgressCallback? = null
+    ): Boolean {
+        val current = context.readBackupDirectory() ?: context.localBackupSaveDir()
+        val candidates = listOf(
+            "$current/apps/$pkg/user_$userId",                               // 候选1：当前目录
+            "${ConstantUtil.LEGACY_SHARED_PATH}/apps/$pkg/user_$userId",     // 候选2：旧共享目录
+        ).distinct()
+
+        for ((i, subPath) in candidates.withIndex()) {
+            val ok = runCatching {
+                backend(cloudEntity).restoreSnapshot(
+                    cloudEntity = cloudEntity,
+                    password = password,
+                    snapshotId = snapshotId,
+                    targetPath = fullTargetPath,
+                    snapshotSubPath = subPath,
+                    includePath = includePath,
+                    progressCallback = progressCallback
+                )
+            }.getOrElse { e ->
+                Log.e(TAG, "候选${i + 1} 解出异常 subPath=$subPath: ${e.message}")
+                false
+            }
+            val landed = if (verifyFileName != null) File(fullTargetPath, verifyFileName).exists() else ok
+            if (ok && landed) {
+                Log.d(TAG, "命中候选${i + 1}: subPath=$subPath ($pkg user_$userId $includePath)")
+                return true
+            }
+        }
+        Log.e(TAG, "所有候选都未命中: $pkg user_$userId $includePath")
+        return false
+    }
+
     suspend fun restoreFromCloudSnapshots(group: ResticBackupGroup): Boolean {
         return withContext(Dispatchers.IO) {
             try {
@@ -501,21 +544,21 @@ class CloudRestoreViewModel @Inject constructor(
                     )
 
                     val targetPath = "${context.localBackupSaveDir()}/restore/"
-                    val backupBaseDir = context.readBackupDirectory() ?: context.localBackupSaveDir()
-                    val snapshotSubPath = "$backupBaseDir/apps/${backup.packageName}/user_${backup.userId}"
                     val includePath = when (backup.dataType) {
                         DataType.PACKAGE_CONFIG -> "package_restore_config.json"
                         else -> "${backup.dataType.type}.tar"
                     }
                     val fullTargetPath = "${targetPath}apps/${backup.packageName}/user_${backup.userId}/"
 
-                    val success = backend(cloudEntity).restoreSnapshot(
+                    val success = restoreSnapshotWithFallback(
                         cloudEntity = cloudEntity,
                         password = password,
                         snapshotId = backup.snapshotId,
-                        targetPath = fullTargetPath,
-                        snapshotSubPath = snapshotSubPath,
+                        fullTargetPath = fullTargetPath,
                         includePath = includePath,
+                        pkg = backup.packageName,
+                        userId = backup.userId,
+                        verifyFileName = null,
                         progressCallback = progressCallback
                     )
 

@@ -13,4 +13,8 @@
     <string name="otg_usb">OTG USB</string>
     <string name="otg_do_not_remove_storage">操作期间请勿拔出存储介质,否则可能导致备份数据损坏</string>
     <string name="otg_disconnected_back_home">OTG 设备已断开，已返回首页</string>
+    <string name="restore_target_user_locked_title">检测到系统分身应用</string>
+    <string name="restore_target_user_locked_message">检测到备份为系统分身应用，请先进入系统分身解锁之后，回到主系统，再点击「继续」。点击继续时将再次检测，通过后才会开始恢复。</string>
+    <string name="backup_target_user_locked_title">检测到系统分身应用</string>
+    <string name="backup_target_user_locked_message">检测到备份目标为系统分身应用，请先进入系统分身解锁之后，回到主系统，再点击「继续」。点击继续时将再次检测，通过后才会开始备份。</string>
 </resources>

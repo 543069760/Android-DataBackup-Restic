@@ -430,4 +430,5 @@
     <string name="protocol_desc">Select HTTP or HTTPS protocol</string>
     <string name="args_temp_cache">Temp cache %1$d%%</string>
     <string name="otg_disconnected_back_home">OTG device disconnected, returned to home</string>
+    <string name="migrating_transit_dir">Migrating temporary transit directory to a new path. This does not affect any existing backup data…</string>
 </resources>

@@ -8,6 +8,7 @@ import com.xayah.core.database.dao.MediaDao
 import com.xayah.core.data.repository.CloudRepository
 import com.xayah.core.data.repository.FilesRepo
 import com.xayah.core.datastore.readBackupDirectory
+import com.xayah.core.datastore.ConstantUtil
 import com.xayah.core.model.DataType
 import com.xayah.core.model.CloudType
 import com.xayah.core.model.OpType
@@ -299,8 +300,6 @@ class CloudFilesRestoreViewModel @Inject constructor(
                     )
 
                     val targetPath = "${context.localBackupSaveDir()}/restore/"
-                    val backupBaseDir = context.readBackupDirectory() ?: context.localBackupSaveDir()
-                    val snapshotSubPath = "$backupBaseDir/files/${group.mediaName}"
                     val includePath = when (backup.dataType) {
                         DataType.PACKAGE_MEDIA -> "media.tar"
                         DataType.PACKAGE_CONFIG -> "media_restore_config.json"
@@ -308,24 +307,43 @@ class CloudFilesRestoreViewModel @Inject constructor(
                     }
                     val fullTargetPath = "${targetPath}files/${group.mediaName}/"
 
+// 候选子路径前缀：当前保存目录(迁移后=DataBackuptmp) 与 旧共享目录(/storage/emulated/0/DataBackup)
+// 兼容：新 fd 流式快照命中候选1，旧中转快照命中候选2
+                    val currentBaseDir = context.readBackupDirectory() ?: context.localBackupSaveDir()
+                    val candidateSubPaths = listOf(
+                        "$currentBaseDir/files/${group.mediaName}",                        // 候选1：当前保存目录
+                        "${ConstantUtil.LEGACY_SHARED_PATH}/files/${group.mediaName}"      // 候选2：旧共享目录（旧中转快照）
+                    ).distinct()
+
                     Log.d(TAG, "恢复路径配置:")
                     Log.d(TAG, "  目标路径: $fullTargetPath")
-                    Log.d(TAG, "  快照子路径: $snapshotSubPath")
+                    Log.d(TAG, "  候选子路径: $candidateSubPaths")
                     Log.d(TAG, "  包含文件: $includePath")
                     Log.d(TAG, "  快照ID: ${backup.snapshotId}")
 
-                    // === 改动 2：restore 调用统一委托给后端 restoreSnapshot ===
-                    Log.d(TAG, "调用 restoreSnapshot (type=${cloudEntity.type})")
                     val restoreStartTime = System.currentTimeMillis()
-                    val success = backend.restoreSnapshot(
-                        cloudEntity = cloudEntity,
-                        password = password,
-                        snapshotId = backup.snapshotId,
-                        targetPath = fullTargetPath,
-                        snapshotSubPath = snapshotSubPath,
-                        includePath = includePath,
-                        progressCallback = progressCallback
-                    )
+                    var success = false
+                    for ((ci, sub) in candidateSubPaths.withIndex()) {
+                        Log.d(TAG, "调用 restoreSnapshot (type=${cloudEntity.type}) 候选${ci + 1}/${candidateSubPaths.size}: subPath=$sub")
+                        val ok = backend.restoreSnapshot(
+                            cloudEntity = cloudEntity,
+                            password = password,
+                            snapshotId = backup.snapshotId,
+                            targetPath = fullTargetPath,
+                            snapshotSubPath = sub,
+                            includePath = includePath,
+                            progressCallback = progressCallback
+                        )
+                        // 命中判据：返回 true + 目标文件确实落盘（node 命不中时后端捕获异常返回 false）
+                        val landed = File(fullTargetPath, includePath).exists()
+                        if (ok && landed) {
+                            success = true
+                            Log.d(TAG, "候选${ci + 1} 命中: $sub")
+                            break
+                        } else {
+                            Log.w(TAG, "候选${ci + 1} 未命中(ok=$ok, landed=$landed): $sub")
+                        }
+                    }
                     val restoreDuration = System.currentTimeMillis() - restoreStartTime
                     Log.d(TAG, "restoreSnapshot 完成，结果: $success, 耗时: ${restoreDuration}ms")
 

@@ -37,6 +37,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -431,6 +433,33 @@ fun PageProcessing(
                     dataItems
                 }
 
+                // 展开态：按数据项稳定 key 记录，绝不绑定高频重发的 task 对象或位置下标，
+                // 这样 task 的进度字段每 500ms 发射一次也不会重置展开态，完成后 ERROR 优先重排也不错位。
+                val expandedKeys = rememberSaveable(
+                    saver = listSaver(
+                        save = { map -> map.entries.map { "${it.key}\u0000${it.value}" } },
+                        restore = { list ->
+                            mutableStateMapOf<String, Boolean>().apply {
+                                list.forEach { s ->
+                                    val i = s.lastIndexOf('\u0000')
+                                    if (i >= 0) put(s.substring(0, i), s.substring(i + 1).toBoolean())
+                                }
+                            }
+                        }
+                    )
+                ) { mutableStateMapOf<String, Boolean>() }
+
+                // 自动展开"当前处理项"：仅在 processingIndex 变化时触发一次，
+                // 处理中 displayItems==dataItems，下标即 processingIndex-1。把当前项展开、其余收起（手风琴式）。
+                LaunchedEffect(task?.processingIndex) {
+                    val idx = (task?.processingIndex ?: 0) - 1
+                    val curKey = displayItems.getOrNull(idx)?.key
+                    if (curKey != null) {
+                        displayItems.forEach { expandedKeys[it.key] = false }
+                        expandedKeys[curKey] = true
+                    }
+                }
+
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     state = lazyListState,
@@ -440,10 +469,9 @@ fun PageProcessing(
                         Spacer(modifier = Modifier.size(SizeTokens.Level12))
                     }
                     items(count = displayItems.size) {
-                        // 完成后不再有"当前处理项"，展开态默认全部收起即可
-                        var expanded by rememberSaveable(task, it) { mutableStateOf((task?.processingIndex?.minus(1) ?: -1) == it) }
                         val item = displayItems.getOrNull(it)
                         if (item != null) {
+                            val expanded = expandedKeys[item.key] == true
                             ProcessingCard(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -454,10 +482,10 @@ fun PageProcessing(
                                 expanded = expanded,
                                 items = item.items,
                                 processingIndex = item.processingIndex,
+                                // 点击门控下放到 ProcessingCard（按该卡片自身 state 判断 DONE/ERROR 才可点）；
+                                // 这里只负责翻转该 key 的展开态，不再死绑 uiState.state == DONE。
                                 onActionBarClick = {
-                                    if (uiState.state == OperationState.DONE) {
-                                        expanded = expanded.not()
-                                    }
+                                    expandedKeys[item.key] = !(expandedKeys[item.key] ?: false)
                                 }
                             )
                         }

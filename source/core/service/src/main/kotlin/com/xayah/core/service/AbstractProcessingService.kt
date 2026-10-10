@@ -225,6 +225,12 @@ internal abstract class AbstractProcessingService : Service() {
     }
 
     suspend fun postProcessing() = withIOContext {
+        // 边界日志：已进入 withIOContext（IO 线程切换完成），即将抢 mMutex。
+        // 与抢锁后的 "PostProcessing is starting." 配合区分卡点：
+        //   - 两条都不出现 → 卡在 withIOContext 调度 / 上游没调用 postProcessing()
+        //   - 只有 entered、没有 starting → 卡在 mMutex.withLock 抢锁（processing() 还没放锁）
+        //   - 两条都出现、后续卡住 → 卡在 beforePostProcessing / onPostProcessing(clear) / root 调用
+        log { "postProcessing() entered, acquiring mutex" }
         mMutex.withLock {
             log { "PostProcessing is starting." }
             beforePostProcessing()

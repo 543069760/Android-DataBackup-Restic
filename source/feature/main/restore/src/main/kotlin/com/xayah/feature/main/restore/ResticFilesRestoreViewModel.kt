@@ -10,6 +10,7 @@ import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.datastore.readResticOtgRepoPath
 import com.xayah.core.datastore.readResticOtgPassword
 import com.xayah.core.datastore.readResticActiveIsOtg
+import com.xayah.core.datastore.ConstantUtil
 import com.xayah.core.model.restic.ResticBackupFiles
 import com.xayah.core.restic.ResticRepository
 import com.xayah.feature.main.restore.ResticFileBackupGroup
@@ -185,25 +186,22 @@ class ResticFilesRestoreViewModel @Inject constructor(
 
                 val targetPath = "${context.localBackupSaveDir()}/restore/"
                 Log.d("ResticFilesRestore", "恢复到用户备份目录: $targetPath")
-                val backupBaseDir = context.readBackupDirectory() ?: context.localBackupSaveDir()
-                val snapshotSubPath = "$backupBaseDir/files/${group.mediaName}"
                 val includePath = when (backup.dataType) {
                     DataType.PACKAGE_MEDIA -> "media.tar"
                     DataType.PACKAGE_CONFIG -> "media_restore_config.json"
                     else -> "${backup.dataType.type}.tar"
                 }
                 val fullTargetPath = "${targetPath}files/${group.mediaName}/"
-                Log.d("ResticFilesRestore", "恢复 ${backup.dataType.type} 到目标: $targetPath")
-                Log.d("ResticFilesRestore", "快照子路径: $snapshotSubPath")
+                Log.d("ResticFilesRestore", "恢复 ${backup.dataType.type} 到目标: $fullTargetPath")
                 Log.d("ResticFilesRestore", "包含文件: $includePath")
 
-                val success = resticRepo.restoreSnapshot(
+                val success = restoreSnapshotWithFallback(
                     repoPath = repoPath,
                     password = password,
                     snapshotId = backup.snapshotId,
-                    targetPath = fullTargetPath,
+                    fullTargetPath = fullTargetPath,
                     includePath = includePath,
-                    snapshotSubPath = snapshotSubPath,
+                    mediaName = group.mediaName,
                     progressCallback = progressCallback
                 )
 
@@ -222,6 +220,62 @@ class ResticFilesRestoreViewModel @Inject constructor(
             Log.e("ResticFilesRestore", "文件快照恢复异常: ${e.message}", e)
             false
         }
+    }
+
+    /**
+     * 三候选回退恢复：解决「默认备份目录从 DataBackup 迁到 DataBackuptmp 后，
+     * 旧中转模式 media 快照里登记的归档前缀是旧共享目录」导致的 node_from_snapshot_path 命不中
+     * （JNI 侧抛 internal operations → restoreSnapshot 捕获后返回 false）。
+     *
+     * 候选顺序（与应用恢复端 ResticRestoreViewModel.restoreSnapshotWithFallback 对齐）：
+     *   1) current ：$backupBaseDir/files/<media>        —— 迁移后=DataBackuptmp，兼容自定义 backup_directory
+     *   2) legacy  ：LEGACY_SHARED_PATH/files/<media>     —— 旧共享目录(/storage/emulated/0/DataBackup)，旧中转快照
+     *   3) null    ：裸文件名快照                          —— 新 fd 流式 media 快照
+     *
+     * 命中判据：restoreSnapshot 返回 true 且目标文件确实落盘（includePath 对应文件 exists）。
+     * 候选之间不会写半成品——node 未命中时 native 不落盘，所以无需候选间清理。
+     */
+    private suspend fun restoreSnapshotWithFallback(
+        repoPath: String,
+        password: String,
+        snapshotId: String,
+        fullTargetPath: String,
+        includePath: String,
+        mediaName: String,
+        progressCallback: ResticRepository.ResticProgressCallback?
+    ): Boolean {
+        val currentBase = context.readBackupDirectory() ?: context.localBackupSaveDir()
+        val candidates: List<String?> = listOf(
+            "$currentBase/files/$mediaName",                               // 候选1：当前目录
+            "${ConstantUtil.LEGACY_SHARED_PATH}/files/$mediaName",        // 候选2：旧共享目录
+            null                                                          // 候选3：裸名（新 fd 流式）
+        )
+
+        val landedFile = File(fullTargetPath, includePath)
+        candidates.forEachIndexed { idx, subPath ->
+            Log.d(TAG, "restoreSnapshotWithFallback: 候选${idx + 1} subPath=${subPath ?: "<null/裸名>"} include=$includePath")
+            val ok = runCatching {
+                resticRepo.restoreSnapshot(
+                    repoPath = repoPath,
+                    password = password,
+                    snapshotId = snapshotId,
+                    targetPath = fullTargetPath,
+                    includePath = includePath,
+                    snapshotSubPath = subPath,
+                    progressCallback = progressCallback
+                )
+            }.getOrElse {
+                Log.e(TAG, "restoreSnapshotWithFallback: 候选${idx + 1} 异常", it)
+                false
+            }
+            if (ok && landedFile.exists()) {
+                Log.d(TAG, "restoreSnapshotWithFallback: 候选${idx + 1} 命中并落盘 ${landedFile.path}")
+                return true
+            }
+            Log.w(TAG, "restoreSnapshotWithFallback: 候选${idx + 1} 未命中（ok=$ok, exists=${landedFile.exists()}），尝试下一个")
+        }
+        Log.e(TAG, "restoreSnapshotWithFallback: 所有候选都未命中 media=$mediaName include=$includePath")
+        return false
     }
 
     suspend fun deleteLocalFileSnapshots(group: ResticFileBackupGroup): Boolean = withContext(Dispatchers.IO) {

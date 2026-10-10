@@ -157,6 +157,44 @@ class PackagesRestoreUtil @Inject constructor(
         else -> ""
     }
 
+    /**
+     * 解析 app 数据的真实目录：
+     * - 名义目录 "$parentDir/$packageName" 存在（普通设备 / user_0）→ 直接返回，行为完全不变。
+     * - 名义目录不存在（OPlus/ColorOS 等随机化目录设备）→ 枚举 parentDir 下子目录，
+     *   按属主 uid 反查出真实数据目录并返回。
+     * - 反查未命中 → 返回名义 dst 兜底，维持原有 "Not exist" 诊断分支。
+     */
+    private suspend fun resolveRealDataDir(parentDir: String, packageName: String, uid: Int): String {
+        val nominalDst = "$parentDir/$packageName"
+
+        // 普通设备 / user_0：名义目录存在，直接用，不改变原有行为
+        if (rootService.exists(nominalDst)) {
+            log { "[DataDirProbe] resolveRealDataDir: 名义目录存在 dst=$nominalDst（直接使用，不反查）" }
+            return nominalDst
+        }
+
+        // uid 无效时无法反查，直接兜底
+        if (uid == -1) {
+            log { "[DataDirProbe] resolveRealDataDir: uid 无效(-1)，回退名义 dst=$nominalDst" }
+            return nominalDst
+        }
+
+        // 随机化设备：名义目录不存在，按属主 uid 在 parentDir 下反查真实目录
+        log { "[DataDirProbe] resolveRealDataDir: 名义目录不存在，按 uid=$uid 反查 parentDir=$parentDir" }
+        val targetUid = uid.toUInt()
+        val children = rootService.listFilePaths(parentDir, false, true) // listFiles=false, listDirs=true
+        for (childPath in children) {
+            val (childUid, _) = rootService.getUidGid(childPath)
+            if (childUid == targetUid) {
+                log { "[DataDirProbe] resolveRealDataDir: 反查命中真实目录=$childPath (uid=$uid)，替换名义 dst=$nominalDst" }
+                return childPath
+            }
+        }
+
+        log { "[DataDirProbe] resolveRealDataDir: 反查未命中(uid=$uid)，回退名义 dst=$nominalDst（兜底，维持原 Not exist 诊断）" }
+        return nominalDst
+    }
+
     suspend fun restoreApk(userId: Int, p: PackageEntity, t: TaskDetailPackageEntity, srcDir: String): ShellResult = run {
         log { "Restoring apk..." }
 
@@ -259,8 +297,23 @@ class PackagesRestoreUtil @Inject constructor(
         val ct = CompressionType.TAR
         val src = packageRepository.getArchiveDst(dstDir = srcDir, dataType = dataType, ct = ct)
         val dstDir = packageRepository.getDataSrcDir(dataType, userId)
-        val dst = packageRepository.getDataSrc(dstDir, packageName)
         val uid = rootService.getPackageUid(packageName = packageName, userId = userId)
+        // 名义目录存在→用名义路径（普通设备/user_0 行为不变）；
+        // 不存在（随机化设备）→按属主 uid 反查真实数据目录；都没有→兜底名义路径
+        val dst = resolveRealDataDir(parentDir = dstDir, packageName = packageName, uid = uid)
+        // 名义目录 = "$dstDir/$packageName"；dst 与之不同即说明走了 uid 反查（随机化设备）
+        val nominalDst = packageRepository.getDataSrc(dstDir, packageName)
+        val isRandomized = dst != nominalDst
+        // 【诊断】对比名义路径与 PackageManager 返回的真实数据目录（匿名化目录设备上二者不同）
+        run {
+            val realDirs = rootService.getPackageDataDirs(packageName = packageName, userId = userId)
+            val realCe = realDirs.getOrNull(0) ?: ""
+            val realDe = realDirs.getOrNull(1) ?: ""
+            log { "[DataDirProbe] pkg=$packageName userId=$userId dataType=${dataType.type}" }
+            log { "[DataDirProbe] 名义 dstDir=$dstDir 名义 dst=$dst" }
+            log { "[DataDirProbe] 真实 CE(dataDir)=$realCe 真实 DE(deviceProtectedDataDir)=$realDe" }
+            log { "[DataDirProbe] CE 与名义一致? ${realCe == dst} ; DE 与名义一致? ${realDe == dst}" }
+        }
         var isSuccess = true
         val out = mutableListOf<String>()
 
@@ -279,12 +332,12 @@ class PackagesRestoreUtil @Inject constructor(
                     val exclusionList = mutableListOf<String>()
                     when (dataType) {
                         DataType.PACKAGE_USER, DataType.PACKAGE_USER_DE, DataType.PACKAGE_DATA, DataType.PACKAGE_OBB, DataType.PACKAGE_MEDIA -> {
-                            // Exclude cache
+                            // Exclude cache（JNI tar 不经 shell，排除项不能带字面引号，否则永不匹配；与备份端 PackagesBackupUtil 对齐）
                             val folders = listOf(".ota", "cache", "lib", "code_cache", "no_backup")
-                            exclusionList.addAll(folders.map { "${SymbolUtil.QUOTE}$packageName/$it${SymbolUtil.QUOTE}" })
+                            exclusionList.addAll(folders.map { "$packageName/$it" })
                             if (dataType == DataType.PACKAGE_DATA || dataType == DataType.PACKAGE_OBB || dataType == DataType.PACKAGE_MEDIA) {
                                 // Exclude Backup_*
-                                exclusionList.add("${SymbolUtil.QUOTE}Backup_${SymbolUtil.QUOTE}*")
+                                exclusionList.add("Backup_*")
                             }
 
                         }
@@ -301,6 +354,11 @@ class PackagesRestoreUtil @Inject constructor(
 
                     log { "Original SELinux context: $pathContext." }
 
+                    // 随机化设备：解到真实目录 dst 并用 --strip-components=1 剥掉归档顶层的 <packageName>/ 前缀；
+                    // 普通设备/user_0：保持原逻辑，解到名义父目录 dstDir、不 strip。
+                    val extractDst = if (isRandomized) dst else dstDir
+                    val stripComponents = if (isRandomized) 1 else 0
+                    log { "[DataDirProbe] tar 解压目标=$extractDst stripComponents=$stripComponents isRandomized=$isRandomized" }
                     // Decompress the archive.
                     Tar.decompress(
                         cacheDir = context.cacheDir.path,
@@ -309,10 +367,16 @@ class PackagesRestoreUtil @Inject constructor(
                         clear = if (context.readCleanRestoring().first()) "--recursive-unlink" else "",
                         m = false,   // 还原归档里的原始 mtime（-xpf），减少 A→B 跨设备再备份的 header 级增量
                         src = src,
-                        dst = dstDir,
+                        dst = extractDst,
+                        stripComponents = stripComponents,
                     ).also { result ->
                         isSuccess = result.isSuccess
                         out.addAll(result.out)
+                        // 【诊断】解压失败时把 tar stderr 逐行打到 logcat，便于 adb logcat 直接看到 rc!=0 的原文
+                        if (!result.isSuccess) {
+                            log { "[DataDirProbe] tar 解压失败 isRandomized=$isRandomized extractDst=$extractDst stripComponents=$stripComponents" }
+                            result.out.forEach { line -> log { "[DataDirProbe] tar stderr: $line" } }
+                        }
                     }
 
                     // Restore SELinux context.

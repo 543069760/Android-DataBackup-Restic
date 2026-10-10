@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.SavedStateHandle
 import com.xayah.core.ui.route.MainRoutes
+import com.xayah.core.datastore.ConstantUtil
 import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.datastore.readResticRepoPath
 import com.xayah.core.datastore.readResticRepoConfigId
@@ -171,22 +172,19 @@ class ResticRestoreViewModel @Inject constructor(
                     continue
                 }
 
-                val snapshotSubPath = "$backupBaseDir/apps/${group.packageName}/user_${group.userId}"
                 val fullTargetPath = "${targetBasePath}apps/${group.packageName}/user_${group.userId}/"
 
-                val ok = runCatching {
-                    resticRepo.restoreSnapshot(
-                        repoPath = repoPath,
-                        password = password,
-                        snapshotId = configBackup.snapshotId,
-                        targetPath = fullTargetPath,
-                        includePath = "package_restore_config.json",
-                        snapshotSubPath = snapshotSubPath
-                    )
-                }.getOrElse {
-                    Log.e(TAG, "prepareBatchRestore: 包 ${group.packageName} config 解出异常", it)
-                    false
-                }
+                // 路径兼容:迁移默认目录后,旧中转快照前缀是旧共享根、新流式快照是裸名,
+                // 只换 subPath 前缀做候选回退,复用同一仓库/快照,不重复拉取。
+                val ok = restoreSnapshotWithFallback(
+                    repoPath = repoPath,
+                    password = password,
+                    snapshotId = configBackup.snapshotId,
+                    includePath = "package_restore_config.json",
+                    fullTargetPath = fullTargetPath,
+                    pkg = group.packageName,
+                    userId = group.userId
+                )
 
                 // 校验 config 文件确实落盘
                 val configFile = File(fullTargetPath, "package_restore_config.json")
@@ -651,6 +649,57 @@ class ResticRestoreViewModel @Inject constructor(
     }
 
     /**
+     * 路径兼容的快照解出:只切换 subPath 前缀做候选回退,复用同一仓库/同一快照,不重复拉取仓库。
+     * - 候选1: 当前默认目录(迁移后 = DataBackuptmp)——迁移后新做的中转/流式备份
+     * - 候选2: 旧共享默认根(DataBackup)——旧 fork 中转模式的历史快照(完整路径前缀)
+     * - 候选3: null(无 subPath)——新 fd 流式快照(裸文件名,靠 includeGlob 定位)
+     * restore 可能返回 true 却静默解 0 文件(subPath 不匹配),故必须叠加"落盘文件存在"校验。
+     * 命中即返回;全部未命中才返回 false(调用方据此统一清理,候选之间不清,避免误删已落盘结果)。
+     */
+    private suspend fun restoreSnapshotWithFallback(
+        repoPath: String,
+        password: String,
+        snapshotId: String,
+        includePath: String,
+        fullTargetPath: String,
+        pkg: String,
+        userId: Int,
+        progressCallback: ResticRepository.ResticProgressCallback? = null
+    ): Boolean {
+        val currentBase = context.readBackupDirectory() ?: context.localBackupSaveDir()
+        val candidates: List<String?> = linkedSetOf(
+            "$currentBase/apps/$pkg/user_$userId",
+            "${ConstantUtil.LEGACY_SHARED_PATH}/apps/$pkg/user_$userId",
+            null
+        ).toList()
+
+        val landedFile = File(fullTargetPath, includePath)
+        for (sub in candidates) {
+            val ok = runCatching {
+                resticRepo.restoreSnapshot(
+                    repoPath = repoPath,
+                    password = password,
+                    snapshotId = snapshotId,
+                    targetPath = fullTargetPath,
+                    includePath = includePath,
+                    snapshotSubPath = sub,
+                    progressCallback = progressCallback
+                )
+            }.getOrElse {
+                Log.w(TAG, "restoreSnapshotWithFallback: subPath='$sub' 抛异常(${it.message})，尝试下一个候选")
+                false
+            }
+            if (ok && landedFile.exists()) {
+                Log.d(TAG, "restoreSnapshotWithFallback: 命中 subPath='$sub' -> ${landedFile.path}")
+                return true
+            }
+            Log.w(TAG, "restoreSnapshotWithFallback: 未命中 subPath='$sub' ok=$ok landed=${landedFile.exists()}，尝试下一个候选")
+        }
+        Log.e(TAG, "restoreSnapshotWithFallback: 所有候选都未命中 pkg=$pkg user_$userId include=$includePath")
+        return false
+    }
+
+    /**
      * 把首次捕获的 OTG 决策重新落回全局标记，抵消 processing 图对全局标记的重置。
      * capturedIsOtg 为 null（尚未捕获）时不动，保持现状。
      */
@@ -755,26 +804,24 @@ class ResticRestoreViewModel @Inject constructor(
 
                 val targetPath = "${context.localBackupSaveDir()}/restore/"
                 Log.d("ResticRestore", "恢复到用户备份目录: $targetPath")
-                val backupBaseDir = context.readBackupDirectory() ?: context.localBackupSaveDir()
-                val snapshotSubPath = "$backupBaseDir/apps/${backup.packageName}/user_${backup.userId}"
                 val includePath = when (backup.dataType) {
                     DataType.PACKAGE_CONFIG -> "package_restore_config.json"
                     else -> "${backup.dataType.type}.tar"
                 }
                 val fullTargetPath = "${targetPath}apps/${backup.packageName}/user_${backup.userId}/"
                 Log.d("ResticRestore", "恢复 ${backup.dataType.type} 到目标: $targetPath")
-                Log.d("ResticRestore", "快照子路径: $snapshotSubPath")
                 Log.d("ResticRestore", "包含文件: $includePath")
-                val success = resticRepo.restoreSnapshot(
+                // 路径兼容:旧中转快照完整路径 / 新流式裸名,候选回退定位,复用同一仓库快照
+                val success = restoreSnapshotWithFallback(
                     repoPath = repoPath,
                     password = password,
                     snapshotId = backup.snapshotId,
-                    targetPath = fullTargetPath,
                     includePath = includePath,
-                    snapshotSubPath = snapshotSubPath,
+                    fullTargetPath = fullTargetPath,
+                    pkg = backup.packageName,
+                    userId = backup.userId,
                     progressCallback = progressCallback
                 )
-
                 // 将检查移到这里
                 if (!success) {
                     Log.e("ResticRestore", "恢复失败: ${backup.dataType.type}, 快照ID: ${backup.snapshotId}")

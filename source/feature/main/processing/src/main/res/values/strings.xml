@@ -14,4 +14,9 @@
     <!-- OTG 操作中提示 -->
     <string name="otg_do_not_remove_storage">Do not remove the storage device during the operation, otherwise backup data may be corrupted.</string>
     <string name="otg_disconnected_back_home">OTG device disconnected, returned to home</string>
+    <!-- values/strings.xml -->
+    <string name="restore_target_user_locked_title">System clone locked</string>
+    <string name="restore_target_user_locked_message">This backup belongs to a system clone app. Please enter the system clone and unlock it first, then return to the main system and tap Continue. A re-check will run when you tap Continue, and restore will start only after it passes.</string>
+    <string name="backup_target_user_locked_title">System clone locked</string>
+    <string name="backup_target_user_locked_message">This backup target belongs to a system clone app. Please enter the system clone and unlock it first, then return to the main system and tap Continue. A re-check will run when you tap Continue, and backup will start only after it passes.</string>
 </resources>

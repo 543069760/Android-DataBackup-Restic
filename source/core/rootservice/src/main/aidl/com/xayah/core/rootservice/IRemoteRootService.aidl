@@ -34,6 +34,8 @@ interface IRemoteRootService {
     List<String> getPackageSourceDir(String packageName, int userId);
     boolean queryInstalled(String packageName, int userId);
     int getPackageUid(String packageName, int userId);
+    boolean isUserUnlocked(int userId);
+    List<String> getPackageDataDirs(String packageName, int userId);
     UserHandle getUserHandle(int userId);
     StorageStatsParcelable queryStatsForPackage(in PackageInfo packageInfo, in UserHandle user);
     List<UserInfo> getUsers();

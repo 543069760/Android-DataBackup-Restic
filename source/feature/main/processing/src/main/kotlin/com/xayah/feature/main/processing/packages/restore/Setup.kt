@@ -40,6 +40,7 @@ import com.xayah.core.ui.component.PackageIcons
 import com.xayah.core.ui.component.Selectable
 import com.xayah.core.ui.component.Switchable
 import com.xayah.core.ui.component.Title
+import com.xayah.core.ui.component.confirm
 import com.xayah.core.ui.component.paddingHorizontal
 import com.xayah.core.ui.component.paddingTop
 import com.xayah.core.ui.component.paddingVertical
@@ -65,6 +66,14 @@ fun PagePackagesRestoreProcessingSetup(localNavController: NavHostController, vi
     val packages by viewModel.packages.collectAsStateWithLifecycle()
     val packagesSize by viewModel.packagesSize.collectAsStateWithLifecycle()
     val restoreUsers by viewModel.restoreUsers.collectAsStateWithLifecycle()
+
+    // 提升：供 actions 的「继续」按钮预检使用
+    val dialogState = LocalSlotScope.current!!.dialogSlot
+    var currentIndex by remember { mutableIntStateOf(0) }
+
+    // FBE 未解锁提示文案（stringResource 必须在 Composable 作用域取）
+    val lockedTitle = stringResource(id = R.string.restore_target_user_locked_title)
+    val lockedMessage = stringResource(id = R.string.restore_target_user_locked_message)
 
     LaunchedEffect(null) {
         Log.d("Navigation", "PagePackagesRestoreProcessingSetup 启动，packageNameFilter: $packageNameFilter")
@@ -95,7 +104,42 @@ fun PagePackagesRestoreProcessingSetup(localNavController: NavHostController, vi
             ) {
                 Button(
                     onClick = {
-                        viewModel.emitIntentOnIO(FinishSetup(navController = localNavController))
+                        viewModel.launchOnIO {
+                            // 计算目标 userId 集合
+                            val targetUserIds: Set<Int> = if (currentIndex == 0) {
+                                // 「备份用户」：取各包 userId 去重
+                                viewModel.packages.value.map { it.userId }.toSet()
+                            } else {
+                                // 指定单一目标用户
+                                setOf(restoreUsers[currentIndex].title.toIntOrNull() ?: -1)
+                            }.filter { it > 0 }.toSet() // 排除主用户(0)与非法值
+
+                            // 预检
+                            val locked = viewModel.queryLockedUserIds(targetUserIds)
+                            if (locked.isEmpty()) {
+                                viewModel.emitIntent(FinishSetup(navController = localNavController))
+                                return@launchOnIO
+                            }
+
+                            // 存在未解锁用户：弹窗 + 「继续」二次复检循环
+                            while (true) {
+                                val confirmed = dialogState.confirm(
+                                    title = lockedTitle,
+                                    text = lockedMessage,
+                                )
+                                if (!confirmed) {
+                                    // 取消：停留在引导页，什么都不做
+                                    return@launchOnIO
+                                }
+                                // 确认时复检
+                                val stillLocked = viewModel.queryLockedUserIds(targetUserIds)
+                                if (stillLocked.isEmpty()) {
+                                    viewModel.emitIntent(FinishSetup(navController = localNavController))
+                                    return@launchOnIO
+                                }
+                                // 仍未解锁 → 循环再弹同一对话框，保持拦截
+                            }
+                        }
                     }) {
                     Text(text = stringResource(id = R.string._continue))
                 }
@@ -120,10 +164,8 @@ fun PagePackagesRestoreProcessingSetup(localNavController: NavHostController, vi
                 )
             }
             Title(title = stringResource(id = R.string.settings)) {
-                val dialogState = LocalSlotScope.current!!.dialogSlot
                 val context = LocalContext.current
                 val restoreUserText = stringResource(R.string.restore_user)
-                var currentIndex by remember { mutableIntStateOf(0) }
                 LaunchedEffect(currentIndex) {
                     viewModel.launchOnIO {
                         var userId = -1

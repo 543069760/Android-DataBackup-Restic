@@ -297,29 +297,13 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
     override suspend fun onCleanupIncompleteBackup(currentIndex: Int) {
         log { "Cleaning up incomplete local backup from index: $currentIndex" }
 
-        mPkgEntities.forEachIndexed { index, pkg ->
-            if (index >= currentIndex) {
-                val localAppDir = "${mAppsDir}/${pkg.packageEntity.archivesRelativeDir}"
-                log { "Cleaning up incomplete backup at: $localAppDir" }
-                runCatching {
-                    mRootService.deleteRecursively(localAppDir)
-                }.onSuccess {
-                    log { "Successfully cleaned up: $localAppDir" }
-                }.onFailure { e ->
-                    log { "Failed to cleanup: ${e.message}" }
-                }
-            }
-        }
-
-        log { "Cleaning up temporary directory: $mRootDir" }
-        runCatching {
-            mRootService.deleteRecursively(mRootDir)
-        }.onSuccess {
-            log { "Successfully deleted temporary directory" }
-        }.onFailure { e ->
-            log { "Failed to delete temporary directory: ${e.message}" }
-        }
-
+        // mAppsDir(=/storage/emulated/0/DataBackup/apps) 与原版共享，迁移窗口内更是如此；
+        // 原版的 *.tar.zst 就在同一个 apps/<pkg>/user_<id>/ 下。
+        // 绝不 deleteRecursively(localAppDir) / deleteRecursively(mRootDir)——会误删原版 zst 备份。
+        // fd 流式链路本就不往 apps/<pkg>/user_<id> 落盘，这里只需按 fork 中转文件名精确清理，
+        // 与 clear() 行为对齐，仅处理本次未完成(index >= currentIndex)的包。
+        log { "onCleanupIncompleteBackup: skip deleting shared root $mRootDir, only remove fork transit files" }
+        cleanupForkTransitFiles(fromIndex = currentIndex)
         cleanupStopFiles()
     }
 
@@ -382,17 +366,41 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
         }
     }
 
-    override suspend fun clear() {
-        log { "Attempting to delete local backup directory: $mRootDir" }
-        val result = runCatching {
-            mRootService.deleteRecursively(mRootDir)
+    /**
+     * 旧版 fork(中转式) 会在 apps/<pkg>/user_<id>/ 下落 ${type}.tar 中转文件。
+     * mAppsDir(=/storage/emulated/0/DataBackup/apps) 与原版共享，同目录可能有原版的 .tar.zst 备份，
+     * 故只按 fork 确定的裸文件名精确删除，绝不 deleteRecursively 目录/根，杜绝误删原版 zst 仓库。
+     * 仅清理本次队列(mPkgEntities)涉及的包，进一步收窄范围。
+     */
+    private suspend fun cleanupForkTransitFiles(fromIndex: Int = 0) {
+        val transitNames = listOf(
+            "${DataType.PACKAGE_APK.type}.tar",
+            "${DataType.PACKAGE_USER.type}.tar",
+            "${DataType.PACKAGE_USER_DE.type}.tar",
+            "${DataType.PACKAGE_DATA.type}.tar",
+            "${DataType.PACKAGE_OBB.type}.tar",
+            "${DataType.PACKAGE_MEDIA.type}.tar",
+            "package_restore_config.json",
+        )
+        mPkgEntities.forEachIndexed { index, pkg ->
+            if (index < fromIndex) return@forEachIndexed
+            val dir = "${mAppsDir}/${pkg.packageEntity.archivesRelativeDir}"
+            transitNames.forEach { name ->
+                val f = "$dir/$name"
+                if (mRootService.exists(f)) {
+                    runCatching { mRootService.deleteRecursively(f) }
+                        .onSuccess { log { "清理旧版 fork 中转文件: $f" } }
+                        .onFailure { e -> log { "清理中转文件失败 $f: ${e.message}" } }
+                }
+            }
         }
-        if (result.isSuccess) {
-            log { "Successfully deleted local backup directory" }
-        } else {
-            log { "Failed to delete local backup directory: ${result.exceptionOrNull()?.message}" }
-        }
+    }
 
+    override suspend fun clear() {
+        // 流式链路不落中转；但旧版 fork(中转式)可能留下 ${type}.tar。
+        // mRootDir 与原版共享，绝不整目录删除，只按文件名精确清理 fork 自己的中转文件。
+        log { "clear(): skip deleting shared root $mRootDir, only remove fork transit files" }
+        cleanupForkTransitFiles()
         cleanupStopFiles()
     }
 }

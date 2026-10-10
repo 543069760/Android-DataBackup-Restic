@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="restore_target_user_locked">检测到备份为系统分身应用，请先进入系统分身解锁，回到主系统后再执行恢复。</string>
+    <string name="backup_target_user_locked">目标用户（%1$d）未解锁，其加密存储不可用，无法备份该应用数据。请先进入系统分身用锁屏凭据解锁，回到主系统后再执行备份。</string>
+</resources>

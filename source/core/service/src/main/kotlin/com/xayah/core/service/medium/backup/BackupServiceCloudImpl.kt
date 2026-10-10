@@ -213,6 +213,27 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
     }
 
     /**
+     * 仅清理 fork 自己的 media 中转文件（media.tar / media_restore_config.json），
+     * 绝不整删 mFilesDir/mRootDir —— 它与原版 DataBackup 共享，整删会误删原版数据。
+     * fromIndex 用于取消/失败时只清理 index >= currentIndex 的项。
+     */
+    private suspend fun cleanupForkMediaTransitFiles(fromIndex: Int = 0) {
+        val transitNames = listOf("media.tar", "media_restore_config.json")
+        mMediaEntities.forEachIndexed { index, media ->
+            if (index >= fromIndex) {
+                val dir = "${mFilesDir}/${media.mediaEntity.archivesRelativeDir}"
+                transitNames.forEach { name ->
+                    val f = "$dir/$name"
+                    runCatching {
+                        if (mRootService.exists(f)) mRootService.deleteRecursively(f)
+                    }.onSuccess { log { "清理旧版 fork 媒体中转文件: $f" } }
+                        .onFailure { e -> log { "清理媒体中转文件失败 $f: ${e.message}" } }
+                }
+            }
+        }
+    }
+
+    /**
      * 统一的 Restic 文件备份实现：不再按云类型分派。
      * 通过 backend(mCloudEntity) 取对应后端（S3/COS、FTP、WEBDAV、SFTP），
      * 密码经各后端 resolveResticPassword 解析，备份逻辑对所有类型完全一致。
@@ -402,7 +423,10 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
     }
 
     override suspend fun clear() {
-        mRootService.deleteRecursively(mRootDir)
+        // mRootDir(=localBackupSaveDir) 与原版 DataBackup 共享，绝不整目录删除。
+        // 云端 restic 上传到远端，本地只有旧版 fork(中转式)可能留下的 media.tar/config，按文件名精确清理。
+        log { "clear(): skip deleting shared root $mRootDir, only remove fork media transit files" }
+        cleanupForkMediaTransitFiles()
         mClient.disconnect()
         cleanupStopFiles()
     }
