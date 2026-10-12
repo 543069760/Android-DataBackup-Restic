@@ -85,8 +85,10 @@ class PackagesBackupUtil @Inject constructor(
     // 保留 --xattrs：/data（ext4/f2fs）上真实捕获 security.selinux 等扩展属性；
     // 去掉 --acls/--selinux：本 build 的 tar 编译时未启用 ACL/SELinux，参数仅产生固定告警；
     // SELinux 恢复保真由 PackagesRestoreUtil 中的 SELinux.getContext + chcon 兜底（tar 记录优先、代码兜底）。
+    // -b 2048：blocking-factor=2048 → 2048×512=1MB record，每次 write() 直接写满 1MB，
+    // 与 backupTarToRustic 里 F_SETPIPE_SZ 调到 1M 的 pipe 对齐，削减 syscall/上下文切换。
     private val tarHeader =
-        arrayOf("tar", "--xattrs", "--xattrs-include=*", "--totals")
+        arrayOf("tar", "--xattrs", "--xattrs-include=*", "--totals", "-b", "2048")
 
     /** callTar lambda：交给 root 进程执行 GNU tar */
     private val callTar = Tar.CallTar { stdOut, stdErr, argv ->

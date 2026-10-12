@@ -1,6 +1,7 @@
 package com.xayah.core.rootservice.impl
 
 import android.util.Log
+import android.system.Os
 import android.annotation.TargetApi
 import android.app.ActivityManagerHidden
 import android.app.ActivityThread
@@ -710,6 +711,24 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         val wfd = pipe[1]
         // dup() 保证返回一个全新的 fd（不依赖 fromFd 是否 dup 的实现细节）
         val tarOut = wfd.dup()
+
+        // 把管道内核缓冲扩到 1MB，和 tar -b 2048（1MB record）、rustic 读端
+        // FdSource.FD_BUF_CAPACITY（1<<20）量级对齐：tar 一次写满整条管道、
+        // rustic 一次读走整块，削掉默认 64KB 管道造成的频繁停等/上下文切换。
+        // 两端共享同一内核缓冲，对任一端 fd 设置即可——这里用写端 tarOut。
+        // root 身份下 F_SETPIPE_SZ 不受 /proc/sys/fs/pipe-max-size 普通权限限制；
+        // 仍用 runCatching 兜底，失败只退回默认 64KB，不影响备份正确性。
+        runCatching {
+            // F_SETPIPE_SZ 不在 Android 公开的 OsConstants 里，用 Linux 字面值 1031
+            // （arm/arm64/x86/x86_64 下该 fcntl 命令号均为 1031）。
+            val F_SETPIPE_SZ = 1031
+            val PIPE_SZ_1M = 1 shl 20
+            val actual = Os.fcntlInt(tarOut.fileDescriptor, F_SETPIPE_SZ, PIPE_SZ_1M)
+            Log.i("FdBackup", "F_SETPIPE_SZ requested=$PIPE_SZ_1M actual=$actual")
+        }.onFailure { e ->
+            Log.w("FdBackup", "F_SETPIPE_SZ failed, fallback to default pipe size: ${e.message}")
+        }
+
         Log.i("FdBackup", "pipe fds: rfd=${rfd.fd} wfd=${wfd.fd} tarOut=${tarOut.fd}")
         wfd.close()
 

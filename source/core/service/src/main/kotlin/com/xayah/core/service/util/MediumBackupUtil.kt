@@ -97,7 +97,8 @@ class MediumBackupUtil @Inject constructor(
     )
 
     // JNI tar 的公共 argv 前缀（媒体文件在外部存储，无需 --xattrs/--acls/--selinux）。
-    private val tarHeader = arrayOf("tar", "--totals")
+    // -b 2048：与 app 侧同口径，1MB record 对齐 1M pipe。媒体仍不带 --xattrs（OTG/FUSE 不支持）。
+    private val tarHeader = arrayOf("tar", "--totals", "-b", "2048")
 
     suspend fun backupMedia(
         m: MediaEntity,
