@@ -1,7 +1,6 @@
 package com.xayah.core.rootservice.impl
 
 import android.util.Log
-import android.system.Os
 import android.annotation.TargetApi
 import android.app.ActivityManagerHidden
 import android.app.ActivityThread
@@ -712,27 +711,9 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         // dup() 保证返回一个全新的 fd（不依赖 fromFd 是否 dup 的实现细节）
         val tarOut = wfd.dup()
 
-        // 把管道内核缓冲扩到 1MB，和 tar -b 2048（1MB record）、rustic 读端
-        // FdSource.FD_BUF_CAPACITY（1<<20）量级对齐：tar 一次写满整条管道、
-        // rustic 一次读走整块，削掉默认 64KB 管道造成的频繁停等/上下文切换。
-        // 两端共享同一内核缓冲，对任一端 fd 设置即可——这里用写端 tarOut。
-        // root 身份下 F_SETPIPE_SZ 不受 /proc/sys/fs/pipe-max-size 普通权限限制；
-        // 仍用 runCatching 兜底，失败只退回默认 64KB，不影响备份正确性。
-        // Os.fcntlInt 自 API 30 才公开（minSdk=28）：低版本跳过，退回默认 64KB 管道，
-        // 不影响备份正确性，只是少一点吞吐优化。加版本守卫同时满足 lint NewApi 与运行期安全。
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            runCatching {
-                val F_SETPIPE_SZ = 1031
-                val PIPE_SZ_1M = 1 shl 20
-                val actual = Os.fcntlInt(tarOut.fileDescriptor, F_SETPIPE_SZ, PIPE_SZ_1M)
-                Log.i("FdBackup", "F_SETPIPE_SZ requested=$PIPE_SZ_1M actual=$actual")
-            }.onFailure { e ->
-                Log.w("FdBackup", "F_SETPIPE_SZ failed, fallback to default pipe size: ${e.message}")
-            }
-        } else {
-            Log.i("FdBackup", "F_SETPIPE_SZ skipped: Os.fcntlInt requires API 30, current=${Build.VERSION.SDK_INT}")
-        }
-
+        // 管道内核缓冲扩容（1MB）已下沉到 native：tar-wrapper.cpp 的 callCliFd 在
+        // fork 前对写端 fd 调 fcntl(F_SETPIPE_SZ)，全版本通用、不受 Os.fcntlInt 的
+        // API 30 限制，故 Kotlin 侧不再设置管道大小。
         Log.i("FdBackup", "pipe fds: rfd=${rfd.fd} wfd=${wfd.fd} tarOut=${tarOut.fd}")
         wfd.close()
 

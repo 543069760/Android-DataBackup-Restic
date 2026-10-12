@@ -14,6 +14,10 @@
 #include <sys/prctl.h>
 #include <poll.h>
 #include <signal.h>
+#include <errno.h>
+#ifndef F_SETPIPE_SZ
+#define F_SETPIPE_SZ 1031
+#endif
 
 #define LOG_TAG "Tar-Wrapper"
 #define ALOGV(...) __android_log_print(ANDROID_LOG_VERBOSE, LOG_TAG, __VA_ARGS__)
@@ -163,6 +167,21 @@ Java_com_xayah_libnative_TarWrapper_callCliFd(JNIEnv *env, jclass clazz, jint ou
     }
 
     env->ReleaseStringUTFChars(_err_path, err_path);
+
+    // 放大写端管道内核缓冲到 1MB，与 tar -b 2048（1MB record）、rustic 读端
+    // FdSource.FD_BUF_CAPACITY=1MB 三级对齐，削减默认 64KB 管道造成的 write 停等。
+    // 父进程设置一次即可：子进程 dup2(out_fd_param, STDOUT_FILENO) 后沿用同一内核管道对象。
+    // 直接走 native fcntl() syscall，不经 android.system.Os.fcntlInt（那是 API 30 才公开的
+    // 框架方法），因此 API 28/29 同样生效，全版本通用。
+    {
+        int want = 1 << 20; // 1MB
+        int actual = fcntl(out_fd_param, F_SETPIPE_SZ, want);
+        if (actual < 0) {
+            ALOGW("callCliFd: F_SETPIPE_SZ failed errno=%d, fallback to default pipe size", errno);
+        } else {
+            ALOGI("callCliFd: F_SETPIPE_SZ requested=%d actual=%d", want, actual);
+        }
+    }
 
     pid_t pid = fork();
 
