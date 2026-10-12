@@ -1,6 +1,7 @@
 package com.xayah.feature.main.restore
 
 import android.content.Context
+import android.content.pm.UserInfo
 import android.util.Log
 import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.ViewModel
@@ -74,6 +75,9 @@ class CloudRestoreViewModel @Inject constructor(
     private var accountName: String = ""
     private val _uiState = MutableStateFlow<CloudRestoreUiState>(CloudRestoreUiState.Loading)
     val uiState: StateFlow<CloudRestoreUiState> = _uiState.asStateFlow()
+    // 用户 Tab 数据源：真实用户（含名称）。获取失败兜底空列表，绝不影响主加载。
+    private val _userList = MutableStateFlow<List<UserInfo>>(emptyList())
+    val userList = _userList.asStateFlow()
 
     // 已选 group 的 key 集合：随 ViewModel 存活。
     // 列表页 → 详情页 → 返回 不丢失；列表页被 pop 出栈（ViewModel 销毁）后重新进入即为全新空集合
@@ -259,6 +263,8 @@ class CloudRestoreViewModel @Inject constructor(
                 return@launch
             }
             val accountId = encodeAccountId(cloudEntity.name)
+            // 填充用户 Tab 数据源（双保险 runCatching，getUsers 内部已兜底）
+            runCatching { _userList.value = rootService.getUsers() }
 
             // ---- 阶段一：读持久缓存（纯本地 SQLite 读，零网络），命中则秒开 ----
             val cachedApps: List<ResticBackupApp> = runCatching {

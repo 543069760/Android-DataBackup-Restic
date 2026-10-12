@@ -38,6 +38,10 @@ public class UserInfo implements Parcelable {
         }
     };
 
+    public UserInfo(int id, String name, int flags) {
+        this.id = id;
+        this.name = name;
+    }
     @Override
     public int describeContents() {
         return 0;

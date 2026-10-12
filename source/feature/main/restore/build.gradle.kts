@@ -22,6 +22,7 @@ dependencies {
     implementation(project(":core:util"))
     implementation(project(":core:restic"))
     implementation(project(":core:rootservice"))
+    compileOnly(project(":core:hiddenapi"))
     implementation(project(":core:database"))
 
     implementation(libs.kotlinx.serialization.json)

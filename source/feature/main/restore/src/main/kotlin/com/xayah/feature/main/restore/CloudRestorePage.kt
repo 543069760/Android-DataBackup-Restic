@@ -1,6 +1,14 @@
 package com.xayah.feature.main.restore
 
 import android.util.Log
+import android.content.pm.UserInfo
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.Badge
+import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
@@ -85,6 +93,8 @@ fun CloudRestorePage(
 
     // 搜索关键字：仅用于过滤可见列表，绝不影响 selectedKeys 与互斥选择逻辑
     var searchText by remember { mutableStateOf("") }
+    val userList by viewModel.userList.collectAsStateWithLifecycle()
+    var selectedUserIndex by remember { mutableStateOf(0) }
 
     fun keyOf(g: ResticBackupGroup) = "${g.userId}-${g.packageName}-${g.timestamp}"
 
@@ -291,7 +301,33 @@ fun CloudRestorePage(
                             onTextChange = { searchText = it }
                         )
 
-                        if (filteredGroups.isEmpty()) {
+                        // Tab 用户全集：从原始 groups（非搜索后）派生，保证搜索为空的用户 Tab 也在
+                        val presentUserIds = currentState.groups.map { it.userId }.distinct().sorted()
+                        val tabUsers: List<UserInfo> = presentUserIds.map { uid ->
+                            userList.firstOrNull { it.id == uid } ?: UserInfo(uid, uid.toString(), 0)
+                        }
+                        val safeIndex = selectedUserIndex.coerceIn(0, (tabUsers.size - 1).coerceAtLeast(0))
+                        // Badge 计数：按搜索后的 filteredGroups 分组计数
+                        val userCountMap = filteredGroups.groupingBy { it.userId }.eachCount()
+
+                        if (tabUsers.size > 1) {
+                            RestoreUserTabs(
+                                selected = safeIndex,
+                                users = tabUsers,
+                                userCountMap = userCountMap,
+                                onTabClick = { selectedUserIndex = it }
+                            )
+                        }
+
+                        // 纯过滤：只按选中用户再过一层，绝不动 selectedKeys / 互斥 / 聚合 / 平铺逻辑
+                        val visibleGroups = if (tabUsers.size > 1) {
+                            val uid = tabUsers[safeIndex].id
+                            filteredGroups.filter { it.userId == uid }
+                        } else {
+                            filteredGroups
+                        }
+
+                        if (visibleGroups.isEmpty()) {
                             // 有备份但无匹配结果
                             Box(
                                 modifier = Modifier.fillMaxSize(),
@@ -306,7 +342,7 @@ fun CloudRestorePage(
                             ) {
                                 if (groupedMode) {
                                     // 聚合模式：按 (userId, packageName) 分组，每组一行，展开显示全部快照
-                                    val groupedList = filteredGroups
+                                    val groupedList = visibleGroups
                                         .groupBy { appKey(it) }
                                         .values
                                         .map { list -> list.sortedByDescending { it.timestamp } }
@@ -355,7 +391,7 @@ fun CloudRestorePage(
                                 } else {
                                     // 平铺模式：原有逐快照行
                                     items(
-                                        filteredGroups,
+                                        visibleGroups,
                                         key = { item: ResticBackupGroup -> "${item.userId}-${item.packageName}-${item.timestamp}" }
                                     ) { group: ResticBackupGroup ->
                                         val hasConfigSnapshot =
@@ -438,5 +474,48 @@ fun CloudRestorePage(
                 }
             }
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RestoreUserTabs(
+    selected: Int,
+    users: List<UserInfo>,
+    userCountMap: Map<Int, Int>,
+    onTabClick: (index: Int) -> Unit
+) {
+    if (users.isEmpty()) return
+    val safeSelected = selected.coerceIn(0, users.size - 1)
+    PrimaryScrollableTabRow(
+        selectedTabIndex = safeSelected,
+        edgePadding = SizeTokens.Level0,
+        indicator = @Composable {
+            TabRowDefaults.PrimaryIndicator(
+                modifier = Modifier.tabIndicatorOffset(safeSelected, matchContentSize = true)
+            )
+        }
+    ) {
+        users.forEachIndexed { index, user ->
+            val count = userCountMap[user.id] ?: 0
+            Tab(
+                selected = safeSelected == index,
+                onClick = { onTabClick(index) },
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "${user.name} (${user.id})",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (count > 0) {
+                            Badge(modifier = Modifier.padding(start = SizeTokens.Level4)) {
+                                Text(text = count.toString())
+                            }
+                        }
+                    }
+                }
+            )
+        }
     }
 }

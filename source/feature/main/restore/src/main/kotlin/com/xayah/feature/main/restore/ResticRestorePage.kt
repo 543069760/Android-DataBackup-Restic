@@ -2,6 +2,7 @@ package com.xayah.feature.main.restore
 
 import android.content.Context
 import android.util.Log
+import android.content.pm.UserInfo
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.animateFloatAsState
@@ -49,6 +50,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberTopAppBarState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.ui.text.style.TextOverflow
+import com.xayah.core.ui.component.Divider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -113,6 +123,12 @@ fun ResticRestorePage(
 
     // 搜索关键字：仅用于过滤可见列表，绝不影响 selectedKeys 与互斥选择逻辑
     var searchText by remember { mutableStateOf("") }
+
+    // 用户列表（含真实名称，来自 rootService.getUsers()）
+    val userList by viewModel.userList.collectAsStateWithLifecycle()
+
+    // 用户筛选：按 Tab 索引选中（与备份列表一致，无"全部用户"项）。纯过滤，绝不影响 selectedKeys
+    var selectedUserIndex by remember { mutableStateOf(0) }
 
     fun groupKey(g: ResticBackupGroup): String = "${g.userId}-${g.packageName}-${g.timestamp}"
 
@@ -334,7 +350,32 @@ fun ResticRestorePage(
                             onTextChange = { searchText = it }
                         )
 
-                        if (filteredGroups.isEmpty()) {
+                        // 出现过的用户 id（原始全集派生，决定是否显示 Tab 行）
+                        val presentUserIds = currentState.groups.map { it.userId }.distinct().sorted()
+                        // Tab 用户列表：优先匹配真实 UserInfo（带名称）；
+                        // 找不到（设备上已删除的分身快照）退化为合成 UserInfo(uid, uid.toString(), 0)
+                        val tabUsers: List<UserInfo> = presentUserIds.map { uid ->
+                            userList.firstOrNull { it.id == uid } ?: UserInfo(uid, uid.toString(), 0)
+                        }
+                        // 各用户可见条目计数（基于搜索后的 filteredGroups）
+                        val userCountMap = filteredGroups.groupingBy { it.userId }.eachCount()
+
+                        // 多于一个用户时才显示 Tab 行；只有单用户时不占位（与备份一致）
+                        if (tabUsers.size > 1) {
+                            RestoreUserTabs(
+                                selected = selectedUserIndex,
+                                userList = tabUsers,
+                                usersMap = userCountMap,
+                                onTabClick = { selectedUserIndex = it }
+                            )
+                        }
+
+                        // 在 filteredGroups 之上叠加用户过滤，得到最终可见列表
+                        val visibleGroups = tabUsers.getOrNull(selectedUserIndex)?.id?.let { uid ->
+                            filteredGroups.filter { it.userId == uid }
+                        } ?: filteredGroups
+
+                        if (visibleGroups.isEmpty()) {
                             // 有备份但无匹配结果
                             Box(
                                 modifier = Modifier.fillMaxSize(),
@@ -349,7 +390,7 @@ fun ResticRestorePage(
                             ) {
                                 if (groupedMode) {
                                     // ---- 聚合模式：同一 (userId, packageName) 只显示一行 ----
-                                    val grouped = filteredGroups
+                                    val grouped = visibleGroups
                                         .groupBy { "${it.userId}-${it.packageName}" }
                                         .mapValues { entry -> entry.value.sortedByDescending { it.timestamp } }
                                         .values
@@ -391,7 +432,7 @@ fun ResticRestorePage(
                                 } else {
                                     // ---- 平铺模式：原行为，每个快照一行 ----
                                     items(
-                                        filteredGroups,
+                                        visibleGroups,
                                         key = { item: ResticBackupGroup -> "${item.userId}-${item.packageName}-${item.timestamp}" }
                                     ) { group: ResticBackupGroup ->
                                         val key = groupKey(group)
@@ -805,3 +846,58 @@ fun userChipColors(userId: Int): Pair<Color, Color> {
         )
         return palette[(userId.toLong() and Int.MAX_VALUE.toLong()).toInt() % palette.size]
     }
+
+/**
+ * 恢复列表的多用户 Tab 行：照抄备份列表 ListTopBar.UserTabs 的样式与行为。
+ * 每个 Tab 对应一个真实用户（显示 name (id)），无"全部用户"项。
+ * 纯 UI 过滤，Badge 显示该用户的可见条目数，绝不触碰 selectedKeys。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RestoreUserTabs(
+    selected: Int,
+    userList: List<UserInfo>,
+    usersMap: Map<Int, Int>,
+    onTabClick: (index: Int) -> Unit,
+) {
+    if (userList.isNotEmpty()) {
+        // 边界检查，确保 selected 索引有效
+        val safeSelected = selected.coerceIn(0, userList.size - 1)
+
+        PrimaryScrollableTabRow(
+            selectedTabIndex = safeSelected,
+            edgePadding = SizeTokens.Level0,
+            indicator = @Composable {
+                TabRowDefaults.PrimaryIndicator(
+                    Modifier.tabIndicatorOffset(safeSelected, matchContentSize = true),
+                    shape = CircleShape
+                )
+            },
+            divider = {
+                Divider(modifier = Modifier.fillMaxWidth())
+            }
+        ) {
+            userList.forEachIndexed { index, user ->
+                Tab(
+                    selected = safeSelected == index,
+                    onClick = { onTabClick(index) },
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "${user.name} (${user.id})",
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            val count = usersMap[user.id] ?: 0
+                            if (count > 0) {
+                                Badge(modifier = Modifier.padding(start = SizeTokens.Level4)) {
+                                    Text(text = count.toString())
+                                }
+                            }
+                        }
+                    }
+                )
+            }
+        }
+    }
+}

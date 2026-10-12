@@ -2,6 +2,7 @@ package com.xayah.feature.main.restore
 
 import android.util.Log
 import android.content.Context
+import android.content.pm.UserInfo
 import android.content.pm.PackageManager
 import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.ViewModel
@@ -117,6 +118,11 @@ class ResticRestoreViewModel @Inject constructor(
     // 列表聚合模式：true = 同 app 只显示一行、点开展示多版本快照；false = 平铺（原行为）
     private val _groupedMode = MutableStateFlow(true)
     val groupedMode: StateFlow<Boolean> = _groupedMode.asStateFlow()
+
+    // 当前设备用户列表：仅用于恢复列表顶部用户 Tab 显示真实用户名（user.name）与用户 id。
+    // 与 buildGroupedBackups/selectedKeys/聚合逻辑完全解耦，只是 UI 展示数据源。
+    private val _userList = MutableStateFlow<List<UserInfo>>(emptyList())
+    val userList: StateFlow<List<UserInfo>> = _userList.asStateFlow()
 
     fun toggleGroupedMode() {
         _groupedMode.value = !_groupedMode.value
@@ -249,6 +255,13 @@ class ResticRestoreViewModel @Inject constructor(
             }
             // 每次加载前重申，抵消可能的重置
             reassertActiveIsOtg()
+
+            // 填充当前设备用户列表（用于列表顶部用户 Tab 真实用户名）；
+            // 失败只退回空列表，不影响主加载流程。空时才拉取，避免每次刷新重复调用。
+            if (_userList.value.isEmpty()) {
+                _userList.value = runCatching { rootService.getUsers() }.getOrElse { emptyList() }
+            }
+
             val repo = resolveRestoreRepo()
             if (repo == null) {
                 // OTG 分支已置错误态；非 OTG 未配置在此补默认文案
