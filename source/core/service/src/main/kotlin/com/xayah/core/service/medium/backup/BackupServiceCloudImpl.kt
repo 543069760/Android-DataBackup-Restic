@@ -195,6 +195,59 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
         }
     }
 
+    override suspend fun streamBackupMedia(
+        ready: MediumBackupUtil.ArgvResult.Ready,
+        m: MediaEntity,
+        t: TaskDetailMediaEntity,
+        tag: String,
+        cancelId: Long,
+    ): MediumBackupUtil.StreamBackupResult {
+        val backend = backend(mCloudEntity)
+        val password = backend.resolveResticPassword(mCloudEntity)
+        var lastContentUpdate = 0L
+        val startMs = System.currentTimeMillis()
+        // withStreamBackupContext 必须包住整个入库：FTP/SFTP 的本地 serve 生命周期由它负责，
+        // 需存活到含失败 forget 的 block 完全返回。
+        return backend.withStreamBackupContext(mCloudEntity, mCloudEntity.remote) { repoPath, options ->
+            mMediumBackupUtil.streamBackupToRustic(
+                ready = ready,
+                m = m,
+                repositoryPath = repoPath,
+                password = password,
+                tags = listOf(tag),
+                options = options,
+                cancelId = cancelId,
+                onProgress = { readBytes, _ ->
+                    val now = System.currentTimeMillis()
+                    if (now - lastContentUpdate >= 500) {
+                        lastContentUpdate = now
+                        // 与云端现有体验一致：平均速度 | 累积量（fd 流无分母，无百分比）
+                        val elapsedMs = (now - startMs).coerceAtLeast(1L)
+                        val avgSpeed = if (readBytes > 0) readBytes * 1000L / elapsedMs else 0L
+                        val bytesText = readBytes.toDouble().formatSize()
+                        val speedText = if (avgSpeed > 0) avgSpeed.formatToStorageSizePerSecond() else ""
+                        val content = if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
+                        runBlocking {
+                            t.update(state = OperationState.PROCESSING, content = content)
+                        }
+                    }
+                }
+            )
+        }
+    }
+
+    override suspend fun backupMediaConfig(
+        configFile: File,
+        m: MediaEntity,
+        t: TaskDetailMediaEntity,
+    ): Boolean = backupFileWithResticByType(
+        mediaName = m.name,
+        compressedFile = configFile,
+        dataType = DataType.PACKAGE_CONFIG,
+        remotePath = m.archivesRelativeDir,
+        t = t,
+    )
+
     override suspend fun backupConfigToCloud(configFile: File, media: MediaEntity): Boolean {
         return try {
             val configSuccess = backupFileWithResticByType(

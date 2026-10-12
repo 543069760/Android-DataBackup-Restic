@@ -15,8 +15,11 @@ import com.xayah.core.service.util.CommonBackupUtil
 import com.xayah.core.service.util.MediumBackupUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.localBackupSaveDir
+import com.xayah.core.model.util.formatSize
+import com.xayah.core.model.util.formatToStorageSizePerSecond
 import com.xayah.core.model.OperationState
 import com.xayah.core.model.util.get
+import com.xayah.core.model.DataType
 import java.io.File
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -93,6 +96,53 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
         t.update(processingIndex = t.processingIndex + 1)
     }
 
+    override suspend fun backupMediaConfig(
+        configFile: File,
+        m: MediaEntity,
+        t: TaskDetailMediaEntity,
+    ): Boolean = backupWithRestic(
+        mediaName = m.name,
+        compressedFile = configFile,
+        dataType = DataType.PACKAGE_CONFIG,
+        t = t,
+    )
+
+    override suspend fun streamBackupMedia(
+        ready: MediumBackupUtil.ArgvResult.Ready,
+        m: MediaEntity,
+        t: TaskDetailMediaEntity,
+        tag: String,
+        cancelId: Long,
+    ): MediumBackupUtil.StreamBackupResult {
+        val repoPath = getResticRepoPath()
+        val password = getResticPassword()
+        // 节流时间戳：poll 回调频率高，≥500ms 才刷一次 content，避免高频 upsert 打 DB
+        var lastContentUpdate = 0L
+        return mMediumBackupUtil.streamBackupToRustic(
+            ready = ready,
+            m = m,
+            repositoryPath = repoPath,
+            password = password,
+            tags = listOf(tag),
+            cancelId = cancelId,
+            onProgress = { readBytes, writtenSpeed ->
+                val now = System.currentTimeMillis()
+                if (now - lastContentUpdate >= 500) {
+                    lastContentUpdate = now
+                    // fd 流无分母，进行中副标题显示 "速度 | 累积量"
+                    val bytesText = readBytes.toDouble().formatSize()
+                    val speedText =
+                        if (writtenSpeed > 0) writtenSpeed.formatToStorageSizePerSecond() else ""
+                    val content =
+                        if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
+                    // t.update 是 suspend——onProgress 在 binder 线程被调，用 runBlocking 桥接
+                    kotlinx.coroutines.runBlocking {
+                        t.update(state = OperationState.PROCESSING, content = content)
+                    }
+                }
+            }
+        )
+    }
 
     override suspend fun onCleanupIncompleteBackup(currentIndex: Int) {
         Log.d(mTAG, "Cleaning up incomplete local file backup from index: $currentIndex")

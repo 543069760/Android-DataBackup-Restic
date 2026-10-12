@@ -363,6 +363,29 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
             }
     }
 
+    /**
+     * fd 流式入库钩子：把 tar argv 经 pipe 直通 rustic。
+     * 本地 impl 直接 streamBackupToRustic；云端 impl 用 withStreamBackupContext 包裹
+     * （FTP/SFTP 的 serve 生命周期必须覆盖整个 block）。onProgress 的 UI 刷新在各 impl 内部实现。
+     */
+    protected abstract suspend fun streamBackupMedia(
+        ready: MediumBackupUtil.ArgvResult.Ready,
+        m: MediaEntity,
+        t: TaskDetailMediaEntity,
+        tag: String,
+        cancelId: Long,
+    ): MediumBackupUtil.StreamBackupResult
+    /**
+     * config 快照钩子：仓库选择下沉到各 impl，与 app 对齐。
+     * 本地 impl → backupWithRestic（本地 restic 仓库）；
+     * 云端 impl → backend.backupFile（云端 restic 仓库，单次快照，不再先写本地）。
+     * 返回 true 表示 config 快照成功。
+     */
+    protected abstract suspend fun backupMediaConfig(
+        configFile: File,
+        m: MediaEntity,
+        t: TaskDetailMediaEntity,
+    ): Boolean
     protected open suspend fun onTargetDirsCreated() {}
     protected open suspend fun onFileDirCreated(archivesRelativeDir: String): Boolean = true
     abstract suspend fun backup(m: MediaEntity, r: MediaEntity?, t: TaskDetailMediaEntity, dstDir: String)
@@ -466,7 +489,7 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
         mTaskEntity.update(rawBytes = mTaskRepo.getRawBytes(TaskType.MEDIA), availableBytes = mTaskRepo.getAvailableBytes(OpType.BACKUP), totalBytes = mTaskRepo.getTotalBytes(OpType.BACKUP), totalCount = mMediaEntities.size)
         log { "Task count: ${mMediaEntities.size}." }
 
-        // 每个文件固定 2 个阶段：tar + config
+        // 每个文件固定 2 个阶段：tar(fd 流) + config
         val stagesPerMedia = 2
         val totalStages = mMediaEntities.size * stagesPerMedia
 
@@ -478,7 +501,6 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
 
             val media = mMediaEntities[index]
 
-            // 当前文件内已完成的阶段数，以及按阶段推进任务栏进度条的局部函数
             var stageInMedia = 0
             fun notifyStage() {
                 NotificationUtil.notify(
@@ -502,97 +524,147 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                 mRootService.mkdirs(dstDir)
 
                 if (onFileDirCreated(archivesRelativeDir = m.archivesRelativeDir)) {
-                    // 执行备份
-                    backup(m = m, r = restoreEntity, t = media, dstDir = dstDir)
+                    // ===== 阶段 1：MEDIA fd 流式入库（不再落盘 media.tar）=====
+                    var mediaStreamOk = false
+                    val argvResult = mMediumBackupUtil.prepareMediaArgv(
+                        m = m, t = media, r = restoreEntity, dstDir = dstDir, isCanceled = { isCanceled() }
+                    )
 
-                    // 只有在未取消且备份成功时才保存配置和进行Restic备份
-                    if (media.isSuccess) {
-                        // 保存配置文件和创建恢复记录
-                        m.extraInfo.lastBackupTime = DateUtil.getTimestamp()
-                        val id = restoreEntity?.id ?: 0
-                        restoreEntity = m.copy(
-                            id = id,
-                            indexInfo = m.indexInfo.copy(opType = OpType.RESTORE, cloud = mTaskEntity.cloud, backupDir = mTaskEntity.backupDir),
-                            extraInfo = m.extraInfo.copy(existed = true, activated = false)
-                        )
-                        val configDst = PathUtil.getMediaRestoreConfigDst(dstDir = dstDir)
-                        mRootService.writeJson(data = restoreEntity, dst = configDst)
-                        onConfigSaved(path = configDst, archivesRelativeDir = m.archivesRelativeDir)
-                        mMediaDao.upsert(restoreEntity)
-                        mMediaDao.upsert(m)
-                        media.update(mediaEntity = m)
+                    when (argvResult) {
+                        is MediumBackupUtil.ArgvResult.Skip -> {
+                            // prepareMediaArgv 内部已 updateInfo(SKIP)，视为成功继续写 config
+                            mediaStreamOk = true
+                        }
 
-                        // 双文件Restic备份
-                        val tarFile = File("$dstDir/media.tar")
-                        val configFile = File("$dstDir/media_restore_config.json")
+                        is MediumBackupUtil.ArgvResult.Error -> {
+                            // prepareMediaArgv 内部已 updateInfo(ERROR, log)
+                            log { "[FdBackup] prepareMediaArgv failed for ${m.name}: ${argvResult.out}" }
+                            mediaStreamOk = false
+                        }
 
-                        if (tarFile.exists() && configFile.exists()) {
-                            Log.d("ResticFlow", "两个文件都存在，开始Restic备份: ${m.name}")
-
-                            // 备份tar文件 - 传入 media 以刷 UI 进度
-                            val tarSuccess = backupWithRestic(m.name, tarFile, DataType.PACKAGE_MEDIA, media)
-                            stageInMedia++          // ★ tar 阶段完成
-                            notifyStage()
-                            Log.d("ResticFlow", "tar文件Restic备份结果: $tarSuccess")
-
-                            // ★ 取消检查：tar 备份因强杀失败后，不再对 config 发起任何 mRootService 调用（避免重建 root）
+                        is MediumBackupUtil.ArgvResult.Ready -> {
                             if (isCanceled()) {
-                                log { "Backup canceled, skipping remaining data types for ${m.name}" }
+                                log { "[FdBackup] canceled before stream for ${m.name}" }
                                 media.update(state = OperationState.ERROR)
                                 mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
                                 return@executeAtLeast
                             }
 
-                            // 备份配置文件 - 传入 media 以刷 UI 进度
-                            val configSuccess = backupWithRestic(m.name, configFile, DataType.PACKAGE_CONFIG, media)
-                            stageInMedia++          // ★ config 阶段完成
-                            notifyStage()
-                            Log.d("ResticFlow", "配置文件Restic备份结果: $configSuccess")
+                            val tag = "${m.name}-$mBackupTimestamp-filesbackup"
+                            val cancelId = System.nanoTime()
+                            // 登记取消链路：cancel() 通过 mCurrentBackupCancelId 调 cancelRusticBackup
+                            mCurrentBackupCancelId = cancelId
+                            mCurrentProcessingTag = tag
 
-                            // 检查Restic备份是否都成功
-                            if (!tarSuccess || !configSuccess) {
-                                Log.e("ResticFlow", "Restic备份失败，标记为错误状态")
-                                media.update(state = OperationState.ERROR)
-                                mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
-                                return@executeAtLeast
-                            }
-
-                            // S3云端config文件备份
-                            if (mTaskEntity.cloud.isNotEmpty()) {
-                                val cloudConfigSuccess = backupConfigToCloud(configFile, m)
-                                if (!cloudConfigSuccess) {
-                                    Log.e("ResticFlow", "云端config文件备份失败")
-                                    media.update(state = OperationState.ERROR)
-                                    mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
-                                    return@executeAtLeast
+                            val startMs = System.currentTimeMillis()
+                            try {
+                                val streamResult = streamBackupMedia(
+                                    ready = argvResult, m = m, t = media, tag = tag, cancelId = cancelId
+                                )
+                                if (streamResult.shell.isSuccess) {
+                                    streamResult.snapshotId?.let { updateResticInfo(m.name, it, DataType.PACKAGE_MEDIA) }
+                                    // 定格 DONE，副标题 "平均速度 | 大小"（fd 流无百分比分母）
+                                    val bytesText = streamResult.fedBytes.toDouble().formatSize()
+                                    val elapsedMs = System.currentTimeMillis() - startMs
+                                    val speedText = if (elapsedMs > 0 && streamResult.fedBytes > 0)
+                                        (streamResult.fedBytes * 1000 / elapsedMs).formatToStorageSizePerSecond()
+                                    else ""
+                                    media.update(
+                                        state = OperationState.DONE,
+                                        bytes = streamResult.fedBytes,
+                                        content = if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText,
+                                    )
+                                    log { "[FdBackup] media fd-backup ok for ${m.name} snapshot=${streamResult.snapshotId}" }
+                                    mediaStreamOk = true
+                                } else {
+                                    media.update(state = OperationState.ERROR, log = streamResult.shell.outString)
+                                    log { "[FdBackup] media fd-backup failed for ${m.name}: ${streamResult.shell.outString}" }
+                                    mediaStreamOk = false
                                 }
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                media.update(state = OperationState.ERROR, log = "canceled")
+                                mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
+                                throw e
+                            } catch (e: Exception) {
+                                // impl 侧抛的 CancellationException 过 binder 被包成 IllegalStateException——
+                                // 类型丢失但 message 保留；命中取消关键词必须重抛 CancellationException，
+                                // 否则上层继续跑剩余文件，"取消"只停掉当前这一个。
+                                val isCancel = e.message?.contains("rustic backup canceled") == true ||
+                                        e.message?.contains("cancelled by the user") == true ||
+                                        e.message?.contains("tar aborted via cancelFd") == true
+                                media.update(state = OperationState.ERROR,
+                                    log = if (isCancel) "canceled" else (e.message ?: "unknown"))
+                                if (isCancel) {
+                                    mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
+                                    throw kotlinx.coroutines.CancellationException("backup canceled: ${e.message}")
+                                }
+                                log { "[FdBackup] media fd-backup exception for ${m.name}: ${e.message}" }
+                                mediaStreamOk = false
+                            } finally {
+                                mCurrentBackupCancelId = 0L
+                                mCurrentProcessingTag = null
                             }
-                        } else {
-                            Log.e("ResticFlow", "必需文件缺失，备份失败")
-                            Log.e("ResticFlow", "tar文件存在: ${tarFile.exists()}, 配置文件存在: ${configFile.exists()}")
-                            media.update(state = OperationState.ERROR)
-                            mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
-                            return@executeAtLeast
                         }
-
-                        mTaskEntity.update(successCount = mTaskEntity.successCount + 1)
-                    } else {
-                        log { "Backup failed for ${m.name}, cleaning up remote files..." }
-                        runCatching {
-                            onCleanupFailedBackup(archivesRelativeDir = m.archivesRelativeDir)
-                        }.onFailure { e ->
-                            log { "Failed to cleanup remote files: ${e.message}" }
-                        }
-                        mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
                     }
 
-                    media.update(state = if (media.isSuccess) OperationState.DONE else OperationState.ERROR)
+                    stageInMedia++          // ★ tar(fd 流) 阶段完成
+                    notifyStage()
+
+                    if (!mediaStreamOk) {
+                        media.update(state = OperationState.ERROR)
+                        mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
+                        return@executeAtLeast
+                    }
+
+                    // ★ 取消检查：tar 入库失败/强杀后，不再对 config 发起任何调用
+                    if (isCanceled()) {
+                        log { "Backup canceled, skipping config for ${m.name}" }
+                        media.update(state = OperationState.ERROR)
+                        mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
+                        return@executeAtLeast
+                    }
+
+                    // ===== 保存恢复记录 + config JSON =====
+                    m.extraInfo.lastBackupTime = DateUtil.getTimestamp()
+                    val id = restoreEntity?.id ?: 0
+                    restoreEntity = m.copy(
+                        id = id,
+                        indexInfo = m.indexInfo.copy(opType = OpType.RESTORE, cloud = mTaskEntity.cloud, backupDir = mTaskEntity.backupDir),
+                        extraInfo = m.extraInfo.copy(existed = true, activated = false)
+                    )
+                    val configDst = PathUtil.getMediaRestoreConfigDst(dstDir = dstDir)
+                    mRootService.writeJson(data = restoreEntity, dst = configDst)
+                    onConfigSaved(path = configDst, archivesRelativeDir = m.archivesRelativeDir)
+                    mMediaDao.upsert(restoreEntity)
+                    mMediaDao.upsert(m)
+                    media.update(mediaEntity = m)
+
+                    // ===== 阶段 2：CONFIG 快照（仓库选择下沉到 impl，与 app 对齐，不再云端双写）=====
+                    val configFile = File(configDst)
+                    val configSuccess = if (configFile.exists()) {
+                        backupMediaConfig(configFile = configFile, m = m, t = media)
+                    } else {
+                        Log.e("ResticFlow", "config 文件缺失: $configDst")
+                        false
+                    }
+                    stageInMedia++          // ★ config 阶段完成
+                    notifyStage()
+
+                    if (!configSuccess) {
+                        Log.e("ResticFlow", "config Restic 备份失败，标记为错误状态")
+                        media.update(state = OperationState.ERROR)
+                        mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
+                        return@executeAtLeast
+                    }
+
+                    mTaskEntity.update(successCount = mTaskEntity.successCount + 1)
+                    media.update(state = OperationState.DONE)
                 } else {
                     media.update(state = OperationState.ERROR)
                 }
             }
 
-            // 补齐到满阶段：无论上面成功/失败/提前 return，都把本文件进度填满，保证任务栏进度条单调递增
+            // 补齐到满阶段：无论成功/失败/提前 return，都把本文件进度填满，保证任务栏进度条单调递增
             stageInMedia = stagesPerMedia
             notifyStage()
 
