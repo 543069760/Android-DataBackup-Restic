@@ -718,15 +718,19 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         // 两端共享同一内核缓冲，对任一端 fd 设置即可——这里用写端 tarOut。
         // root 身份下 F_SETPIPE_SZ 不受 /proc/sys/fs/pipe-max-size 普通权限限制；
         // 仍用 runCatching 兜底，失败只退回默认 64KB，不影响备份正确性。
-        runCatching {
-            // F_SETPIPE_SZ 不在 Android 公开的 OsConstants 里，用 Linux 字面值 1031
-            // （arm/arm64/x86/x86_64 下该 fcntl 命令号均为 1031）。
-            val F_SETPIPE_SZ = 1031
-            val PIPE_SZ_1M = 1 shl 20
-            val actual = Os.fcntlInt(tarOut.fileDescriptor, F_SETPIPE_SZ, PIPE_SZ_1M)
-            Log.i("FdBackup", "F_SETPIPE_SZ requested=$PIPE_SZ_1M actual=$actual")
-        }.onFailure { e ->
-            Log.w("FdBackup", "F_SETPIPE_SZ failed, fallback to default pipe size: ${e.message}")
+        // Os.fcntlInt 自 API 30 才公开（minSdk=28）：低版本跳过，退回默认 64KB 管道，
+        // 不影响备份正确性，只是少一点吞吐优化。加版本守卫同时满足 lint NewApi 与运行期安全。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            runCatching {
+                val F_SETPIPE_SZ = 1031
+                val PIPE_SZ_1M = 1 shl 20
+                val actual = Os.fcntlInt(tarOut.fileDescriptor, F_SETPIPE_SZ, PIPE_SZ_1M)
+                Log.i("FdBackup", "F_SETPIPE_SZ requested=$PIPE_SZ_1M actual=$actual")
+            }.onFailure { e ->
+                Log.w("FdBackup", "F_SETPIPE_SZ failed, fallback to default pipe size: ${e.message}")
+            }
+        } else {
+            Log.i("FdBackup", "F_SETPIPE_SZ skipped: Os.fcntlInt requires API 30, current=${Build.VERSION.SDK_INT}")
         }
 
         Log.i("FdBackup", "pipe fds: rfd=${rfd.fd} wfd=${wfd.fd} tarOut=${tarOut.fd}")
