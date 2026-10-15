@@ -380,6 +380,15 @@ class RemoteRootService(private val context: Context) {
 
     suspend fun getUsers(): List<UserInfo> = runCatching { getService().users }.onFailure(onFailure).getOrElse { listOf() }
 
+    suspend fun createUser(name: String): Int =
+        runCatching { getService().createUser(name) }.onFailure(onFailure).getOrElse { -1 }
+
+    suspend fun removeUser(userId: Int): Boolean =
+        runCatching { getService().removeUser(userId) }.onFailure(onFailure).getOrElse { false }
+
+    suspend fun startUser(userId: Int): Boolean =
+        runCatching { getService().startUser(userId) }.onFailure(onFailure).getOrElse { false }
+
     suspend fun walkFileTree(path: String): List<PathParcelable> = runCatching {
         val pfd = getService().walkFileTree(path)
         val list = mutableListOf<PathParcelable>()

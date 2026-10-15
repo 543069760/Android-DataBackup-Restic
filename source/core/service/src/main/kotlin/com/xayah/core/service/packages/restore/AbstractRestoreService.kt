@@ -6,6 +6,7 @@ import com.xayah.core.datastore.readResetRestoreList
 import com.xayah.core.datastore.readRestorePermissions
 import com.xayah.core.datastore.readRestoreSsaid
 import com.xayah.core.datastore.readRestoreUser
+import com.xayah.core.datastore.readRestoreUserMap
 import com.xayah.core.datastore.saveLastRestoreTime
 import com.xayah.core.model.DataType
 import com.xayah.core.model.OpType
@@ -109,8 +110,27 @@ internal abstract class AbstractRestoreService : AbstractPackagesService() {
 
     private var restoreUser = -1
 
+    /**
+     * 源备份 userId -> 目标设备 userId 的重映射。
+     * 用于「备份中的用户在当前设备不存在、已用 root 创建新用户」的场景：
+     * 只改恢复目标 userId，不改 srcDir（srcDir 仍按 p.userId 定位备份源目录）。
+     * 由 Setup 页写入 DataStore（格式 "10:15,12:16"），此处一次性读入解析。
+     */
+    private var restoreUserRemap: Map<Int, Int> = emptyMap()
+
     override suspend fun onPreprocessing(entity: ProcessingInfoEntity) {
         restoreUser = mContext.readRestoreUser().first()
+        restoreUserRemap = mContext.readRestoreUserMap()
+            .split(",")
+            .mapNotNull { entry ->
+                val parts = entry.split(":")
+                if (parts.size != 2) return@mapNotNull null
+                val from = parts[0].toIntOrNull() ?: return@mapNotNull null
+                val to = parts[1].toIntOrNull() ?: return@mapNotNull null
+                from to to
+            }
+            .toMap()
+        log { "Restore user: $restoreUser, remap: $restoreUserRemap" }
         when (entity.infoType) {
             ProcessingInfoType.SET_UP_INST_ENV -> {
                 if (runCatchingOnService { beforeSettingUpEnv() }) {
@@ -167,9 +187,12 @@ internal abstract class AbstractRestoreService : AbstractPackagesService() {
                     mAppsDir
                 }
                 val srcDir = "${baseDir}/${p.archivesRelativeDir}"
-                val userId = if (restoreUser == -1) p.userId else restoreUser
-
-                onBeforeRestorePackage(p, pkg, userId)
+                // remap 优先：只对「缺失的备份源 userId」改投新用户，不影响其余包与源目录路径
+                val baseUserId = if (restoreUser == -1) p.userId else restoreUser
+                val userId = restoreUserRemap[baseUserId] ?: baseUserId
+                // 归档解出侧必须用原始 p.userId：队列 key (mRestoreQueueMap) 与
+                // transitDirOf 的 user_<id> 都是按备份源 userId 建的，传 remap 后的 id 会查不到/解错目录
+                onBeforeRestorePackage(p, pkg, p.userId)
 
                 var failedFast = false
                 val dataTypes = listOf(
@@ -224,7 +247,8 @@ internal abstract class AbstractRestoreService : AbstractPackagesService() {
                 }
                 pkg.update(state = if (pkg.isSuccess) OperationState.DONE else OperationState.ERROR)
 
-                onAfterRestorePackage(p, userId, pkg.isSuccess)
+                // 同上：中转目录清理也必须用原始 p.userId，否则指向 user_<新id> 清不到真正目录
+                onAfterRestorePackage(p, p.userId, pkg.isSuccess)
             }
 
             // fail-fast break 等情况下补齐到满阶段，保证单调

@@ -376,6 +376,70 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         )
     }
 
+    /**
+     * 通过 pm create-user 创建应用分身类型的 profile（图标显示在主用户启动器）。
+     * 仅尝试 CLONE 类型——普通 secondary user 的图标不出现在主启动器，
+     * MANAGED 会带工作资料角标，都不符合"分身"语义；ROM 不支持时直接返回 -1，
+     * 由 UI 层提示用户手动创建分身。
+     */
+    override fun createUser(name: String): Int = synchronized(lock) {
+        runCatching {
+            val before = userManager.users.map { it.id }.toSet()
+            val safeName = name.replace(Regex("[^A-Za-z0-9_-]"), "")
+            val cmd = "pm create-user --profileOf 0 --userType android.os.usertype.profile.CLONE \"$safeName\""
+
+            val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", cmd))
+            val output = process.inputStream.bufferedReader().readText()
+            val error = process.errorStream.bufferedReader().readText()
+            process.waitFor()
+            Log.i("RemoteRootService", "$cmd -> output: $output, error: $error")
+
+            Regex("""id\s+(\d+)""").find(output)?.groupValues?.get(1)?.toInt()
+                ?: (userManager.users.map { it.id }.toSet() - before).firstOrNull()
+                ?: -1
+        }.getOrElse { -1 }
+    }
+
+    /**
+     * 通过 am start-user 后台启动用户（不切前台）。
+     * 新建/停止态用户的 CE 存储在启动过程中解锁（无锁屏凭据时），
+     * 用于把「未启动」从「FBE 锁定」中区分出来：启动后仍 isUserUnlocked=false 的才是真锁定。
+     * 启动是异步的，轮询最多 ~5s 等待解锁生效。
+     */
+    override fun startUser(userId: Int): Boolean = synchronized(lock) {
+        runCatching {
+            val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", "am start-user $userId"))
+            process.inputStream.bufferedReader().readText()
+            process.errorStream.bufferedReader().readText()
+            process.waitFor()
+
+            // 轮询等待 CE 解锁；无锁屏的用户通常几百 ms 内完成
+            repeat(10) {
+                if (isUserUnlocked(userId)) return@synchronized true
+                Thread.sleep(500)
+            }
+            isUserUnlocked(userId)
+        }.getOrElse { false }
+    }
+
+    /**
+     * 通过 pm remove-user 删除用户，用于 createUser 批量创建中途失败时的回滚。
+     */
+    override fun removeUser(userId: Int): Boolean = synchronized(lock) {
+        runCatching {
+            val before = userManager.users.map { it.id }.toSet()
+            val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", "pm remove-user $userId"))
+            val output = process.inputStream.bufferedReader().readText()
+            val error = process.errorStream.bufferedReader().readText()
+            process.waitFor()
+            Log.i("RemoteRootService", "pm remove-user $userId output: $output, error: $error")
+
+            // 输出含 success 直接判成功；否则用差集确认该 id 已消失
+            if (output.contains("success", ignoreCase = true)) return@synchronized true
+            userId !in userManager.users.map { it.id }.toSet() && userId in before
+        }.getOrElse { false }
+    }
+
     override fun walkFileTree(path: String): ParcelFileDescriptor = synchronized(lock) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             walkFileTreeApi26(path)

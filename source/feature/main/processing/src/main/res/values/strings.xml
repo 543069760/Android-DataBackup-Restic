@@ -19,4 +19,11 @@
     <string name="restore_target_user_locked_message">This backup belongs to a system clone app. Please enter the system clone and unlock it first, then return to the main system and tap Continue. A re-check will run when you tap Continue, and restore will start only after it passes.</string>
     <string name="backup_target_user_locked_title">System clone locked</string>
     <string name="backup_target_user_locked_message">This backup target belongs to a system clone app. Please enter the system clone and unlock it first, then return to the main system and tap Continue. A re-check will run when you tap Continue, and backup will start only after it passes.</string>
+    <string name="restore_target_user_missing_title">System clone not found</string>
+    <string name="restore_target_user_missing_message">This backup belongs to a system clone user that does not exist on this device (user ID: %1$s). Create a new user with root access? Data will be restored to the new user ID assigned by the system.</string>
+    <string name="restore_target_user_create_failed_title">Clone creation failed</string>
+    <string name="restore_target_user_create_failed_message">This device does not support creating clone users automatically. Please create the app clone manually in system settings, then return here and tap Continue.</string>
+    <string name="restore_clone_manual_title">Clone user required</string>
+    <string name="restore_clone_manual_message">This backup contains app-clone data for a user that cannot be created automatically on this device (user ID: %1$s). Enable the app clone in system settings first, return here, then tap Continue and select the new clone user.</string>
+
 </resources>

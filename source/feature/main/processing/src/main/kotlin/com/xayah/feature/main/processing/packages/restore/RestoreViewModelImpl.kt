@@ -240,4 +240,50 @@ class RestoreViewModelImpl @Inject constructor(
      */
     suspend fun queryLockedUserIds(userIds: Set<Int>): List<Int> =
         userIds.filter { it > 0 && !mRootService.isUserUnlocked(it) }
+
+    /** 目标用户三态：存在且解锁 / 存在但 FBE 锁定 / 设备上不存在 */
+    enum class TargetUserState { UNLOCKED, LOCKED, MISSING }
+
+    /**
+     * 用 getUsers() 判断存在性、isUserUnlocked() 判断锁定态。
+     * 不能用 isUserUnlocked 判存在性——它对"不存在"也返回 false。
+     */
+    suspend fun classifyTargetUsers(userIds: Set<Int>): Map<TargetUserState, List<Int>> {
+        val existingIds = mRootService.getUsers().map { it.id }.toSet()
+        return userIds.filter { it > 0 }
+            .groupBy { id ->
+                when {
+                    id !in existingIds -> TargetUserState.MISSING
+                    mRootService.isUserUnlocked(id) -> TargetUserState.UNLOCKED
+                    else -> TargetUserState.LOCKED
+                }
+            }
+    }
+
+    suspend fun getUsers(): Set<Int> = runCatching {
+        mRootService.getUsers().map { it.id }.toSet()
+    }.getOrElse { emptySet() }
+
+    /** root 创建用户，返回真实分配的新 userId，失败返回 -1 */
+    suspend fun createUser(name: String): Int = mRootService.createUser(name)
+
+    /** root 删除用户（回滚用），返回是否成功 */
+    suspend fun removeUser(userId: Int): Boolean = mRootService.removeUser(userId)
+
+    /** 后台启动用户以激活 CE 存储（区分未启动 vs 真 FBE 锁定），返回最终是否已解锁 */
+    suspend fun startUser(userId: Int): Boolean = mRootService.startUser(userId)
+
+    /** 已存在的「backup-<源id>」用户 → 直接复用其 id，避免取消重试后重复创建 */
+    suspend fun findCreatedBackupUser(missingId: Int): Int =
+        mRootService.getUsers().firstOrNull { it.name == "backup-$missingId" }?.id ?: -1
+
+    /** 创建用户失败等错误提示（IndexUiEffect/SnackbarType/SnackbarDuration 已 import） */
+    suspend fun showErrorSnackbar(message: String) =
+        emitEffectOnIO(
+            IndexUiEffect.ShowSnackbar(
+                type = SnackbarType.Error,
+                message = message,
+                duration = SnackbarDuration.Long,
+            )
+        )
 }

@@ -27,6 +27,7 @@ val KeyResticRepoConfigId = stringPreferencesKey("restic_repo_config_id")
 val KeyResticOtgRepoPath = stringPreferencesKey("restic_otg_repo_path")
 val KeyResticOtgPassword = stringPreferencesKey("restic_otg_password")
 val KeyResticOtgRepoConfigId = stringPreferencesKey("restic_otg_repo_config_id")
+val KeyRestoreUserMap = stringPreferencesKey("restore_user_map")
 
 // -----------------------------------------Read-----------------------------------------
 fun Context.readCompressionType() = readStoreString(key = KeyCompressionType, defValue = "").map { CompressionType.of(it) }
@@ -50,6 +51,8 @@ suspend fun Context.readResticOtgPassword(): String? =
     readStoreString(key = KeyResticOtgPassword, defValue = "").first().takeIf { it.isNotEmpty() }
 suspend fun Context.readResticOtgRepoConfigId(): String? =
     readStoreString(key = KeyResticOtgRepoConfigId, defValue = "").first().takeIf { it.isNotEmpty() }
+suspend fun Context.readRestoreUserMap(): String =
+    readStoreString(key = KeyRestoreUserMap, defValue = "").first()
 
 // -----------------------------------------Write-----------------------------------------
 suspend fun Context.saveCompressionType(value: CompressionType) = saveStoreString(key = KeyCompressionType, value = value.type.trim())
@@ -69,3 +72,4 @@ suspend fun Context.saveResticRepoConfigId(value: String) = saveStoreString(key 
 suspend fun Context.saveResticOtgRepoPath(value: String) = saveStoreString(key = KeyResticOtgRepoPath, value = value)
 suspend fun Context.saveResticOtgPassword(value: String) = saveStoreString(key = KeyResticOtgPassword, value = value)
 suspend fun Context.saveResticOtgRepoConfigId(value: String) = saveStoreString(key = KeyResticOtgRepoConfigId, value = value)
+suspend fun Context.saveRestoreUserMap(value: String) = saveStoreString(key = KeyRestoreUserMap, value = value)

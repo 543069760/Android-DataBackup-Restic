@@ -17,4 +17,10 @@
     <string name="restore_target_user_locked_message">检测到备份为系统分身应用，请先进入系统分身解锁之后，回到主系统，再点击「继续」。点击继续时将再次检测，通过后才会开始恢复。</string>
     <string name="backup_target_user_locked_title">检测到系统分身应用</string>
     <string name="backup_target_user_locked_message">检测到备份目标为系统分身应用，请先进入系统分身解锁之后，回到主系统，再点击「继续」。点击继续时将再次检测，通过后才会开始备份。</string>
+    <string name="restore_target_user_missing_title">目标用户不存在</string>
+    <string name="restore_target_user_missing_message">备份中的用户在当前设备不存在（用户 ID：%1$s），是否使用 root 权限创建新用户？数据将恢复到系统分配的新用户 ID。</string>
+    <string name="restore_target_user_create_failed_title">创建分身用户失败</string>
+    <string name="restore_target_user_create_failed_message">当前设备不支持自动创建分身用户，请先在系统设置中手动开启应用分身，然后返回并点击「继续」。</string>
+    <string name="restore_clone_manual_title">需要手动开启应用分身</string>
+    <string name="restore_clone_manual_message">备份包含应用分身数据（用户 ID：%1$s），当前系统不支持自动创建。请先在系统设置中为对应应用开启应用分身，返回后点「继续」，并在恢复用户下拉中选择新建的分身。</string>
 </resources>

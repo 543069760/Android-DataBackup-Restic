@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -34,6 +35,7 @@ import androidx.navigation.NavHostController
 import com.xayah.core.datastore.KeyAutoScreenOff
 import com.xayah.core.datastore.KeyResetRestoreList
 import com.xayah.core.datastore.saveRestoreUser
+import com.xayah.core.datastore.saveRestoreUserMap
 import com.xayah.core.ui.component.Clickable
 import com.xayah.core.ui.component.LocalSlotScope
 import com.xayah.core.ui.component.PackageIcons
@@ -61,23 +63,32 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 @ExperimentalAnimationApi
 @ExperimentalMaterial3Api
 @Composable
-fun PagePackagesRestoreProcessingSetup(localNavController: NavHostController, viewModel: RestoreViewModelImpl,packageNameFilter: String = "") {
+fun PagePackagesRestoreProcessingSetup(localNavController: NavHostController, viewModel: RestoreViewModelImpl, packageNameFilter: String = "") {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     val packages by viewModel.packages.collectAsStateWithLifecycle()
     val packagesSize by viewModel.packagesSize.collectAsStateWithLifecycle()
     val restoreUsers by viewModel.restoreUsers.collectAsStateWithLifecycle()
 
-    // 提升：供 actions 的「继续」按钮预检使用
     val dialogState = LocalSlotScope.current!!.dialogSlot
+    val context = LocalContext.current
     var currentIndex by remember { mutableIntStateOf(0) }
+    var prechecking by remember { mutableStateOf(false) }   // 「继续」预检进行中标志，防重入
 
-    // FBE 未解锁提示文案（stringResource 必须在 Composable 作用域取）
+    // 对话框文案（stringResource 必须在 Composable 作用域取）
     val lockedTitle = stringResource(id = R.string.restore_target_user_locked_title)
     val lockedMessage = stringResource(id = R.string.restore_target_user_locked_message)
+    val missingTitle = stringResource(id = R.string.restore_target_user_missing_title)
+    val missingMessage = stringResource(id = R.string.restore_target_user_missing_message)
+    val createFailedTitle = stringResource(id = R.string.restore_target_user_create_failed_title)
+    val createFailedMessage = stringResource(id = R.string.restore_target_user_create_failed_message)
+    val cloneManualTitle = stringResource(id = R.string.restore_clone_manual_title)
+    val cloneManualMessage = stringResource(id = R.string.restore_clone_manual_message)
 
     LaunchedEffect(null) {
         Log.d("Navigation", "PagePackagesRestoreProcessingSetup 启动，packageNameFilter: $packageNameFilter")
         viewModel.launchOnIO {
+            // 清掉上次残留的 userId 重映射，保证本次预检写出的值是干净的
+            context.saveRestoreUserMap("")
             viewModel.emitIntent(SetCloudEntity(""))
             viewModel.emitIntent(GetUsers)
             if (packageNameFilter.isNotEmpty()) {
@@ -103,53 +114,118 @@ fun PagePackagesRestoreProcessingSetup(localNavController: NavHostController, vi
                 horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level12, Alignment.End),
             ) {
                 Button(
+                    enabled = !prechecking,
                     onClick = {
+                        if (prechecking) return@Button
                         Log.d(
                             "RestoreNavTrace",
                             "Continue clicked, currentIndex=$currentIndex, ts=${System.currentTimeMillis()}"
                         )
                         viewModel.launchOnIO {
-                            // 计算目标 userId 集合
-                            val targetUserIds: Set<Int> = if (currentIndex == 0) {
-                                // 「备份用户」：取各包 userId 去重
-                                viewModel.packages.value.map { it.userId }.toSet()
-                            } else {
-                                // 指定单一目标用户
-                                setOf(restoreUsers[currentIndex].title.toIntOrNull() ?: -1)
-                            }.filter { it > 0 }.toSet() // 排除主用户(0)与非法值
+                            prechecking = true
+                            try {
+                                // 预检
+                                val targetUserIds =
+                                    if (currentIndex == 0) viewModel.packages.value.map { it.userId }.toSet()
+                                    else setOf(restoreUsers.getOrNull(currentIndex)?.title?.toIntOrNull() ?: -1)
 
-                            // 预检
-                            val locked = viewModel.queryLockedUserIds(targetUserIds)
-                            if (locked.isEmpty()) {
-                                Log.d(
-                                    "RestoreNavTrace",
-                                    "emit FinishSetup, ts=${System.currentTimeMillis()}"
-                                )
-                                viewModel.emitIntent(FinishSetup(navController = localNavController))
-                                return@launchOnIO
-                            }
+                                // 进入时的用户快照：失败回滚时用它做差集，清扫 pm 半成功产生的游离用户
+                                val usersAtEntry = viewModel.getUsers()
 
-                            // 存在未解锁用户：弹窗 + 「继续」二次复检循环
-                            while (true) {
-                                val confirmed = dialogState.confirm(
-                                    title = lockedTitle,
-                                    text = lockedMessage,
-                                )
-                                if (!confirmed) {
-                                    // 取消：停留在引导页，什么都不做
-                                    return@launchOnIO
+                                val classified = viewModel.classifyTargetUsers(targetUserIds)
+                                val missing =
+                                    classified[RestoreViewModelImpl.TargetUserState.MISSING] ?: emptyList()
+                                val effectiveTargets = targetUserIds.toMutableSet()
+                                val userRemap = mutableMapOf<Int, Int>()
+                                val createdIds = mutableListOf<Int>()
+
+                                // 失败/取消时的统一清扫：回滚本轮新建 + 差集清掉半成功游离用户
+                                suspend fun rollbackNewUsers() {
+                                    createdIds.forEach { viewModel.removeUser(it) }
+                                    createdIds.clear()
+                                    // 差集兜底：pm create-user 可能半成功——users 列表里出现了
+                                    // 但 createUser 返回 -1 的游离记录，一并删掉防止污染系统分身服务
+                                    val orphans = viewModel.getUsers() - usersAtEntry
+                                    orphans.filter { it > 0 && it !in effectiveTargets }
+                                        .forEach { viewModel.removeUser(it) }
+                                    context.saveRestoreUserMap("")
                                 }
-                                // 确认时复检
-                                val stillLocked = viewModel.queryLockedUserIds(targetUserIds)
-                                if (stillLocked.isEmpty()) {
-                                    Log.d(
-                                        "RestoreNavTrace",
-                                        "emit FinishSetup, ts=${System.currentTimeMillis()}"
+
+                                // 分身类缺失（userId >= 100：OPPO=999/华为=810 等）pm create-user 建不出
+                                // 对应 userType 且会污染 OEM 分身服务，直接引导手动开启
+                                val (cloneMissing, normalMissing) = missing.partition { it >= 100 }
+
+                                if (cloneMissing.isNotEmpty()) {
+                                    dialogState.confirm(
+                                        title = cloneManualTitle,
+                                        text = String.format(cloneManualMessage, cloneMissing.joinToString(", ")),
                                     )
-                                    viewModel.emitIntent(FinishSetup(navController = localNavController))
-                                    return@launchOnIO
+                                    return@launchOnIO   // 停留：用户去系统开分身后回来重走预检
                                 }
-                                // 仍未解锁 → 循环再弹同一对话框，保持拦截
+
+                                // ① 普通缺失用户：一次确认 → 批量创建；中途失败回滚
+                                if (normalMissing.isNotEmpty()) {
+                                    val confirmed = dialogState.confirm(
+                                        title = missingTitle,
+                                        text = String.format(missingMessage, normalMissing.joinToString(", ")),
+                                    )
+                                    if (!confirmed) return@launchOnIO
+
+                                    var failed = false
+                                    for (missingId in normalMissing) {
+                                        var newId = viewModel.findCreatedBackupUser(missingId)
+                                        if (newId < 0) {
+                                            newId = viewModel.createUser("backup-$missingId")
+                                            if (newId >= 0) createdIds.add(newId)
+                                        }
+                                        if (newId < 0) { failed = true; break }
+
+                                        // 后台启动新用户激活 CE：无锁屏用户此后 isUserUnlocked=true，
+                                        // 不会误入 FBE 锁定对话框
+                                        viewModel.startUser(newId)
+
+                                        effectiveTargets.remove(missingId)
+                                        effectiveTargets.add(newId)
+                                        userRemap[missingId] = newId
+                                    }
+
+                                    if (failed) {
+                                        rollbackNewUsers()
+                                        dialogState.confirm(
+                                            title = createFailedTitle,
+                                            text = createFailedMessage,
+                                        )
+                                        return@launchOnIO
+                                    }
+
+                                    context.saveRestoreUserMap(
+                                        userRemap.entries.joinToString(",") { "${it.key}:${it.value}" }
+                                    )
+                                }
+
+                                // 把所有目标用户在后台拉起，激活 CE 存储。
+                                // 已 running 的用户是 no-op；stopped 且无锁屏的用户启动后
+                                // isUserUnlocked 即为 true，不会被误判为 FBE 锁定弹框。
+                                effectiveTargets.filter { it > 0 }.forEach { viewModel.startUser(it) }
+
+                                // ② 统一 FBE 复检（真锁定的系统分身仍会进锁定引导）
+                                var locked = viewModel.queryLockedUserIds(effectiveTargets)
+                                while (locked.isNotEmpty()) {
+                                    val confirmed = dialogState.confirm(
+                                        title = lockedTitle,
+                                        text = lockedMessage,
+                                    )
+                                    if (!confirmed) {
+                                        rollbackNewUsers()   // 取消也走差集清扫
+                                        return@launchOnIO
+                                    }
+                                    locked = viewModel.queryLockedUserIds(effectiveTargets)
+                                }
+
+                                Log.d("RestoreNavTrace", "emit FinishSetup, ts=${System.currentTimeMillis()}")
+                                viewModel.emitIntent(FinishSetup(navController = localNavController))
+                            } finally {
+                                prechecking = false
                             }
                         }
                     }) {
@@ -176,7 +252,6 @@ fun PagePackagesRestoreProcessingSetup(localNavController: NavHostController, vi
                 )
             }
             Title(title = stringResource(id = R.string.settings)) {
-                val context = LocalContext.current
                 val restoreUserText = stringResource(R.string.restore_user)
                 LaunchedEffect(currentIndex) {
                     viewModel.launchOnIO {
