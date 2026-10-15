@@ -289,13 +289,21 @@ object DatabaseMigrations {
 
     val MIGRATION_10_11 = object : Migration(10, 11) {
         override fun migrate(database: SupportSQLiteDatabase) {
-            // PackageEntity字段
+            // PackageEntity字段（实体未声明 defaultValue，不能加 DEFAULT NULL）
             database.execSQL("ALTER TABLE PackageEntity ADD COLUMN resticSnapshotId TEXT")
             database.execSQL("ALTER TABLE PackageEntity ADD COLUMN resticRepoPath TEXT")
 
-            // MediaEntity字段
-            database.execSQL("ALTER TABLE MediaEntity ADD COLUMN extraInfo_resticSnapshotId TEXT")
-            database.execSQL("ALTER TABLE MediaEntity ADD COLUMN extraInfo_resticRepoPath TEXT")
+            // MediaEntity字段（实体声明 defaultValue = "NULL"，必须加 DEFAULT NULL）
+            database.execSQL("ALTER TABLE MediaEntity ADD COLUMN extraInfo_resticSnapshotId TEXT DEFAULT NULL")
+            database.execSQL("ALTER TABLE MediaEntity ADD COLUMN extraInfo_resticRepoPath TEXT DEFAULT NULL")
+
+            // TaskDetailPackageEntity 内嵌 PackageEntity 字段（无 defaultValue）
+            database.execSQL("ALTER TABLE TaskDetailPackageEntity ADD COLUMN packageEntity_resticSnapshotId TEXT")
+            database.execSQL("ALTER TABLE TaskDetailPackageEntity ADD COLUMN packageEntity_resticRepoPath TEXT")
+
+            // TaskDetailMediaEntity 内嵌 MediaEntity.extraInfo 字段（defaultValue = "NULL"）
+            database.execSQL("ALTER TABLE TaskDetailMediaEntity ADD COLUMN mediaEntity_extraInfo_resticSnapshotId TEXT DEFAULT NULL")
+            database.execSQL("ALTER TABLE TaskDetailMediaEntity ADD COLUMN mediaEntity_extraInfo_resticRepoPath TEXT DEFAULT NULL")
         }
     }
 }
