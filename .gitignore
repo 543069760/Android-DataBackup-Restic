@@ -5,3 +5,6 @@
 **/.externalNativeBuild/
 **/target/
 .kotlin/
+AGENTS.md
+CLAUDE.md
+.claude/

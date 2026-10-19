@@ -16,6 +16,7 @@ import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.database.S3Protocol
 import com.xayah.core.model.database.AwsS3Extra
 import com.xayah.core.model.database.AwsS3Protocol
+import com.xayah.core.model.database.SMBExtra
 import com.xayah.core.network.client.getCloud
 import com.xayah.core.ui.material3.SnackbarDuration
 import com.xayah.core.ui.material3.SnackbarType
@@ -84,6 +85,35 @@ class IndexViewModel @Inject constructor(
             IndexUiIntent.UpdateEntity(
                 name = name,
                 type = CloudType.FTP,
+                url = url,
+                username = username,
+                password = password,
+                extra = extra,
+                remote = remote,
+            )
+        )
+    }
+
+    suspend fun updateSMBEntity(
+        name: String, remote: String, url: String,
+        username: String, password: String, port: String,
+        domain: String = "",
+        resticPassword: String = "",
+    ) {
+        // share 从 remote 路径第一段自动提取（用户通过远程路径选择器选择 share）
+        val share = remote.trim('/').takeWhile { it != '/' }.let { if (it.isEmpty()) "" else it }
+        val extra = GsonUtil().toJson(
+            SMBExtra(
+                port = port.toIntOrNull() ?: 445,
+                share = share,
+                domain = domain,
+                resticPassword = resticPassword,
+            )
+        )
+        emitIntent(
+            IndexUiIntent.UpdateEntity(
+                name = name,
+                type = CloudType.SMB,
                 url = url,
                 username = username,
                 password = password,

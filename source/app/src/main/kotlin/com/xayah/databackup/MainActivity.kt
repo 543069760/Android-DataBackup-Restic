@@ -50,6 +50,7 @@ import com.xayah.feature.main.restore.CloudFilesBackupDetailPage
 import com.xayah.feature.main.cloud.add.PageCloudAddAccount
 import com.xayah.feature.main.cloud.add.PageFTPSetup
 import com.xayah.feature.main.cloud.add.PageSFTPSetup
+import com.xayah.feature.main.cloud.add.PageSMBSetup
 import com.xayah.feature.main.cloud.add.PageWebDAVSetup
 import com.xayah.feature.main.cloud.add.PageS3Setup
 import com.xayah.feature.main.cloud.add.PageAwsS3Setup
@@ -184,6 +185,9 @@ class MainActivity : AppCompatActivity() {
                         }
                         composable(MainRoutes.SFTPSetup.route) {
                             PageSFTPSetup()
+                        }
+                        composable(MainRoutes.SMBSetup.route) {
+                            PageSMBSetup()
                         }
                         composable(MainRoutes.S3Setup.route) {
                             PageS3Setup()

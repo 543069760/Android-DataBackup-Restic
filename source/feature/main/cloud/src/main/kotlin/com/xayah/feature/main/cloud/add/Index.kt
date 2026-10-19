@@ -64,6 +64,12 @@ fun PageCloudAddAccount() {
                     navController.navigateSingle(MainRoutes.SFTPSetup.getRoute(encodedURLWithSpace))
                 }
                 Clickable(
+                    icon = CloudType.SMB.icon,
+                    title = CloudType.SMB.title,
+                ) {
+                    navController.navigateSingle(MainRoutes.SMBSetup.getRoute(encodedURLWithSpace))
+                }
+                Clickable(
                     icon = CloudType.S3.icon,
                     title = stringResource(id = R.string.cloud_type_s3),
                 ) {

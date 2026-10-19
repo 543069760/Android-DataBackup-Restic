@@ -94,6 +94,7 @@ enum class CloudType(val title: String) {
     FTP("FTP"),
     WEBDAV("WebDAV"),
     SFTP("SFTP"),
+    SMB("SMB"),
     S3("Tencent Cloud COS"),
     AWSS3("Amazon S3"),
 }

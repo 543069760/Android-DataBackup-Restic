@@ -28,6 +28,14 @@ data class WebDAVExtra(
 )
 
 @Serializable
+data class SMBExtra(
+    val port: Int,
+    val share: String,
+    val domain: String = "",
+    val resticPassword: String = "",
+)
+
+@Serializable
 data class S3Extra(
     val type: String = "S3",
     val accessKeyId: String,

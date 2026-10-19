@@ -1,0 +1,239 @@
+package com.xayah.core.network.client
+
+import android.content.Context
+import com.xayah.core.common.util.toPathString
+import com.xayah.core.model.database.CloudEntity
+import com.xayah.core.model.database.SMBExtra
+import com.xayah.core.network.R
+import com.xayah.core.network.util.getExtraEntity
+import com.xayah.core.rootservice.parcelables.PathParcelable
+import com.xayah.core.rootservice.service.RemoteRootService
+import com.xayah.core.util.GsonUtil
+import com.xayah.core.util.LogUtil
+import com.xayah.core.util.toPathList
+import com.xayah.core.util.withMainContext
+import com.xayah.libpickyou.PickYouLauncher
+import com.xayah.libpickyou.parcelables.DirChildrenParcelable
+import com.xayah.libpickyou.parcelables.FileParcelable
+import com.xayah.libpickyou.ui.model.PickerType
+import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
+
+/**
+ * SMB 目录浏览客户端 —— 基于 librclone（rclone RC RPC）。
+ *
+ * 所有远端操作经 rootService.rcloneRpc(method, input) 在 root 进程的 librclone 中执行：
+ *   - 列目录: operations/list   {"fs": "<connstr>:", "remote": "<dir>"}
+ *   - 建目录: operations/mkdir  {"fs": "<connstr>:", "remote": "<dir>"}（天然 mkdir -p）
+ *   - 密码混淆: core/obscure    {"clear": "<pass>"} -> {"obscured": "..."}
+ *
+ * connection string 拼法与 RcloneServe.buildSmbConnectionString 一致，
+ * 区别是这里 root 段留空，目标目录通过 remote 参数逐次传入。
+ */
+class SMBClientImpl(
+    private val entity: CloudEntity,
+    private val extra: SMBExtra,
+    private val rootService: RemoteRootService,
+) : CloudClient {
+
+    private fun log(msg: () -> String): String = run {
+        LogUtil.log { "SMBClientImpl" to msg() }
+        msg()
+    }
+
+    private fun normalizePath(path: String): String = path.trim('/').replace("//", "/")
+
+    /**
+     * 拼 SMB rclone connection string（路径区留空，share 由 remote 参数传递）：
+     *   :smb,host='...',port=NN,user='...',pass='<obscured>',domain='...':
+     *
+     * rclone SMB 没有 share 参数；share 名称是路径区的第一段。
+     * RPC 调用时 remote 为空 => 列出 share 列表；remote 为 "share/sub" => 列出对应目录。
+     */
+    private suspend fun buildSmbFs(): String {
+        val host = entity.host.trim()
+            .removePrefix("smb://")
+            .removeSuffix("/")
+        // 密码必须经 core/obscure 混淆后才能进 connection string
+        val obscured = JSONObject(
+            rootService.rcloneRpc(
+                "core/obscure",
+                JSONObject().put("clear", entity.pass).toString()
+            )
+        ).getString("obscured")
+        val sb = StringBuilder(":smb,")
+            .append("host='").append(host).append("',")
+            .append("port=").append(extra.port).append(",")
+            .append("user='").append(entity.user).append("',")
+            .append("pass='").append(obscured).append("'")
+        if (extra.domain.isNotEmpty()) {
+            sb.append(",domain='").append(extra.domain).append("'")
+        }
+        sb.append(":")
+        return sb.toString()
+    }
+
+    private fun rcloneList(remote: String): JSONObject {
+        val out = runBlocking {
+            val fs = buildSmbFs()
+            rootService.rcloneRpc(
+                "operations/list",
+                JSONObject()
+                    .put("fs", fs)
+                    .put("remote", remote)
+                    .toString()
+            )
+        }
+        return JSONObject(out)
+    }
+
+    private fun rcloneMkdir(remote: String) {
+        runBlocking {
+            val fs = buildSmbFs()
+            rootService.rcloneRpc(
+                "operations/mkdir",
+                JSONObject()
+                    .put("fs", fs)
+                    .put("remote", remote)
+                    .toString()
+            )
+        }
+    }
+
+    // librclone 无长连接概念，connect/disconnect 保留为空实现以满足接口。
+    override fun connect() {}
+
+    override fun disconnect() {}
+
+    override fun mkdir(dst: String) {
+        val remote = normalizePath(dst)
+        log { "mkdir(rclone): $remote" }
+        rcloneMkdir(remote)
+    }
+
+    override fun mkdirRecursively(dst: String) {
+        // rclone operations/mkdir 即 mkdir -p 语义，天然递归
+        mkdir(dst)
+    }
+
+    override fun renameTo(
+        src: String,
+        dst: String,
+        onProgress: ((currentPart: Int, totalParts: Int, currentFile: Int, totalFiles: Int) -> Unit)?
+    ) {
+        // 备份已统一走 rustic 快照链路，SMB 不再需要 renameTo。
+        log { "renameTo is deprecated for SMB, skipping: $src to $dst" }
+    }
+
+    override fun upload(
+        src: String,
+        dst: String,
+        onUploading: (read: Long, total: Long) -> Unit,
+        isCanceled: (() -> Boolean)?
+    ) {
+        // 备份/配置上传已统一走 rustic 快照链路，SMBClientImpl 不再提供上传能力。
+        throw UnsupportedOperationException("SMB upload is handled by rustic; direct upload is no longer supported.")
+    }
+
+    override fun download(src: String, dst: String, onDownloading: (written: Long, total: Long) -> Unit) {
+        // 恢复已统一走 rustic 快照链路，SMBClientImpl 不再提供下载能力。
+        throw UnsupportedOperationException("SMB download is handled by rustic; direct download is no longer supported.")
+    }
+
+    override fun deleteFile(src: String) {
+        throw UnsupportedOperationException("SMB deleteFile is handled by rustic; not supported here.")
+    }
+
+    override fun removeDirectory(src: String): Boolean {
+        throw UnsupportedOperationException("SMB removeDirectory is handled by rustic; not supported here.")
+    }
+
+    override fun clearEmptyDirectoriesRecursively(src: String) {
+        // 目录浏览不再维护空目录清理，无需处理。
+    }
+
+    override fun deleteRecursively(src: String): Boolean {
+        throw UnsupportedOperationException("SMB deleteRecursively is handled by rustic; not supported here.")
+    }
+
+    override fun listFiles(src: String): DirChildrenParcelable {
+        log { "listFiles(rclone): $src" }
+        val files = mutableListOf<FileParcelable>()
+        val directories = mutableListOf<FileParcelable>()
+
+        val remote = normalizePath(src)
+        val json = rcloneList(remote)
+
+        // operations/list 返回 {"list":[{"Path","Name","Size","MimeType","ModTime","IsDir"}, ...]}
+        val arr = json.optJSONArray("list")
+        if (arr != null) {
+            for (i in 0 until arr.length()) {
+                val item = arr.getJSONObject(i)
+                val name = item.optString("Name").takeIf { it.isNotEmpty() } ?: continue
+                // ModTime 为 RFC3339（如 2024-01-01T00:00:00Z），解析失败给 0
+                val mtime = runCatching {
+                    java.time.Instant.parse(item.optString("ModTime")).toEpochMilli()
+                }.getOrDefault(0L)
+                val parcelable = FileParcelable(name, mtime)
+                if (item.optBoolean("IsDir")) directories.add(parcelable)
+                else files.add(parcelable)
+            }
+        }
+
+        files.sortBy { it.name }
+        directories.sortBy { it.name }
+        return DirChildrenParcelable(files = files, directories = directories)
+    }
+
+    override fun walkFileTree(src: String): List<PathParcelable> {
+        // 递归遍历仅用于旧的下载/reload 流程，已统一到 rustic，不再支持。
+        throw UnsupportedOperationException("SMB walkFileTree is handled by rustic; not supported here.")
+    }
+
+    override fun exists(src: String): Boolean {
+        throw UnsupportedOperationException("SMB exists is handled by rustic; not supported here.")
+    }
+
+    override fun size(src: String): Long {
+        throw UnsupportedOperationException("SMB size is handled by rustic; not supported here.")
+    }
+
+    override suspend fun testConnection() {
+        // 能成功列举根路径即视为连通（host/port/user/pass/share 可用）。失败时 rcloneRpc 抛异常上抛。
+        log { "testConnection(rclone): host=${entity.host} port=${extra.port} user=${entity.user} share=${extra.share}" }
+        rootService.rcloneRpc(
+            "operations/list",
+            JSONObject()
+                .put("fs", buildSmbFs())
+                .put("remote", "")
+                .toString()
+        )
+    }
+
+    private fun handleOriginalPath(path: String): String = run {
+        val pathSplit = path.toPathList().toMutableList()
+        // Remove "$Cloud:"
+        pathSplit.removeFirstOrNull()
+        pathSplit.toPathString()
+    }
+
+    override suspend fun setRemote(context: Context, onSet: suspend (remote: String, extra: String) -> Unit) {
+        val extra = entity.getExtraEntity<SMBExtra>()!!
+        val prefix = "${context.getString(R.string.cloud)}:"
+        val pickYou = PickYouLauncher(
+            checkPermission = false,
+            traverseBackend = { listFiles(it.replaceFirst(prefix, "")) },
+            mkdirsBackend = { parent, child ->
+                runCatching { mkdirRecursively(handleOriginalPath("$parent/$child")) }.isSuccess
+            },
+            title = context.getString(R.string.select_target_directory),
+            pickerType = PickerType.DIRECTORY,
+            rootPathList = listOf(prefix),
+            defaultPathList = listOf(prefix),
+        )
+        withMainContext {
+            val pathString = pickYou.awaitLaunch(context)
+            onSet(handleOriginalPath(pathString), GsonUtil().toJson(extra))
+        }
+    }
+}

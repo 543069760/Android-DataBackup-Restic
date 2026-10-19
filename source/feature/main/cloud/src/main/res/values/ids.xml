@@ -9,6 +9,7 @@
     <item name="public_key" type="string"/>
     <item name="private_key" type="string"/>
     <item name="shared_dir" type="string"/>
+    <item name="share" type="string"/>
     <item name="allow_empty" type="string"/>
     <item name="domain" type="string"/>
     <item name="port" type="string"/>
@@ -20,6 +21,7 @@
     <item name="ftp_setup" type="string"/>
     <item name="webdav_setup" type="string"/>
     <item name="sftp_setup" type="string"/>
+    <item name="smb_setup" type="string"/>
     <item name="server" type="string"/>
     <item name="add_account" type="string"/>
     <item name="provider" type="string"/>

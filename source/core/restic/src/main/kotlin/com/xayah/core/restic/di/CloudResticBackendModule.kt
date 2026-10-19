@@ -6,6 +6,7 @@ import com.xayah.core.restic.ResticRepositoryAwsS3
 import com.xayah.core.restic.ResticRepositoryCos
 import com.xayah.core.restic.ResticRepositoryFtp
 import com.xayah.core.restic.ResticRepositorySftp
+import com.xayah.core.restic.ResticRepositorySmb
 import com.xayah.core.restic.ResticRepositoryWebdav
 import dagger.Binds
 import dagger.Module
@@ -44,6 +45,11 @@ abstract class CloudResticBackendModule {
     @IntoMap
     @CloudTypeKey(CloudType.SFTP)
     abstract fun bindSftpBackend(impl: ResticRepositorySftp): CloudResticBackend
+
+    @Binds
+    @IntoMap
+    @CloudTypeKey(CloudType.SMB)
+    abstract fun bindSmbBackend(impl: ResticRepositorySmb): CloudResticBackend
 
     @Binds
     @IntoMap

@@ -5,6 +5,7 @@ import com.xayah.core.model.CloudType
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.FTPExtra
 import com.xayah.core.model.database.SFTPExtra
+import com.xayah.core.model.database.SMBExtra
 import com.xayah.core.model.SFTPAuthMode
 import org.json.JSONObject
 import javax.inject.Inject
@@ -142,6 +143,10 @@ class RcloneServe @Inject constructor(
                 val extra = ResticShared.json.decodeFromString<FTPExtra>(cloudEntity.extra)
                 buildFtpConnectionString(cloudEntity, extra, remotePath)
             }
+            CloudType.SMB -> {
+                val extra = ResticShared.json.decodeFromString<SMBExtra>(cloudEntity.extra)
+                buildSmbConnectionString(cloudEntity, extra, remotePath)
+            }
             else -> {
                 val extra = ResticShared.json.decodeFromString<SFTPExtra>(cloudEntity.extra)
                 buildSftpConnectionString(cloudEntity, extra, remotePath)
@@ -232,6 +237,44 @@ class RcloneServe @Inject constructor(
         sb.append(",set_modtime=false")
         sb.append(",chunk_size=255k")
         sb.append(":").append(root)
+        return sb.toString()
+    }
+
+    /**
+     * 拼 SMB rclone connection string：
+     *   :smb,host='...',port=NN,user='...',pass='<obscured>',domain='...':sharename/subpath
+     *
+     * 注意：SMB 没有独立的 share 参数，share 名称必须放在路径区（冒号之后）的第一段。
+     * remotePath 由选择器返回，本身即以 share 名称开头（如 "Desktop/restictest"），
+     * formatSftpRoot 后直接作为路径区，无需再拼接 extra.share。
+     *
+     * rclone 文档要点：
+     *   - 默认端口 445
+     *   - domain 默认 "WORKGROUP"
+     *   - Windows 共享总是大小写不敏感（case_insensitive = true）
+     *   - 不支持匿名访问，空密码需用 guest 用户
+     */
+    private suspend fun buildSmbConnectionString(
+        cloudEntity: CloudEntity, extra: SMBExtra, remotePath: String
+    ): String {
+        val host = cloudEntity.host.trim()
+            .removePrefix("smb://")
+            .removeSuffix("/")
+        val user = cloudEntity.user
+        val root = shared.formatSftpRoot(remotePath)
+
+        val sb = StringBuilder(":smb,")
+        sb.append("host='").append(host).append("',")
+        sb.append("port=").append(extra.port).append(",")
+        sb.append("user='").append(user).append("',")
+        val obscured = obscure(cloudEntity.pass)
+        sb.append("pass='").append(obscured).append("'")
+        if (extra.domain.isNotEmpty()) {
+            sb.append(",domain='").append(extra.domain).append("'")
+        }
+        // remotePath 已含 share 名称，直接作为路径区
+        sb.append(":").append(root)
+        Log.i(ResticShared.TAG, "buildSmbConnectionString host=$host port=${extra.port} user=$user domain=${extra.domain} root=$root")
         return sb.toString()
     }
 
