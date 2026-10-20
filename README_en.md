@@ -43,9 +43,9 @@
 | **FTP**                          | ✅ Supported | ✅ **Block-level dedup (JNI rustic over librclone, done)** |  
 | **SFTP**                         | ✅ Supported | ✅ **Block-level dedup (JNI rustic over librclone, done)** |  
 | **WebDAV**                       | ✅ Supported | ✅ **Block-level dedup (JNI rustic, done)**               |  
-| **SMB/CIFS**                     | ✅ Supported | ❗ **Block-level dedup (JNI rustic over librclone, WIP)** |  
+| **SMB/CIFS**                     | ✅ Supported | ✅ **Block-level dedup (JNI rustic over librclone, done)** |
 
-> Aliyun OSS, HuaWei OBS, SMB/CIFS: being adapted progressively — stay tuned.
+> Aliyun OSS, HuaWei OBS: being adapted progressively — stay tuned.
 
 ### Backup Architecture Evolution
 
