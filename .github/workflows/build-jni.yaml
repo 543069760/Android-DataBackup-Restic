@@ -49,6 +49,16 @@ jobs:
           fetch-depth: 0            # 获取完整提交历史以统计 commit 数量
           submodules: recursive     # 拉取 tar / zstd-jni / rustic_core / rclone 子模块
 
+      # ── 原生目录大小遍历单元测试：主机编译直接跑，覆盖符号链接环 / 绝对路径软链 / 降级上限 ──
+      - name: Native calculateSize unit test
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="${{ github.workspace }}/source/native/src/main/jni/nativelib"
+          g++ -std=c++17 -Wall -Wextra -DNATIVELIB_UNIT_TEST -I"$SRC" \
+            "$SRC/tests/calculate_size_test.cpp" -o /tmp/calculate_size_test
+          /tmp/calculate_size_test
+
       - name: Validate gradle wrapper
         uses: gradle/wrapper-validation-action@v1
 

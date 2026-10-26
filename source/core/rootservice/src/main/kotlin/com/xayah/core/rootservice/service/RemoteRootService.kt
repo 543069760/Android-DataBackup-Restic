@@ -33,6 +33,7 @@ import com.xayah.core.util.withLog
 import com.xayah.libnative.Rustic
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.ExperimentalSerializationApi
@@ -320,7 +321,18 @@ class RemoteRootService(private val context: Context) {
         bytes
     }.onFailure(onFailure).getOrElse { ByteArray(0) }
 
-    suspend fun calculateSize(path: String): Long = runCatching { getService().calculateSize(path) }.onFailure(onFailure).getOrElse { 0 }
+    /**
+     * 计算目录大小。
+     *
+     * 原生侧已用 FTW_PHYS 修掉符号链接导致的死循环，并自带条目数/时长兜底，
+     * 但这是一次同步 Binder 调用，为防极端情况（病态文件系统、root 服务异常）把备份主流程
+     * 永久挂起，这里再加一层超时兜底：超时按"大小未知（0）"处理，让备份继续，而不是一直卡住。
+     */
+    suspend fun calculateSize(path: String): Long = runCatching {
+        withTimeoutOrNull(DEFAULT_TIMEOUT.toLong()) { getService().calculateSize(path) }.also {
+            if (it == null) log { "calculateSize timeout (${DEFAULT_TIMEOUT}ms): $path" }
+        } ?: 0L
+    }.onFailure(onFailure).getOrElse { 0 }
 
     suspend fun clearEmptyDirectoriesRecursively(path: String) = runCatching { getService().clearEmptyDirectoriesRecursively(path) }.onFailure(onFailure)
 

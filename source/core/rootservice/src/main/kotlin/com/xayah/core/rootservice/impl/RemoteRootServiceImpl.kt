@@ -61,6 +61,11 @@ import org.rclone.gomobile.Gomobile
 
 internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRootService.Stub() {
     private val lock = Any()
+    // calculateSize 只做只读遍历，既可能与备份/恢复并发，又可能在超大或符号链接密集的目录上耗时较久。
+    // 它与 hidden API 调用、rclone RPC 之间没有任何共享状态需要互斥，故不占用公共 lock ——
+    // 长耗时只读遍历持公共锁会把服务里其它 Binder 调用一并拖死（参见下文 rcloneRpcNoLock 的注释）。
+    // 这里用一把独立锁，仅用于避免多个 calculateSize 同时跑、把 CPU 与 fd 吃满。
+    private val calculateSizeLock = Any()
     private val fdBackupCancelWriters = java.util.concurrent.ConcurrentHashMap<Long, ParcelFileDescriptor>()
     private var systemContext: Context
     private var packageManager: PackageManager
@@ -172,7 +177,7 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
             }
         }
 
-    override fun calculateSize(path: String): Long = synchronized(lock) {
+    override fun calculateSize(path: String): Long = synchronized(calculateSizeLock) {
         NativeLib.calculateSize(path)
     }
 
