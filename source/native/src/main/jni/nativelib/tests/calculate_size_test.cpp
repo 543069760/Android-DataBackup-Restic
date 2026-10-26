@@ -13,7 +13,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
-#include <vector>
 #include <unistd.h>
 
 static int g_failures = 0;
@@ -60,12 +59,13 @@ static int64_t lstatSize(const std::string &path) {
     return static_cast<int64_t>(st.st_size);
 }
 
+static void removeTree(const std::string &path);
+
 static std::string makeTempRoot(const char *name) {
-    std::string tpl = std::string("/tmp/") + name + "_XXXXXX";
-    std::vector<char> buf(tpl.begin(), tpl.end());
-    buf.push_back('\0');
-    char *dir = mkdtemp(buf.data());
-    return dir == nullptr ? std::string("/tmp") : std::string(dir);
+    const std::string root =
+        "/tmp/" + std::string(name) + "_" + std::to_string(static_cast<long>(getpid()));
+    removeTree(root); // 复用同名目录时先清干净
+    return mkdirOne(root) ? root : std::string("/tmp");
 }
 
 static int removeNode(const char *path, const struct stat *, int typeflag, struct FTW *) {
