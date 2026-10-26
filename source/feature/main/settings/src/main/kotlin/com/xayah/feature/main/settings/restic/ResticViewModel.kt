@@ -32,6 +32,7 @@ import com.xayah.core.ui.viewmodel.UiIntent
 import com.xayah.core.ui.viewmodel.UiState
 import com.xayah.core.util.command.SELinux
 import com.xayah.core.util.command.PreparationUtil
+import com.xayah.feature.main.settings.R
 import com.xayah.libpickyou.parcelables.DirChildrenParcelable
 import com.xayah.libpickyou.parcelables.FileParcelable
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -499,65 +500,162 @@ class ResticViewModel @Inject constructor(
     }
 
     // --- 核心逻辑：初始化与验证 ---
+    /** 归一化后的仓库路径：path=真正的仓库路径，isRepository=该路径已经是 rustic 仓库。 */
+    private data class ResolvedRepoPath(val path: String, val isRepository: Boolean)
+
+    /**
+     * 目录语义统一（与首次初始化引导一致）：用户既可以选中仓库目录本身，也可以选中它的上一层（内含 restic_repo）。
+     * 结构性判定走 native rusticRepositoryExists（读 config_id，与密码无关），不用 File.exists()，
+     * 否则「直接选中 restic_repo 本身」会被拼成 .../restic_repo/restic_repo，
+     * 在旧仓库内部静默新建一个空仓库（报成功但恢复不出任何数据）。
+     */
+    private suspend fun resolveRepoPathForInit(selectedPath: String): ResolvedRepoPath {
+        val isRepository: suspend (String) -> Boolean = { path ->
+            runCatching { rootService.rusticRepositoryExists(path) }
+                .onFailure { Log.w(TAG, "rusticRepositoryExists failed for $path: ${it.message}") }
+                .getOrDefault(false)
+        }
+        val trimmed = selectedPath.trimEnd('/')
+        if (trimmed.isNotBlank() && isRepository(trimmed)) {
+            Log.i(TAG, "resolveRepoPathForInit: 选中目录本身即仓库 -> $trimmed")
+            return ResolvedRepoPath(trimmed, isRepository = true)
+        }
+        val child = File(trimmed, RESTIC_REPO_DIR_NAME).absolutePath
+        if (isRepository(child)) {
+            Log.i(TAG, "resolveRepoPathForInit: 选中目录下的 $RESTIC_REPO_DIR_NAME 才是仓库 -> $child")
+            return ResolvedRepoPath(child, isRepository = true)
+        }
+        Log.i(TAG, "resolveRepoPathForInit: 未识别到仓库，按新仓库处理 -> $child")
+        return ResolvedRepoPath(child, isRepository = false)
+    }
+
+    /**
+     * 全新仓库建库预检：返回 null 表示通过，返回非空即为用户可见的错误原因。
+     * 只做只读检查 + 一次性可写探针，绝不改动已有数据；任何一步不通过都不执行 rustic init。
+     */
+    private suspend fun preCheckNewRepository(repoPath: String): String? {
+        // a) 目录已存在且非空（半复制/残留文件）→ 阻断，避免 init 失败或产生不一致仓库
+        if (rootService.exists(repoPath)) {
+            val children = rootService.listFilePaths(repoPath)
+            if (children.isNotEmpty()) {
+                Log.w(TAG, "preCheckNewRepository: 目标目录非空且不是仓库 -> $repoPath, children=${children.size}")
+                return context.getString(R.string.restic_init_dir_not_empty, repoPath)
+            }
+        } else if (!rootService.mkdirs(repoPath)) {
+            Log.w(TAG, "preCheckNewRepository: 目录创建失败 -> $repoPath")
+            return context.getString(R.string.restic_init_not_writable, repoPath)
+        }
+
+        // b) 可写自检：写入探针文件后立即删除，防止 OTG/权限异常导致 init 中途失败
+        val probe = File(repoPath, ".restic_write_probe").absolutePath
+        val writable = rootService.writeText("probe", probe) && rootService.exists(probe)
+        rootService.deleteRecursively(probe)
+        if (!writable) {
+            Log.w(TAG, "preCheckNewRepository: 可写自检失败 -> $repoPath")
+            return context.getString(R.string.restic_init_not_writable, repoPath)
+        }
+
+        // c) 剩余空间（readStatFs 失败时 availableBytes 为 0，跳过检查避免误伤）
+        val stat = rootService.readStatFs(repoPath)
+        if (stat.availableBytes > 0 && stat.availableBytes < MIN_FREE_SPACE_BYTES) {
+            Log.w(TAG, "preCheckNewRepository: 可用空间不足 -> ${stat.availableBytes} < $MIN_FREE_SPACE_BYTES")
+            return context.getString(R.string.restic_init_low_space, stat.availableBytes.toDouble().formatSize())
+        }
+        Log.i(TAG, "preCheckNewRepository: 预检通过 -> $repoPath, 可用 ${stat.availableBytes.toDouble().formatSize()}")
+        return null
+    }
+
+    /**
+     * 已有仓库登记：validate 通过后写入各持久化状态流、拉取快照数、锚定 config_id。
+     * 全只读，不触碰仓库内容。
+     */
+    private suspend fun registerExistingRepository(
+        repoPath: String,
+        password: String,
+        otg: Boolean,
+        emit: (InitializationState) -> Unit,
+    ): Boolean {
+        if (!resticRepo.validateRepository(repoPath, password)) {
+            emit(InitializationState.PasswordError(repoPath))
+            return false
+        }
+        // 持久化状态流按仓库类型分流，避免 OTG 初始化误置本地状态
+        if (otg) {
+            _otgInitializedState.value = true
+            _otgRepoPathState.value = repoPath
+        } else {
+            _resticInitializedState.value = true
+            _resticRepoPathState.value = repoPath
+            _repoPathState.value = repoPath
+        }
+
+        val snapshots = resticRepo.listSnapshots(repoPath, password)
+        if (otg) _otgSnapshotCountState.value = snapshots.size
+        else _resticSnapshotCountState.value = snapshots.size
+
+        persistRepoPath(repoPath)
+        persistPassword(repoPath, password)
+        // 登记 config_id 身份锚点（后续拔插/换盘靠它重对齐）
+        saveRepoConfigId(repoPath)
+
+        emit(InitializationState.ReadyToUse(repoPath))
+        _isReinitializing.value = false
+        return true
+    }
+
     suspend fun initializeOrValidateRepository(selectedPath: String): Boolean {
         _initializationState.value = InitializationState.Checking
-        val repoPath = File(selectedPath, "restic_repo").absolutePath
-        val password = readPasswordFor(repoPath)   // OTG 读 OTG 密码，本地读本地密码
-        val otg = isOtgPath(repoPath)
 
         return withContext(Dispatchers.IO) {
             try {
-                if (File(repoPath).exists()) {
-                    _initializationState.value = InitializationState.Validating
-                    // 验证密码逻辑
-                    if (resticRepo.validateRepository(repoPath, password)) {
-                        // 持久化状态流按仓库类型分流，避免 OTG 初始化误置本地状态
-                        if (otg) {
-                            _otgInitializedState.value = true
-                            _otgRepoPathState.value = repoPath
-                        } else {
-                            _resticInitializedState.value = true
-                            _resticRepoPathState.value = repoPath
-                            _repoPathState.value = repoPath
-                        }
+                // 0. 归一化仓库路径（选中目录本身或其父目录都认），避免建出嵌套空仓库
+                val resolved = resolveRepoPathForInit(selectedPath)
+                val repoPath = resolved.path
+                val password = readPasswordFor(repoPath)   // OTG 读 OTG 密码，本地读本地密码
+                val otg = isOtgPath(repoPath)
+                // 状态按仓库类型分流：本地走原状态流，OTG 额外同步到 OTG 状态流（保持老行为 + 让 OTG 页能收到进度）
+                val emit: (InitializationState) -> Unit = { state ->
+                    _initializationState.value = state
+                    if (otg) _otgInitializationState.value = state
+                }
 
-                        val snapshots = resticRepo.listSnapshots(repoPath, password)
-                        if (otg) _otgSnapshotCountState.value = snapshots.size
-                        else _resticSnapshotCountState.value = snapshots.size
-
-                        persistRepoPath(repoPath)
-                        persistPassword(repoPath, password)
-                        // 登记 config_id 身份锚点（后续拔插/换盘靠它重对齐）
-                        saveRepoConfigId(repoPath)
-
-                        _initializationState.value = InitializationState.ReadyToUse(repoPath)
-                        _isReinitializing.value = false
-                        true
-                    } else {
-                        _initializationState.value = InitializationState.PasswordError(repoPath)
-                        false
-                    }
+                if (resolved.isRepository) {
+                    emit(InitializationState.Validating)
+                    // 已有仓库：只做校验，绝不 init
+                    registerExistingRepository(repoPath, password, otg, emit)
                 } else {
-                    // 仓库不存在，执行创建与初始化
-                    _initializationState.value = InitializationState.Initializing
-                    val initSuccess = initializeRepository(repoPath, password)
-
-                    if (initSuccess) {
-                        if (otg) {
-                            _otgInitializedState.value = true
-                            _otgRepoPathState.value = repoPath
-                            _otgSnapshotCountState.value = 0
-                        } else {
-                            _resticInitializedState.value = true
-                            _resticRepoPathState.value = repoPath
-                            _resticSnapshotCountState.value = 0
-                        }
-                        _initializationState.value = InitializationState.ReadyToUse(repoPath)
-                        _isReinitializing.value = false
+                    // 全新仓库：先做建库预检，任何一项不通过都不执行 rustic init
+                    val preCheckError = preCheckNewRepository(repoPath)
+                    if (preCheckError != null) {
+                        emit(InitializationState.Error(preCheckError))
+                        false
                     } else {
-                        _initializationState.value = InitializationState.Error("Initialization failed")
+                        emit(InitializationState.Initializing)
+                        val initSuccess = initializeRepository(repoPath, password)
+
+                        if (initSuccess) {
+                            // 建库后复检（新仓库是空仓库，check 开销极小）：拦住“看着成功但不可用”的仓库
+                            if (!resticRepo.verifyRepository(repoPath, password)) {
+                                Log.e(TAG, "initializeOrValidateRepository: 仓库创建成功但复检未通过 -> $repoPath")
+                                emit(InitializationState.Error(context.getString(R.string.restic_init_post_check_failed)))
+                                return@withContext false
+                            }
+                            if (otg) {
+                                _otgInitializedState.value = true
+                                _otgRepoPathState.value = repoPath
+                                _otgSnapshotCountState.value = 0
+                            } else {
+                                _resticInitializedState.value = true
+                                _resticRepoPathState.value = repoPath
+                                _resticSnapshotCountState.value = 0
+                            }
+                            emit(InitializationState.ReadyToUse(repoPath))
+                            _isReinitializing.value = false
+                        } else {
+                            emit(InitializationState.Error("Initialization failed"))
+                        }
+                        initSuccess
                     }
-                    initSuccess
                 }
             } catch (e: Exception) {
                 _initializationState.value = InitializationState.Error(e.message ?: "Unknown error")
@@ -815,5 +913,12 @@ class ResticViewModel @Inject constructor(
     companion object {
         private const val TAG = "ResticViewModel"
         private const val OTG_PREFIX = "/mnt/media_rw/"
+        /** 仓库目录名（必须与首次初始化引导、仓库定位器保持一致）。 */
+        private const val RESTIC_REPO_DIR_NAME = "restic_repo"
+        /** 建库前要求的最小可用空间（低于此值直接提示，避免建到一半失败）。 */
+        private const val MIN_FREE_SPACE_BYTES = 200L * 1024 * 1024
+
+        /** 与首次初始化引导保持一致的默认仓库密码（无任何自定义密码时使用）。 */
+        const val DEFAULT_RESTIC_PASSWORD = "databackup_default"
     }
 }

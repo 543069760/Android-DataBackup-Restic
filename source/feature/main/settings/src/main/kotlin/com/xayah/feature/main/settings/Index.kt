@@ -7,12 +7,20 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -24,7 +32,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
@@ -41,14 +51,21 @@ import com.xayah.core.model.OpType
 import com.xayah.core.model.Target
 import com.xayah.core.ui.component.Clickable
 import com.xayah.core.ui.component.InnerBottomSpacer
+import com.xayah.core.ui.component.LabelLargeText
 import com.xayah.core.ui.component.LocalSlotScope
+import com.xayah.core.ui.component.RoundChip
 import com.xayah.core.ui.component.Selectable
 import com.xayah.core.ui.component.Switchable
 import com.xayah.core.ui.component.Title
+import com.xayah.core.ui.component.TitleLargeText
+import com.xayah.core.ui.component.TitleSmallText
 import com.xayah.core.ui.component.confirm
 import com.xayah.core.ui.component.select
 import com.xayah.core.ui.model.DialogRadioItem
 import com.xayah.core.ui.route.MainRoutes
+import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
+import com.xayah.core.ui.theme.value
+import com.xayah.core.ui.theme.withState
 import com.xayah.core.ui.token.SizeTokens
 import com.xayah.core.ui.util.LocalNavController
 import com.xayah.core.util.LanguageUtil
@@ -57,6 +74,7 @@ import com.xayah.core.util.navigateSingle
 import com.xayah.core.util.readMappedLanguage
 import com.xayah.feature.main.settings.restic.ResticViewModel
 import com.xayah.feature.setup.MainActivity as SetupActivity
+import com.xayah.feature.setup.SetupRoutes
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalAnimationApi::class, ExperimentalMaterial3Api::class)
@@ -164,17 +182,44 @@ fun PageSettings() {
                     }
                 }
 
+                val initStatusEnabled = resticVersion != null
+                val initPositionText = when {
+                    resticVersion == null -> stringResource(id = R.string.restic_not_detected)
+                    resticError != null -> resticError!!
+                    !resticInitialized -> stringResource(id = R.string.restic_not_initialized)
+                    else -> stringResource(id = R.string.restic_initialized_at, repoPath ?: "")
+                }
+                // 整行不再跳转（与「快照数量」一致，点击无动作）；只有胶囊可进入仓库选择流程。
+                // 注意：整行 enabled 必须为 true，否则父级 Surface 关闭后会把胶囊的点击一起吞掉（表现为点了不跳转）
                 Clickable(
-                    title = stringResource(id = R.string.restic_initialization_status),
-                    value = when {
-                        resticVersion == null -> stringResource(id = R.string.restic_not_detected)
-                        resticError != null -> resticError!!
-                        !resticInitialized -> stringResource(id = R.string.restic_not_initialized)
-                        else -> stringResource(id = R.string.restic_initialized_at, repoPath ?: "")
-                    }
+                    enabled = true,
+                    onClick = {},
                 ) {
-                    if (resticVersion != null) {
-                        navController.navigateSingle(MainRoutes.ResticInitialization.getRoute(isOtg = false))
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            TitleLargeText(
+                                enabled = initStatusEnabled,
+                                text = stringResource(id = R.string.restic_initialization_status),
+                                color = ThemedColorSchemeKeyTokens.OnSurface.value.withState(initStatusEnabled),
+                                fontWeight = FontWeight.Normal,
+                            )
+                            // 胶囊提示：插在「标题」与「初始化位置」之间，始终可点，点击直接进整套「选择仓库」流程
+                            Spacer(modifier = Modifier.height(SizeTokens.Level4))
+                            // 胶囊：直接复用引导页第二阶段（setup_two）的「全新仓库 / 已有仓库」自选流程，不在此重复实现
+                            ChooseRepoChip {
+                                context.startActivity(
+                                    Intent(context, SetupActivity::class.java)
+                                        .putExtra(SetupActivity.EXTRA_START_DESTINATION, SetupRoutes.Two.route)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(SizeTokens.Level4))
+                            TitleSmallText(
+                                enabled = initStatusEnabled,
+                                text = initPositionText,
+                                color = ThemedColorSchemeKeyTokens.Outline.value.withState(initStatusEnabled),
+                                fontWeight = FontWeight.Normal,
+                            )
+                        }
                     }
                 }
 
@@ -241,6 +286,7 @@ fun PageSettings() {
                             value = mount
                         ) {}
 
+                        // 整行不再跳转（与「快照数量」一致，点击无动作）；OTG 的调整只能点下方胶囊
                         Clickable(
                             title = stringResource(id = R.string.restic_initialization_status),
                             value = when {
@@ -248,10 +294,11 @@ fun PageSettings() {
                                 !otgInitialized -> stringResource(id = R.string.restic_not_initialized)
                                 else -> stringResource(id = R.string.restic_initialized_at, otgRepoPath ?: "")
                             }
-                        ) {
-                            if (resticVersion != null) {
-                                navController.navigateSingle(MainRoutes.ResticInitialization.getRoute(isOtg = true))
-                            }
+                        ) {}
+
+                        // 胶囊始终可点：父级行若被 disabled，会把胶囊的点击一起吞掉
+                        ChooseRepoChip {
+                            navController.navigateSingle(MainRoutes.ResticInitialization.getRoute(isOtg = true, reinitialize = true))
                         }
 
                         Clickable(
@@ -357,6 +404,35 @@ fun PageSettings() {
             }
 
             InnerBottomSpacer(innerPadding = paddingValues)
+        }
+    }
+}
+
+/**
+ * 「点我选择新仓库」胶囊提示：M3E 风格胶囊按钮，点击直接进入重新选择仓库流程
+ * （与存储设置页一致：先切到“重新初始化”模式，再进入仓库选择页）。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChooseRepoChip(
+    onClick: () -> Unit,
+) {
+    RoundChip(onClick = onClick) {
+        Row(
+            modifier = Modifier.padding(horizontal = SizeTokens.Level16, vertical = SizeTokens.Level6),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Folder,
+                contentDescription = null,
+                tint = ThemedColorSchemeKeyTokens.OnPrimaryContainer.value,
+                modifier = Modifier.size(SizeTokens.Level18),
+            )
+            Spacer(modifier = Modifier.width(SizeTokens.Level4))
+            LabelLargeText(
+                text = stringResource(id = R.string.restic_choose_new_repo),
+                color = ThemedColorSchemeKeyTokens.OnPrimaryContainer.value,
+            )
         }
     }
 }

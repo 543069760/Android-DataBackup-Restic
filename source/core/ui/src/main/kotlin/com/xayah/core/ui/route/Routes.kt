@@ -18,6 +18,7 @@ sealed class MainRoutes(val route: String) {
         const val ARG_GROUP = "group"
         const val ARG_PACKAGE_NAME_FILTER = "packageName"
         const val ARG_IS_OTG = "isOtg"
+        const val ARG_REINITIALIZE = "reinitialize"
     }
 
     data object Dashboard : MainRoutes(route = "main_dashboard")
@@ -57,8 +58,10 @@ sealed class MainRoutes(val route: String) {
     data object RestoreSettings : MainRoutes(route = "main_restore_settings")
     data object LanguageSettings : MainRoutes(route = "main_language_settings")
     data object BlackList : MainRoutes(route = "main_blacklist")
-    data object ResticInitialization : MainRoutes(route = "main_settings_restic_initialization?${ARG_IS_OTG}={${ARG_IS_OTG}}") {
-        fun getRoute(isOtg: Boolean = false) = "main_settings_restic_initialization?${ARG_IS_OTG}=${isOtg}"
+    data object ResticInitialization : MainRoutes(route = "main_settings_restic_initialization?${ARG_IS_OTG}={${ARG_IS_OTG}}&${ARG_REINITIALIZE}={${ARG_REINITIALIZE}}") {
+        // reinitialize=true：进入后直接切到「选择目录」整套流程（与初次引导第二步一致），而不是停在已初始化页
+        fun getRoute(isOtg: Boolean = false, reinitialize: Boolean = false) =
+            "main_settings_restic_initialization?${ARG_IS_OTG}=${isOtg}&${ARG_REINITIALIZE}=${reinitialize}"
     }
     data object ResticRepoPath : MainRoutes(route = "main_settings_restic_repo_path")
     data object ResticPassword : MainRoutes(route = "main_settings_restic_password")

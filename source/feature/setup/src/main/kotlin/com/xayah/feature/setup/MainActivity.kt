@@ -17,6 +17,12 @@ import dagger.hilt.android.AndroidEntryPoint
 @ExperimentalAnimationApi
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
+
+    companion object {
+        /** 启动参数：指定直接进入的 setup 页面路由，缺省从第一步开始。 */
+        const val EXTRA_START_DESTINATION = "start_destination"
+    }
+
     @ExperimentalLayoutApi
     @ExperimentalFoundationApi
     @ExperimentalMaterial3Api
@@ -31,7 +37,7 @@ class MainActivity : AppCompatActivity() {
                     LocalNavController provides navController,
                     androidx.lifecycle.compose.LocalLifecycleOwner provides androidx.compose.ui.platform.LocalLifecycleOwner.current,
                 ) {
-                    SetupGraph()
+                    SetupGraph(startDestination = intent?.getStringExtra(EXTRA_START_DESTINATION).orEmpty().ifEmpty { SetupRoutes.One.route })
                 }
             }
         }

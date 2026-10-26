@@ -1,13 +1,21 @@
 package com.xayah.feature.main.settings.restic
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -19,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -26,7 +35,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.platform.LocalContext
@@ -34,11 +45,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import com.xayah.core.ui.component.BodyMediumText
+import com.xayah.core.ui.component.BodySmallText
+import com.xayah.core.ui.component.Card
+import com.xayah.core.ui.component.LabelSmallText
+import com.xayah.core.ui.material3.CardDefaults
+import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
 import com.xayah.core.ui.theme.value
+import com.xayah.core.ui.token.SizeTokens
+import com.xayah.core.datastore.ConstantUtil
 import com.xayah.core.model.util.formatSize
 import com.xayah.libpickyou.PickYouLauncher
 import com.xayah.libpickyou.ui.model.PickerType
@@ -50,7 +70,7 @@ import java.io.File
 
 @ExperimentalMaterial3Api
 @Composable
-fun ResticInitializationScreen(isOtg: Boolean = false) {
+fun ResticInitializationScreen(isOtg: Boolean = false, reinitialize: Boolean = false) {
     val viewModel = hiltViewModel<ResticViewModel>()
     val navController = LocalNavController.current!!
     val context = LocalContext.current
@@ -77,8 +97,16 @@ fun ResticInitializationScreen(isOtg: Boolean = false) {
         if (isOtg) viewModel.refreshOtgStatus()
     }
 
+    // 从设置页/存储页跳转进来并要求“重新初始化”时，本页 ViewModel 是新实例，
+    // 必须由路由参数在本页内部切到「选择目录」流程（与初次引导第二步完全一致）。
+    LaunchedEffect(reinitialize) {
+        if (reinitialize) viewModel.enterReinitializeMode()
+    }
+
     var selectedPath by remember { mutableStateOf("") }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    // 二次确认：真正的删除动作需要再确认一次，避免误触直接清库
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var repoPathToDelete by remember { mutableStateOf("") }
 
     var wasReinitializing by remember { mutableStateOf(false) }
@@ -109,7 +137,9 @@ fun ResticInitializationScreen(isOtg: Boolean = false) {
         permissionType = PermissionType.ROOT,
     )
 
-    if (resticInitialized && repoPath != null && !isReinitializing) {
+    // 带 reinitialize 参数进来时，不依赖 ViewModel 的标志位（首帧就可能仍显示已初始化页），
+    // 直接由路由参数判定，保证「点胶囊 = 进入一整套选择仓库操作」。
+    if (resticInitialized && repoPath != null && !isReinitializing && !reinitialize) {
         // 已初始化状态：显示当前信息和重新初始化按钮
         InitializedView(
             repoPath = repoPath!!,
@@ -129,7 +159,8 @@ fun ResticInitializationScreen(isOtg: Boolean = false) {
             repoPathToDelete = repoPathToDelete,
             onDeleteDialogChange = { showDeleteDialog = it },
             onRepoPathToDeleteChange = { repoPathToDelete = it },
-            isOtg = isOtg,
+            showDeleteConfirmDialog = showDeleteConfirmDialog,
+            onDeleteConfirmDialogChange = { showDeleteConfirmDialog = it },
         )
     }
 }
@@ -172,6 +203,11 @@ private fun InitializedView(
             ) {
                 Text(stringResource(R.string.reinitialize))
             }
+
+            // 重新初始化按钮下方：与「选择目录」UI 同一组说明卡片
+            Spacer(modifier = Modifier.height(16.dp))
+            ResticRepoGuideCards()
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
@@ -188,6 +224,8 @@ private fun InitializationView(
     repoPathToDelete: String,
     onDeleteDialogChange: (Boolean) -> Unit,
     onRepoPathToDeleteChange: (String) -> Unit,
+    showDeleteConfirmDialog: Boolean,
+    onDeleteConfirmDialogChange: (Boolean) -> Unit,
     isOtg: Boolean = false,
 ) {
     val context = LocalContext.current
@@ -236,6 +274,7 @@ private fun InitializationView(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
             // 状态显示
@@ -399,10 +438,15 @@ private fun InitializationView(
                     }
                 }
             }
+
+            // 说明卡片：最上方为密码提示，其后是场景说明（含可复制默认值）与注意事项
+            Spacer(modifier = Modifier.height(16.dp))
+            ResticRepoGuideCards()
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 
-    // 删除确认对话框
+    // 第一层：密码校验失败提示，点「删除并重新初始化」不再直接执行，而是转入二次确认
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { onDeleteDialogChange(false) },
@@ -413,11 +457,10 @@ private fun InitializationView(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.launchOnIO {
-                            viewModel.deleteAndReinitializeRepository(repoPathToDelete)
-                        }
                         onDeleteDialogChange(false)
-                    }
+                        onDeleteConfirmDialogChange(true)
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
                 ) {
                     Text(stringResource(id = R.string.delete_and_reinitialize))
                 }
@@ -425,6 +468,36 @@ private fun InitializationView(
             dismissButton = {
                 TextButton(onClick = { onDeleteDialogChange(false) }) {
                     Text(stringResource(id = R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // 第二层：真正的删除确认。按 M3E 危险操作样式 —— 红色「确认删除」在左，「取消」在右（与常规相反，避免误点）
+    if (showDeleteConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { onDeleteConfirmDialogChange(false) },
+            title = { Text(stringResource(id = R.string.restic_confirm_delete_title)) },
+            text = {
+                Text(stringResource(id = R.string.restic_confirm_delete_message, repoPathToDelete))
+            },
+            // 交换槽位来实现左右互换：AlertDialog 固定 dismiss 在左、confirm 在右
+            confirmButton = {
+                TextButton(onClick = { onDeleteConfirmDialogChange(false) }) {
+                    Text(stringResource(id = R.string.cancel))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        onDeleteConfirmDialogChange(false)
+                        viewModel.launchOnIO {
+                            viewModel.deleteAndReinitializeRepository(repoPathToDelete)
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) {
+                    Text(stringResource(id = R.string.restic_confirm_delete_action))
                 }
             }
         )
@@ -440,4 +513,136 @@ private fun InitializationView(
             else -> {}
         }
     }
+}
+
+/**
+ * 说明卡片组：密码提示（最上方）→ 场景说明（含可复制默认值）→ 注意事项。
+ * 「选择目录」UI 与「已初始化 / 重新初始化」UI 复用同一组，保持提示一致。
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+private fun ResticRepoGuideCards() {
+    ResticPasswordFixHintCard()
+    Spacer(modifier = Modifier.height(12.dp))
+    ResticRepoSceneCard()
+    Spacer(modifier = Modifier.height(12.dp))
+    ResticRepoCautionCard()
+}
+
+/**
+ * 场景说明卡片：讲清「全新仓库」与「已有仓库（旧设备复制过来）」两种场景，
+ * 并单独列出默认仓库路径 / 默认密码供核对与复制。
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+private fun ResticRepoSceneCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = ThemedColorSchemeKeyTokens.BluePrimaryContainer.value
+        ),
+    ) {
+        Column(modifier = Modifier.padding(SizeTokens.Level16)) {
+            BodyMediumText(
+                text = stringResource(id = R.string.restic_repo_scene_note),
+                color = ThemedColorSchemeKeyTokens.BlueOnPrimaryContainer.value
+            )
+            BodySmallText(
+                modifier = Modifier.padding(top = SizeTokens.Level12),
+                text = stringResource(id = R.string.restic_repo_default_values_note),
+                color = ThemedColorSchemeKeyTokens.BlueOnPrimaryContainer.value
+            )
+            CopyableValueRow(
+                modifier = Modifier.padding(top = SizeTokens.Level12),
+                label = stringResource(id = R.string.restic_default_repo_path),
+                value = ConstantUtil.DEFAULT_RUSTIC_REPO_ROOT + "/restic_repo",
+                contentColor = ThemedColorSchemeKeyTokens.BlueOnPrimaryContainer.value,
+            )
+            CopyableValueRow(
+                modifier = Modifier.padding(top = SizeTokens.Level4),
+                label = stringResource(id = R.string.restic_default_password),
+                value = ResticViewModel.DEFAULT_RESTIC_PASSWORD,
+                contentColor = ThemedColorSchemeKeyTokens.BlueOnPrimaryContainer.value,
+            )
+        }
+    }
+}
+
+/**
+ * 密码处理提示卡片：选仓库校验失败时，先回设置页改对密码保存，再回来选目录初始化。
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+private fun ResticPasswordFixHintCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = ThemedColorSchemeKeyTokens.BluePrimaryContainer.value
+        ),
+    ) {
+        BodyMediumText(
+            modifier = Modifier.padding(SizeTokens.Level16),
+            text = stringResource(id = R.string.restic_password_fix_hint),
+            color = ThemedColorSchemeKeyTokens.BlueOnPrimaryContainer.value
+        )
+    }
+}
+
+/**
+ * 注意事项卡片：密码一致性、完整复制、目录选错会新建空仓库等风险提示。
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+private fun ResticRepoCautionCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = ThemedColorSchemeKeyTokens.YellowPrimaryContainer.value
+        ),
+    ) {
+        BodyMediumText(
+            modifier = Modifier.padding(SizeTokens.Level16),
+            text = stringResource(id = R.string.restic_repo_caution_note),
+            color = ThemedColorSchemeKeyTokens.YellowOnPrimaryContainer.value
+        )
+    }
+}
+
+/**
+ * M3E 风格的可复制数值行：小号标签 + 可长按选中的正文 + 右侧复制按钮。
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+private fun CopyableValueRow(
+    modifier: Modifier = Modifier,
+    label: String,
+    value: String,
+    contentColor: Color,
+) {
+    val context = LocalContext.current
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            LabelSmallText(text = label, color = contentColor)
+            SelectionContainer {
+                BodyMediumText(text = value, color = contentColor)
+            }
+        }
+        Spacer(modifier = Modifier.width(SizeTokens.Level4))
+        IconButton(onClick = { copyToClipboard(context = context, label = label, value = value) }) {
+            Icon(
+                imageVector = Icons.Rounded.ContentCopy,
+                contentDescription = stringResource(id = R.string.copy),
+                tint = contentColor,
+            )
+        }
+    }
+}
+
+private fun copyToClipboard(context: Context, label: String, value: String) {
+    val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+    clipboardManager.setPrimaryClip(ClipData.newPlainText(label, value))
+    Toast.makeText(context, context.getString(R.string.copied), Toast.LENGTH_SHORT).show()
 }

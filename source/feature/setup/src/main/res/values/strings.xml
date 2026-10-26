@@ -49,4 +49,18 @@
     <string name="restic_compression_level">Restic compression level</string>
     <string name="restic_compression_level_desc">A higher level means a higher compression ratio but slower speed and more resource usage. Choose a level that suits your device. This setting only takes effect when initializing the repository; changing it afterwards will not affect an existing repository.</string>
     <string name="args_current_level">Current level: %1$s</string>
+    <string name="select_directory">Select directory</string>
+    <string name="restic_repo_path_not_selected">No directory selected</string>
+    <string name="restic_repo_mode">Repository mode</string>
+    <string name="restic_repo_mode_new">New repository</string>
+    <string name="restic_repo_mode_existing">Existing repository</string>
+    <string name="restic_open_existing">Open existing repository</string>
+    <string name="restic_open_existing_failed">Failed to open the repository. Make sure you selected the repository folder itself (the one copied completely from the old device, containing config/data/keys) and the password matches the original repository exactly.</string>
+    <string name="restic_existing_repo_hint">Restore from an old device: you MUST select the repository folder you actually copied over (or its parent folder, the restic_repo subfolder is detected automatically), then open it with the password of the old device. IMPORTANT: the folder you select decides which repository is opened, and it is NOT necessarily the default path shown below. Selecting the wrong folder or using a password that differs from the original repository both fail.</string>
+    <string name="restic_default_values_note">The defaults below are only applied when creating a NEW repository. They are provided for reference only. Long-press to select or tap the copy button to copy.</string>
+    <string name="restic_default_repo_path">Default repository path</string>
+    <string name="restic_default_password">Default password</string>
+    <string name="copy">Copy</string>
+    <string name="copied">Copied to clipboard</string>
+    <string name="restic_existing_repo_warning">The password must be identical to the original repository, otherwise its backups cannot be restored. If the repository is deleted by mistake, all backups inside it are lost permanently. Please operate with caution.</string>
 </resources>

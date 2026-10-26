@@ -18,11 +18,11 @@ import com.xayah.feature.setup.page.two.PageTwo
 @ExperimentalAnimationApi
 @ExperimentalMaterial3Api
 @Composable
-fun SetupGraph() {
+fun SetupGraph(startDestination: String = SetupRoutes.One.route) {
     val navController = LocalNavController.current!!
     AnimatedNavHost(
         navController = navController,
-        startDestination = SetupRoutes.One.route,
+        startDestination = startDestination,
     ) {
         composable(SetupRoutes.One.route) {
             PageOne()

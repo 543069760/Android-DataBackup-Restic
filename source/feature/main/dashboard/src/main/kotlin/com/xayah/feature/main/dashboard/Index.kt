@@ -214,14 +214,16 @@ fun PageDashboard() {
                 }
 
                 IndexViewModel.OtgDiscoveryState.NeedsReconnect -> {
+                    // 强制进「选择仓库」流程，避免落到「已初始化」概览页
                     OtgReconnectHintCard {
-                        navController.navigateSingle(MainRoutes.ResticInitialization.getRoute(isOtg = true))
+                        navController.navigateSingle(MainRoutes.ResticInitialization.getRoute(isOtg = true, reinitialize = true))
                     }
                 }
 
                 IndexViewModel.OtgDiscoveryState.NotInitialized -> {
+                    // 强制进「选择仓库」流程，避免落到「已初始化」概览页
                     OtgNotInitializedCard {
-                        navController.navigateSingle(MainRoutes.ResticInitialization.getRoute(isOtg = true))
+                        navController.navigateSingle(MainRoutes.ResticInitialization.getRoute(isOtg = true, reinitialize = true))
                     }
                 }
 

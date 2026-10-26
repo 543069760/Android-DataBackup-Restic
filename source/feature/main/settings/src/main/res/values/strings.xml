@@ -43,7 +43,26 @@
     <string name="delete_existing_repository">Delete Existing Repository(Local only)</string>
     <string name="repo_password_validation_failed">Existing repository detected but password validation failed. Delete and reinitialize(Local only)?\nPath: %s</string>
     <string name="delete_and_reinitialize">Delete and Reinitialize(Local only)</string>
+    <string name="restic_confirm_delete_title">Confirm repository deletion</string>
+    <string name="restic_confirm_delete_message">This permanently deletes ALL backup data in this repository and cannot be undone.\nPath: %1$s</string>
+    <string name="restic_confirm_delete_action">Delete</string>
     <string name="cancel">Cancel</string>
+    <!-- 仓库场景说明 / 注意事项（与首次引导同一套逻辑，含可复制的默认值） -->
+    <string name="restic_choose_new_repo">Tap me to choose a new repository</string>
+    <string name="restic_repo_scene_note">Scenario 1 - New repository: select the folder where backups should be stored, the repository restic_repo is created under it.\nScenario 2 - Repository copied from an old device: copy the whole restic_repo folder over, then select its PARENT folder here, the restic_repo subfolder is detected automatically and opened with the password of the original repository.\nIMPORTANT: the folder you select decides which repository is used. It is NOT necessarily the default path shown below, and selecting the wrong folder or a mismatched password both fail.</string>
+    <string name="restic_repo_default_values_note">The defaults below are only applied when creating a NEW repository. They are provided for reference only, and do NOT represent the folder you selected. Long-press to select or tap the copy button to copy.</string>
+    <string name="restic_default_repo_path">Default repository path</string>
+    <string name="restic_default_password">Default password</string>
+    <string name="restic_repo_caution_note">Cautions:\n1. The password must match the original repository exactly. Otherwise validation fails and the app offers to delete and reinitialize, which erases every backup inside that repository.\n2. Copy the ENTIRE repository folder, including config/data/keys/snapshots. Missing files make the repository unusable.\n3. Selecting the wrong folder may create an empty repository: it reports success but restores nothing from the old device.</string>
+    <!-- 已初始化状态下的密码处理提示（重新初始化按钮下方） -->
+    <string name="restic_password_fix_hint">Repository password tip: if validation fails when selecting a repository, go back to the settings page first, change the repository password to the correct one for that repository and save it, then come back and select the matching initialization directory to initialize.</string>
+    <!-- 全新仓库建库预检提示 -->
+    <string name="restic_init_dir_not_empty">The target directory already exists and is not empty, so a new repository cannot be created here. Choose another directory, or select this existing repository instead: %1$s</string>
+    <string name="restic_init_not_writable">The target directory is not writable, initialization aborted. Please choose another directory: %1$s</string>
+    <string name="restic_init_low_space">Not enough free space to create a repository. Available: %1$s</string>
+    <string name="restic_init_post_check_failed">The repository was created but failed the post-initialization check. Please select the directory again to initialize.</string>
+    <string name="copy">Copy</string>
+    <string name="copied">Copied to clipboard</string>
     <string name="restic_not_detected">No Restic detected</string>
     <string name="restic_compression_level">Restic compression level</string>
     <string name="restic_compression_level_desc">A higher level means a higher compression ratio but slower speed and more resource usage. Choose a level that suits your device. This setting only takes effect when initializing the repository; changing it afterwards will not affect an existing repository.</string>

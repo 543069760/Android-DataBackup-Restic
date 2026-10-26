@@ -1,5 +1,6 @@
 package com.xayah.feature.main.settings.storage
 
+import android.content.Intent
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -36,6 +38,8 @@ import com.xayah.feature.main.settings.SettingsScaffold
 import com.xayah.feature.main.settings.cache.CacheInfoCard
 import com.xayah.feature.main.settings.cache.CacheManagementViewModel
 import com.xayah.feature.main.settings.restic.ResticViewModel
+import com.xayah.feature.setup.MainActivity as SetupActivity
+import com.xayah.feature.setup.SetupRoutes
 
 @ExperimentalFoundationApi
 @ExperimentalLayoutApi
@@ -43,6 +47,7 @@ import com.xayah.feature.main.settings.restic.ResticViewModel
 @ExperimentalMaterial3Api
 @Composable
 fun PageStorageStats(isOtg: Boolean = false) {
+    val context = LocalContext.current
     val navController = LocalNavController.current!!
     val resticViewModel = hiltViewModel<ResticViewModel>()
     val cacheViewModel = hiltViewModel<CacheManagementViewModel>()
@@ -96,12 +101,18 @@ fun PageStorageStats(isOtg: Boolean = false) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
                         onClick = {
-                            // 进入“重新初始化”模式：仅切换 UI，不清空已保存路径/密码
-                            resticViewModel.enterReinitializeMode()
-                            navController.navigateSingle(
-                                if (isOtg) MainRoutes.ResticInitialization.getRoute(isOtg = true)
-                                else MainRoutes.ResticInitialization.route
-                            )
+                            if (isOtg) {
+                                // OTG 没有引导页第二步，仍走 OTG 专用初始化页，并强制进「选择仓库」流程
+                                navController.navigateSingle(
+                                    MainRoutes.ResticInitialization.getRoute(isOtg = true, reinitialize = true)
+                                )
+                            } else {
+                                // 本地：与设置页胶囊一致，直接复用引导页第二阶段（setup_two）
+                                context.startActivity(
+                                    Intent(context, SetupActivity::class.java)
+                                        .putExtra(SetupActivity.EXTRA_START_DESTINATION, SetupRoutes.Two.route)
+                                )
+                            }
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {

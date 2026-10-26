@@ -629,12 +629,18 @@ class MainActivity : AppCompatActivity() {
                                 navArgument(MainRoutes.ARG_IS_OTG) {
                                     type = NavType.BoolType
                                     defaultValue = false
+                                },
+                                navArgument(MainRoutes.ARG_REINITIALIZE) {
+                                    type = NavType.BoolType
+                                    defaultValue = false
                                 }
                             )
                         ) { backStackEntry ->
                             val isOtg =
                                 backStackEntry.arguments?.getBoolean(MainRoutes.ARG_IS_OTG) ?: false
-                            ResticInitializationScreen(isOtg = isOtg)
+                            val reinitialize =
+                                backStackEntry.arguments?.getBoolean(MainRoutes.ARG_REINITIALIZE) ?: false
+                            ResticInitializationScreen(isOtg = isOtg, reinitialize = reinitialize)
                         }
                     }
                 }
