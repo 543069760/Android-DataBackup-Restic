@@ -3,6 +3,11 @@ package com.xayah.feature.main.processing
 import android.widget.Toast
 import android.annotation.SuppressLint
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
@@ -39,10 +44,20 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.lerp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -78,6 +93,88 @@ import com.xayah.core.util.navigateSingle
 import com.xayah.core.util.withMainContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+
+/**
+ * 「非完全成功」收尾图标：红色 blob 底色 + 白色叉号。
+ *
+ * 刻意不用 AnimatedVectorDrawable（AVD）：错误态图标若走 `animatedVectorResource`，
+ * 某些机型上 `android:animation` 会解析成 0 并抛 `Resources$NotFoundException`（见崩溃栈
+ * `loadAnimatorResource` → `Resources.getXml(0)`）。这里全部用 Compose 动画表达 M3E 动态感：
+ * blob 用 `spring(MediumBouncy)` 缩放+回旋弹入，叉号两笔用 tween 依次描出。
+ *
+ * blob 轮廓复用 [com.xayah.core.ui.R.drawable.ic_animated_tick] 的同一条 path（抽到
+ * `ic_blob_shape.xml`，纯 vector，运行时 tint），因此与成功对勾的底形完全一致，
+ * 且颜色跟随主题 [ThemedColorSchemeKeyTokens.Error] / [ThemedColorSchemeKeyTokens.OnError]。
+ */
+@Composable
+private fun ProcessingFailedIcon(modifier: Modifier = Modifier) {
+    var started by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        started = true
+    }
+
+    // M3E：轻微过冲的弹簧，落地时有回弹
+    val expressiveSpring = spring<Float>(
+        dampingRatio = Spring.DampingRatioMediumBouncy,
+        stiffness = Spring.StiffnessMediumLow
+    )
+    val scale by animateFloatAsState(targetValue = if (started) 1f else 0f, animationSpec = expressiveSpring, label = "failedIconScale")
+    val rotation by animateFloatAsState(targetValue = if (started) 0f else -30f, animationSpec = expressiveSpring, label = "failedIconRotation")
+    // 叉号两笔依次描出，第二笔晚一拍
+    val firstStroke by animateFloatAsState(
+        targetValue = if (started) 1f else 0f,
+        animationSpec = tween(durationMillis = 320, delayMillis = 220, easing = FastOutSlowInEasing),
+        label = "failedIconStroke1"
+    )
+    val secondStroke by animateFloatAsState(
+        targetValue = if (started) 1f else 0f,
+        animationSpec = tween(durationMillis = 320, delayMillis = 380, easing = FastOutSlowInEasing),
+        label = "failedIconStroke2"
+    )
+
+    val containerColor = ThemedColorSchemeKeyTokens.Error.value
+    val contentColor = ThemedColorSchemeKeyTokens.OnError.value
+
+    Box(
+        modifier = modifier
+            .size(SizeTokens.Level152)
+            .scale(scale)
+            .rotate(rotation),
+        contentAlignment = Alignment.Center
+    ) {
+        Image(
+            painter = painterResource(id = com.xayah.core.ui.R.drawable.ic_blob_shape),
+            contentDescription = null,
+            colorFilter = ColorFilter.tint(containerColor),
+            modifier = Modifier.size(SizeTokens.Level152)
+        )
+        Box(
+            modifier = Modifier
+                .size(SizeTokens.Level152)
+                .drawBehind { drawCross(firstStroke, secondStroke, contentColor) }
+        )
+    }
+}
+
+/**
+ * 两笔叉号，端点取 [0.351, 0.649]（对应 148 视口里的 52→96），按进度插值出"描线"效果。
+ */
+private fun DrawScope.drawCross(first: Float, second: Float, color: Color) {
+    val sizePx = size.width
+    // 12 / 148，与成功对勾的 strokeWidth 同比例
+    val strokeWidth = sizePx * 0.081f
+    val topLeft = Offset(sizePx * 0.351f, sizePx * 0.351f)
+    val bottomRight = Offset(sizePx * 0.649f, sizePx * 0.649f)
+    val topRight = Offset(sizePx * 0.649f, sizePx * 0.351f)
+    val bottomLeft = Offset(sizePx * 0.351f, sizePx * 0.649f)
+
+    if (first > 0f) {
+        drawLine(color = color, start = topLeft, end = lerp(topLeft, bottomRight, first), strokeWidth = strokeWidth, cap = StrokeCap.Round)
+    }
+    if (second > 0f) {
+        drawLine(color = color, start = topRight, end = lerp(topRight, bottomLeft, second), strokeWidth = strokeWidth, cap = StrokeCap.Round)
+    }
+}
 
 @OptIn(ExperimentalAnimationGraphicsApi::class)
 @SuppressLint("StringFormatInvalid")
@@ -325,6 +422,9 @@ fun PageProcessing(
                 var segmentProgress: Float by remember { mutableFloatStateOf(0f) }
                 val animatedImageVector = AnimatedImageVector.animatedVectorResource(com.xayah.core.ui.R.drawable.ic_animated_tick)
                 var atEnd by remember { mutableStateOf(false) }
+                // 任何非完全成功的收尾（有失败项，或整体被置为 ERROR）都走红色「错误」动画，
+                // 而不是沿用成功对勾；下方计数文案本身已按成功/失败分流。
+                val finishedWithErrors = (task?.failureCount ?: 0) > 0 || uiState.state == OperationState.ERROR
 
                 AnimatedContent(modifier = Modifier.fillMaxWidth(), targetState = task?.processingIndex, label = AnimationTokens.AnimatedContentLabel) {
                     Box(
@@ -381,14 +481,19 @@ fun PageProcessing(
                             when (it) {
                                 dataItems.size + 2 -> {
                                     // Finished
-                                    LaunchedEffect(animatedImageVector) {
+                                    LaunchedEffect(finishedWithErrors) {
                                         atEnd = true
                                     }
-                                    Image(
-                                        painter = rememberAnimatedVectorPainter(animatedImageVector, atEnd),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(SizeTokens.Level152),
-                                    )
+                                    if (finishedWithErrors) {
+                                        // 非完全成功：红色 blob + 白叉，纯 Compose 动画（不依赖 AVD 解析）
+                                        ProcessingFailedIcon()
+                                    } else {
+                                        Image(
+                                            painter = rememberAnimatedVectorPainter(animatedImageVector, atEnd),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(SizeTokens.Level152),
+                                        )
+                                    }
                                 }
 
                                 else -> {
