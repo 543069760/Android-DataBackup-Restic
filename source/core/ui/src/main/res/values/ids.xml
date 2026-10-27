@@ -1,31 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <item name="word_return" type="string" />
-    <item name="confirm" type="string" />
-    <item name="cancel" type="string" />
-    <item name="delete" type="string" />
-    <item name="unknown" type="string" />
-    <item name="user" type="string" />
-    <item name="id" type="string" />
-    <item name="_protected" type="string" />
-    <item name="ssaid" type="string" />
-    <item name="keystore" type="string" />
-    <item name="time" type="string" />
-    <item name="succeed" type="string" />
-    <item name="failed" type="string" />
-    <item name="backup_user" type="string" />
-    <item name="restore_user" type="string" />
-    <item name="not_exist" type="string" />
-    <item name="specify_a_path" type="string" />
-    <item name="apk" type="string" />
-    <item name="data" type="string" />
-    <item name="update_available" type="string" />
-    <item name="no_item_selected" type="string" />
-    <item name="apk_selected" type="string" />
-    <item name="data_selected" type="string" />
-    <item name="all_selected" type="string" />
-    <item name="custom_selected" type="string" />
-    <item name="calculating" type="string" />
-    <item name="blacklist" type="string" />
+    <!-- 这些是空的字符串占位/资源 id（默认值为空，实际文案由 app 模块覆写），
+         不参与翻译，否则新增 zh 语言目录后会被 MissingTranslation 判为 Error。 -->
+    <item name="word_return" type="string" translatable="false" />
+    <item name="confirm" type="string" translatable="false" />
+    <item name="cancel" type="string" translatable="false" />
+    <item name="delete" type="string" translatable="false" />
+    <item name="unknown" type="string" translatable="false" />
+    <item name="user" type="string" translatable="false" />
+    <item name="id" type="string" translatable="false" />
+    <item name="_protected" type="string" translatable="false" />
+    <item name="ssaid" type="string" translatable="false" />
+    <item name="keystore" type="string" translatable="false" />
+    <item name="time" type="string" translatable="false" />
+    <item name="succeed" type="string" translatable="false" />
+    <item name="failed" type="string" translatable="false" />
+    <item name="backup_user" type="string" translatable="false" />
+    <item name="restore_user" type="string" translatable="false" />
+    <item name="not_exist" type="string" translatable="false" />
+    <item name="specify_a_path" type="string" translatable="false" />
+    <item name="apk" type="string" translatable="false" />
+    <item name="data" type="string" translatable="false" />
+    <item name="update_available" type="string" translatable="false" />
+    <item name="no_item_selected" type="string" translatable="false" />
+    <item name="apk_selected" type="string" translatable="false" />
+    <item name="data_selected" type="string" translatable="false" />
+    <item name="all_selected" type="string" translatable="false" />
+    <item name="custom_selected" type="string" translatable="false" />
+    <item name="calculating" type="string" translatable="false" />
+    <item name="blacklist" type="string" translatable="false" />
 
     <item name="jetbrains_mono_regular" type="font" />
     <item name="ic_rounded_check_circle" type="drawable" />
@@ -47,6 +50,5 @@
     <item name="ic_rounded_package_2_circle" type="drawable" />
 
     <item name="ic_launcher_background" type="color" />
-
 
 </resources>
