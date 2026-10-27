@@ -116,7 +116,7 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
     ): MediumBackupUtil.StreamBackupResult {
         val repoPath = getResticRepoPath()
         val password = getResticPassword()
-        // 节流时间戳：poll 回调频率高，≥500ms 才刷一次 content，避免高频 upsert 打 DB
+        // 节流时间戳：poll 回调频率高，≥500ms 才刷一次内存进度
         var lastContentUpdate = 0L
         return mMediumBackupUtil.streamBackupToRustic(
             ready = ready,
@@ -125,20 +125,18 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
             password = password,
             tags = listOf(tag),
             cancelId = cancelId,
-            onProgress = { readBytes, writtenSpeed ->
+            // 实时进度只写内存 StateFlow（进程内），不再高频 upsert Room content
+            onProgress = { readBytes, writtenSpeed, writtenBytes ->
                 val now = System.currentTimeMillis()
                 if (now - lastContentUpdate >= 500) {
                     lastContentUpdate = now
-                    // fd 流无分母，进行中副标题显示 "速度 | 累积量"
-                    val bytesText = readBytes.toDouble().formatSize()
-                    val speedText =
-                        if (writtenSpeed > 0) writtenSpeed.formatToStorageSizePerSecond() else ""
-                    val content =
-                        if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
-                    // t.update 是 suspend——onProgress 在 binder 线程被调，用 runBlocking 桥接
-                    kotlinx.coroutines.runBlocking {
-                        t.update(state = OperationState.PROCESSING, content = content)
-                    }
+                    updateMediaProgressStat(
+                        m = m,
+                        dataType = DataType.PACKAGE_MEDIA,
+                        total = readBytes,
+                        increment = writtenBytes,
+                        speed = writtenSpeed,
+                    )
                 }
             }
         )

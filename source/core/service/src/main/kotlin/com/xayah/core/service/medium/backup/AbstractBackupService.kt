@@ -11,7 +11,10 @@ import com.xayah.core.model.OpType
 import com.xayah.core.model.OperationState
 import com.xayah.core.model.ProcessingInfoType
 import com.xayah.core.model.ProcessingType
+import com.xayah.core.model.ProgressStat
 import com.xayah.core.model.TaskType
+import com.xayah.core.model.dedupRatioOf
+import com.xayah.core.model.progressStatKey
 import com.xayah.core.model.database.Info
 import com.xayah.core.model.database.MediaEntity
 import com.xayah.core.model.database.ProcessingInfoEntity
@@ -65,6 +68,35 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
 
     @Volatile
     private var mResticBytesDone: Long = 0L
+
+    // 写出量（去重压缩后的累积写入）：来源是 5 参 AIDL 回调 ICallback.onProgress 的第 4 个参数 writtenBytes，
+    // 由各 impl 在 fd 流 onProgress 中透传上来；仅存内存，不落 DB。
+    @Volatile
+    private var mResticBytesWritten: Long = 0L
+
+    /**
+     * 记录当前数据项的实时进度（总量=源读取累积 / 增量=去重后写入累积 / 速度）。
+     *
+     * 只更新进程内 StateFlow：binder 线程仅做一次 volatile 写，不触 Room、无 schema 迁移。
+     */
+    protected fun updateMediaProgressStat(
+        m: MediaEntity,
+        dataType: DataType,
+        total: Long,
+        increment: Long,
+        speed: Long,
+    ) {
+        mResticBytesWritten = increment
+        updateProgressStat(
+            key = progressStatKey(key = m.name, dataType = dataType),
+            stat = ProgressStat(
+                total = total,
+                increment = increment,
+                speed = speed,
+                dedupRatio = dedupRatioOf(total = total, increment = increment),
+            ),
+        )
+    }
 
     override suspend fun onInitializingPreprocessingEntities(entities: MutableList<ProcessingInfoEntity>) {
         entities.apply {
@@ -236,16 +268,19 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
         // 每次备份前复位共享进度状态
         mResticSpeed = 0L
         mResticBytesDone = 0L
+        mResticBytesWritten = 0L
 
-        // 轮询协程：每 500ms 把 native 上报的速度/累积字节刷到 UI（不阻塞 native 上传线程）
+        val statKey = progressStatKey(key = mediaName, dataType = dataType)
+
+        // 轮询协程：每 500ms 把 native 上报的速度/累积字节刷给 UI（只写内存 StateFlow，不打 DB）
         var polling = true
         val uiJob = CoroutineScope(coroutineContext).launch {
             while (polling) {
                 if (t != null) {
-                    val speedText = if (mResticSpeed > 0) mResticSpeed.formatToStorageSizePerSecond() else ""
-                    val sizeText = mResticBytesDone.toDouble().formatSize()
-                    val content = if (speedText.isNotEmpty()) "$speedText | $sizeText" else sizeText
-                    t.update(content = content)
+                    updateProgressStat(
+                        key = statKey,
+                        stat = ProgressStat(total = mResticBytesDone, increment = mResticBytesWritten, speed = mResticSpeed),
+                    )
                 }
                 delay(500)
             }

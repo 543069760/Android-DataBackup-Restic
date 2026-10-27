@@ -17,13 +17,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.rounded.Circle
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -64,6 +64,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xayah.core.datastore.readRestoreUser
 import com.xayah.core.model.OperationState
+import com.xayah.core.model.ProgressStat
+import com.xayah.core.model.util.formatSize
+import com.xayah.core.model.util.formatToStorageSizePerSecond
 import com.xayah.core.ui.R
 import com.xayah.core.ui.material3.CardColors
 import com.xayah.core.ui.material3.CardDefaults
@@ -150,6 +153,7 @@ fun ProcessingCard(
     expanded: Boolean = false,
     items: List<ProcessingCardItem>,
     processingIndex: Int,
+    stats: Map<String, ProgressStat> = emptyMap(),
     onActionBarClick: () -> Unit = {},
 ) {
     val successCount by remember(items) { mutableIntStateOf(items.count { it.state == OperationState.DONE || it.state == OperationState.SKIP }) }
@@ -257,6 +261,8 @@ fun ProcessingCard(
                                     horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level16),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    // 实时进度胶囊优先：数据来自进程内 StateFlow（不落 Room）
+                                    val stat = stats[item.key]
                                     item.state.StateView(enabled = enabled, expanded = false, isProcessing = processingIndex == index)
                                     Column(
                                         modifier = Modifier.weight(1f),
@@ -268,7 +274,7 @@ fun ProcessingCard(
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
-                                        if (item.content.isNotEmpty()) {
+                                        if (item.content.isNotEmpty() && (stat == null || stat.isEmpty)) {
                                             LabelSmallText(
                                                 text = item.content,
                                                 color = ThemedColorSchemeKeyTokens.OnSurfaceVariant.value.withState(enabled),
@@ -276,18 +282,131 @@ fun ProcessingCard(
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                         }
+                                        // 标题行只放标题；胶囊整组下移到独立的两行（2×2 网格），
+                                        // 独占整行宽度，不与标题争空间。
+                                        if (stat != null && stat.isEmpty.not()) {
+                                            ProgressStatChips(
+                                                enabled = enabled,
+                                                stat = stat,
+                                            )
+                                        }
                                     }
-                                    Icon(
-                                        imageVector = Icons.Rounded.Circle,
-                                        contentDescription = null,
-                                        tint = ThemedColorSchemeKeyTokens.Transparent.value
-                                    )
                                 }
                             }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * 单个进度胶囊：淡色容器 + 「标签 + 数值」两段小字。
+ */
+@ExperimentalFoundationApi
+@Composable
+private fun ProgressStatChip(
+    enabled: Boolean,
+    label: String,
+    value: String,
+    container: ThemedColorSchemeKeyTokens,
+    content: ThemedColorSchemeKeyTokens,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        // 宽度由外层决定（网格里是 weight(1f) 等分），这里不自行改约束
+        modifier = modifier,
+        enabled = enabled,
+        shape = RoundedCornerShape(SizeTokens.Level8),
+        color = container.value.withState(enabled),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = SizeTokens.Level6, vertical = SizeTokens.Level4),
+            horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level4),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            LabelSmallText(
+                text = label,
+                color = content.value.withState(enabled).copy(alpha = 0.7f),
+                maxLines = 1,
+                // 胶囊宽度固定（等分半行），溢出用省略号而不是画到相邻胶囊上
+                overflow = TextOverflow.Ellipsis
+            )
+            LabelSmallText(
+                text = value,
+                color = content.value.withState(enabled),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+/**
+ * 「总量 / 增量 / 速度 / 去重率」四个同款淡色胶囊，固定 2×2 网格：
+ *
+ * ```
+ * [总量]  [增量]
+ * [速度]  [去重率]
+ * ```
+ *
+ * 整组占满内容区整行宽度（在标题下方独立成行），每行两个胶囊各占等分宽度，
+ * 因此永远两列对齐，不会挤占标题，也不会像 FlowRow 那样在窄屏折成竖列。
+ * 速度胶囊始终占位（速度为 0 显示 0 B/s），保证第二行两列不位移。
+ */
+@ExperimentalFoundationApi
+@Composable
+private fun ProgressStatChips(
+    modifier: Modifier = Modifier,
+    enabled: Boolean,
+    stat: ProgressStat,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(SizeTokens.Level4),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level4),
+        ) {
+            ProgressStatChip(
+                modifier = Modifier.weight(1f),
+                enabled = enabled,
+                label = stringResource(id = R.string.total),
+                value = stat.total.toDouble().formatSize(),
+                container = ThemedColorSchemeKeyTokens.SecondaryContainer,
+                content = ThemedColorSchemeKeyTokens.OnSecondaryContainer,
+            )
+            ProgressStatChip(
+                modifier = Modifier.weight(1f),
+                enabled = enabled,
+                label = stringResource(id = R.string.increment),
+                value = stat.increment.toDouble().formatSize(),
+                container = ThemedColorSchemeKeyTokens.TertiaryContainer,
+                content = ThemedColorSchemeKeyTokens.OnTertiaryContainer,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level4),
+        ) {
+            ProgressStatChip(
+                modifier = Modifier.weight(1f),
+                enabled = enabled,
+                label = stringResource(id = R.string.speed),
+                value = stat.speed.formatToStorageSizePerSecond(),
+                container = ThemedColorSchemeKeyTokens.SecondaryContainer,
+                content = ThemedColorSchemeKeyTokens.OnSecondaryContainer,
+            )
+            ProgressStatChip(
+                modifier = Modifier.weight(1f),
+                enabled = enabled,
+                label = stringResource(id = R.string.dedup_rate),
+                value = if (stat.dedupRatio.isNaN()) "-" else "%.1f%%".format(stat.dedupRatio * 100),
+                container = ThemedColorSchemeKeyTokens.TertiaryContainer,
+                content = ThemedColorSchemeKeyTokens.OnTertiaryContainer,
+            )
         }
     }
 }

@@ -7,11 +7,13 @@ import android.content.ServiceConnection
 import android.os.IBinder
 import android.os.Build
 import android.os.RemoteException
+import com.xayah.core.model.ProgressStat
 import com.xayah.core.util.NotificationUtil
 import com.xayah.core.util.withMainContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
+import kotlinx.coroutines.flow.StateFlow
 
 abstract class AbstractProcessingServiceProxy {
     private var mBinder: IBinder? = null
@@ -118,5 +120,15 @@ abstract class AbstractProcessingServiceProxy {
     suspend fun requestCancel() = getService().requestCancel()
 
     suspend fun cancel() = getService().cancel()
+
+    /**
+     * 处理服务的内存实时进度流。
+     *
+     * 处理服务与本代理运行在同一个进程（本地 binder），因此这里直接把服务侧的 StateFlow 委托出来，
+     * 不经过 AIDL，也不读写 Room。UI 侧收集它即可得到「总量 / 增量 / 速度」三元组。
+     */
+    suspend fun getProgressStats(): StateFlow<Map<String, ProgressStat>> = getService().progressStats
+
+    suspend fun clearProgressStats() = getService().clearProgressStats()
 
 }

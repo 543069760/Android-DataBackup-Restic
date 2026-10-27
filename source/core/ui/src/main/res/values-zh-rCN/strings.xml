@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="total">总量</string>
+    <string name="increment">增量</string>
+    <string name="speed">速度</string>
+    <string name="dedup_rate">去重率</string>
+</resources>

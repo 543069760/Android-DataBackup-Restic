@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.navigation.NavController
 import com.xayah.core.data.repository.TaskRepository
+import com.xayah.core.model.DataType
+import com.xayah.core.model.progressStatKey
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.service.AbstractProcessingServiceProxy
 import com.xayah.core.ui.model.ProcessingDataCardItem
@@ -41,13 +43,14 @@ abstract class AbstractPackagesProcessingViewModel(
                             key = it.packageEntity.packageName,
                             processingIndex = it.processingIndex,
                             progress = (it.apkInfo.progress + it.userInfo.progress + it.userDeInfo.progress + it.dataInfo.progress + it.obbInfo.progress + it.mediaInfo.progress) / 6,
+                            // key 与 service 侧 progressStatKey 保持一致，用于匹配内存进度胶囊
                             items = listOf(
-                                it.apkInfo.toProcessingCardItem,
-                                it.userInfo.toProcessingCardItem,
-                                it.userDeInfo.toProcessingCardItem,
-                                it.dataInfo.toProcessingCardItem,
-                                it.obbInfo.toProcessingCardItem,
-                                it.mediaInfo.toProcessingCardItem,
+                                it.apkInfo.toProcessingCardItem.copy(key = progressStatKey(it.packageEntity.packageName, DataType.PACKAGE_APK)),
+                                it.userInfo.toProcessingCardItem.copy(key = progressStatKey(it.packageEntity.packageName, DataType.PACKAGE_USER)),
+                                it.userDeInfo.toProcessingCardItem.copy(key = progressStatKey(it.packageEntity.packageName, DataType.PACKAGE_USER_DE)),
+                                it.dataInfo.toProcessingCardItem.copy(key = progressStatKey(it.packageEntity.packageName, DataType.PACKAGE_DATA)),
+                                it.obbInfo.toProcessingCardItem.copy(key = progressStatKey(it.packageEntity.packageName, DataType.PACKAGE_OBB)),
+                                it.mediaInfo.toProcessingCardItem.copy(key = progressStatKey(it.packageEntity.packageName, DataType.PACKAGE_MEDIA)),
                             )
                         )
                     )

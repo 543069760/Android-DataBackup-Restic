@@ -14,6 +14,7 @@ import com.xayah.core.database.dao.TaskDao
 import com.xayah.core.model.DataType
 import com.xayah.core.model.OpType
 import com.xayah.core.model.OperationState
+import com.xayah.core.model.ProgressStat
 import com.xayah.core.model.TaskType
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.CloudType
@@ -23,6 +24,8 @@ import com.xayah.core.model.database.TaskDetailPackageEntity
 import com.xayah.core.model.database.TaskEntity
 import com.xayah.core.model.util.get
 import com.xayah.core.model.util.formatSize
+import com.xayah.core.model.progressStatKey
+import com.xayah.core.model.dedupRatioOf
 import com.xayah.core.network.client.CloudClient
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.service.util.CommonBackupUtil
@@ -236,7 +239,9 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
 
                 Log.i(mTAG, "cloud fd-backup start pkg=${p.packageName} type=${type.type} sizeBytes=${argvResult.sizeBytes} cancelId=$cancelId")
                 t.update(dataType = type, state = OperationState.PROCESSING)
+                // 节流时间戳：poll 回调频率高，≥500ms 才刷一次内存进度
                 var lastContentUpdate = 0L
+                val statKey = progressStatKey(key = p.packageName, dataType = type)
                 val startMs = System.currentTimeMillis()
 
                 try {
@@ -250,20 +255,23 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                             tags = listOf(tag),
                             options = options,
                             cancelId = cancelId,
-                            onProgress = { readBytes, _ ->
+                            // 实时进度只写内存 StateFlow（进程内），不再高频 upsert Room content
+                            onProgress = { readBytes, _, writtenBytes ->
                                 val now = System.currentTimeMillis()
                                 if (now - lastContentUpdate >= 500) {
                                     lastContentUpdate = now
-                                    // 与云端现有体验一致：平均速度 | 累积量（fd 流无分母，无百分比）
+                                    // 云端沿用"平均速度"口径，无分母（fd 流 readTotal 恒 0）
                                     val elapsedMs = (now - startMs).coerceAtLeast(1L)
                                     val avgSpeed = if (readBytes > 0) readBytes * 1000L / elapsedMs else 0L
-                                    val bytesText = readBytes.toDouble().formatSize()
-                                    val speedText = if (avgSpeed > 0) avgSpeed.formatToStorageSizePerSecond() else ""
-                                    val content = if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
-                                    // t.update 是 suspend——onProgress 在 binder 线程被调，用 runBlocking 桥接
-                                    runBlocking {
-                                        t.update(dataType = type, state = OperationState.PROCESSING, content = content)
-                                    }
+                                    updateProgressStat(
+                                        key = statKey,
+                                        stat = ProgressStat(
+                                            total = readBytes,
+                                            increment = writtenBytes,
+                                            speed = avgSpeed,
+                                            dedupRatio = dedupRatioOf(total = readBytes, increment = writtenBytes),
+                                        ),
+                                    )
                                 }
                             }
                         )
@@ -274,9 +282,11 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                         // 定格 DONE，副标题 "平均速度 | 大小"
                         val bytesText = streamResult.fedBytes.toDouble().formatSize()
                         val elapsedMs = System.currentTimeMillis() - startMs
-                        val speedText = if (elapsedMs > 0 && streamResult.fedBytes > 0)
-                            (streamResult.fedBytes * 1000 / elapsedMs).formatToStorageSizePerSecond()
-                        else ""
+                        val avgSpeed = if (elapsedMs > 0 && streamResult.fedBytes > 0) streamResult.fedBytes * 1000 / elapsedMs else 0L
+                        val speedText = if (avgSpeed > 0) avgSpeed.formatToStorageSizePerSecond() else ""
+                        // 终值落内存 + 已有列（content/bytes），不新增列、不做迁移
+                        // 总量用 fedBytes，增量沿用最后一次真实写入量（不能被 fedBytes 覆盖）
+                        freezeProgressStat(key = statKey, total = streamResult.fedBytes, speed = avgSpeed)
                         t.update(
                             dataType = type,
                             state = OperationState.DONE,

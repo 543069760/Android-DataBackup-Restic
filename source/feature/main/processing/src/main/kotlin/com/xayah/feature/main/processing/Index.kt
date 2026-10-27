@@ -103,6 +103,8 @@ fun PageProcessing(
     val postItemsProgress by viewModel.postItemsProgress.collectAsStateWithLifecycle()
     val postItems by viewModel.postItems.collectAsStateWithLifecycle()
     val dataItems by viewModel.dataItems.collectAsStateWithLifecycle()
+    // 内存实时进度（总量/增量/速度）：与 DB 完全解耦的第二条数据源
+    val stats by viewModel.progressStats.collectAsStateWithLifecycle()
     val navController = LocalNavController.current!!
     val dialogState = LocalSlotScope.current!!.dialogSlot
     val progress: Float by remember(task?.processingIndex, dataItems.size) {
@@ -482,6 +484,7 @@ fun PageProcessing(
                                 expanded = expanded,
                                 items = item.items,
                                 processingIndex = item.processingIndex,
+                                stats = stats,
                                 // 点击门控下放到 ProcessingCard（按该卡片自身 state 判断 DONE/ERROR 才可点）；
                                 // 这里只负责翻转该 key 的展开态，不再死绑 uiState.state == DONE。
                                 onActionBarClick = {

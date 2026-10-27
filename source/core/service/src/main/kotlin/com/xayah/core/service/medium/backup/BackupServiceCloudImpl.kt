@@ -217,19 +217,21 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                 tags = listOf(tag),
                 options = options,
                 cancelId = cancelId,
-                onProgress = { readBytes, _ ->
+                // 实时进度只写内存 StateFlow（进程内），不再高频 upsert Room content
+                onProgress = { readBytes, _, writtenBytes ->
                     val now = System.currentTimeMillis()
                     if (now - lastContentUpdate >= 500) {
                         lastContentUpdate = now
-                        // 与云端现有体验一致：平均速度 | 累积量（fd 流无分母，无百分比）
+                        // 云端沿用"平均速度"口径，无分母（fd 流 readTotal 恒 0）
                         val elapsedMs = (now - startMs).coerceAtLeast(1L)
                         val avgSpeed = if (readBytes > 0) readBytes * 1000L / elapsedMs else 0L
-                        val bytesText = readBytes.toDouble().formatSize()
-                        val speedText = if (avgSpeed > 0) avgSpeed.formatToStorageSizePerSecond() else ""
-                        val content = if (speedText.isNotEmpty()) "$speedText | $bytesText" else bytesText
-                        runBlocking {
-                            t.update(state = OperationState.PROCESSING, content = content)
-                        }
+                        updateMediaProgressStat(
+                            m = m,
+                            dataType = DataType.PACKAGE_MEDIA,
+                            total = readBytes,
+                            increment = writtenBytes,
+                            speed = avgSpeed,
+                        )
                     }
                 }
             )

@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.navigation.NavController
 import com.xayah.core.data.repository.TaskRepository
+import com.xayah.core.model.DataType
+import com.xayah.core.model.progressStatKey
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.service.AbstractProcessingServiceProxy
 import com.xayah.core.ui.model.ProcessingDataCardItem
@@ -39,7 +41,8 @@ abstract class AbstractMediumProcessingViewModel(
                             processingIndex = it.processingIndex,
                             progress = it.mediaInfo.progress,
                             items = listOf(
-                                it.mediaInfo.toProcessingCardItem,
+                                // key 与 service 侧 progressStatKey 保持一致，用于匹配内存进度胶囊
+                                it.mediaInfo.toProcessingCardItem.copy(key = progressStatKey(it.mediaEntity.name, DataType.PACKAGE_MEDIA)),
                             )
                         )
                     )

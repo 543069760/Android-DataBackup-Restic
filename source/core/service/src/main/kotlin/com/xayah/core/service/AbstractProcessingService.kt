@@ -17,6 +17,8 @@ import com.xayah.core.datastore.readScreenOffTimeout
 import com.xayah.core.datastore.saveScreenOffCountDown
 import com.xayah.core.datastore.saveScreenOffTimeout
 import com.xayah.core.model.OperationState
+import com.xayah.core.model.ProgressStat
+import com.xayah.core.model.dedupRatioOf
 import com.xayah.core.model.database.ProcessingInfoEntity
 import com.xayah.core.model.database.TaskEntity
 import com.xayah.core.model.util.set
@@ -29,6 +31,9 @@ import com.xayah.core.util.NotificationUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.withLog
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -167,6 +172,55 @@ internal abstract class AbstractProcessingService : Service() {
      * 检查是否已请求取消
      */
     protected fun isCanceled(): Boolean = mIsCanceled
+
+    /**
+     * 内存实时进度：key 见 [progressStatKey]，值为该数据项的 { 源读取累积 / 去重后写入累积 / 速度 }。
+     *
+     * 与 Room 完全解耦——native（binder）线程只做一次 volatile 写，UI 侧直接收集，
+     * 不产生任何 UPDATE 语句，也不引入新的数据库列或 schema 迁移。
+     * 任务级/项级的最终持久化仍走现有列（见各备份实现结束时的 update）。
+     */
+    private val mProgressStats = MutableStateFlow<Map<String, ProgressStat>>(emptyMap())
+    val progressStats: StateFlow<Map<String, ProgressStat>> = mProgressStats.asStateFlow()
+
+    /**
+     * 更新某个数据项的实时进度。可在任意线程调用（仅 volatile 写，无阻塞）。
+     */
+    fun updateProgressStat(key: String, stat: ProgressStat) {
+        mProgressStats.value = HashMap(mProgressStats.value).apply { put(key, stat) }
+    }
+
+    /**
+     * 定格某个数据项的终值。
+     *
+     * 源读取总量用 native 回传的 [total]（fedBytes）覆盖，
+     * 而写入累积（increment）必须沿用过程中最后一次上报的真实写入量——
+     * native 只回传 fedBytes，若这里把 increment 也写成 fedBytes，
+     * 就会出现「增量 == 总量」的假象（全去重备份本应增量远小于总量）。
+     *
+     * @param key 见 [progressStatKey]
+     * @param total 源读取总字节（fedBytes）
+     * @param speed 平均速度（B/s）
+     */
+    fun freezeProgressStat(key: String, total: Long, speed: Long) {
+        val increment = (mProgressStats.value[key]?.increment ?: 0L).coerceAtMost(total)
+        updateProgressStat(
+            key = key,
+            stat = ProgressStat(
+                total = total,
+                increment = increment,
+                speed = speed,
+                dedupRatio = dedupRatioOf(total = total, increment = increment),
+            ),
+        )
+    }
+
+    /**
+     * 清空内存进度快照。
+     */
+    fun clearProgressStats() {
+        mProgressStats.value = emptyMap()
+    }
     /**
      * 子类可重写此方法来实现具体的清理逻辑
      */

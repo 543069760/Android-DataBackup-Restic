@@ -235,7 +235,7 @@ class MediumBackupUtil @Inject constructor(
         tags: List<String>,
         options: Map<String, String> = emptyMap(),
         callback: ICallback? = null,
-        onProgress: ((readBytes: Long, writtenSpeed: Long) -> Unit)? = null,
+        onProgress: ((readBytes: Long, writtenSpeed: Long, writtenBytes: Long) -> Unit)? = null,
         cancelId: Long = 0L,
     ): StreamBackupResult = run {
         val out = mutableListOf<String>()
@@ -259,7 +259,7 @@ class MediumBackupUtil @Inject constructor(
                     "FdBackup",
                     "progress read=$readBytes/$readTotal written=$writtenBytes speed=${writtenSpeed.formatToStorageSizePerSecond()}"
                 )
-                onProgress?.invoke(readBytes, writtenSpeed)
+                onProgress?.invoke(readBytes, writtenSpeed, writtenBytes)
                 callback?.onProgress(readBytes, readTotal, readProgress, writtenBytes, writtenSpeed)
             }
 

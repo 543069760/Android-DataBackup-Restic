@@ -8,6 +8,8 @@ data class ProcessingCardItem(
     val title: String = "",
     val content: String = "",
     val log: String = "",
+    // 内存进度 StateFlow 的索引键（key#dataType），用于匹配该行的「总量/增量/速度」
+    val key: String = "",
 )
 
 data class ProcessingDataCardItem(

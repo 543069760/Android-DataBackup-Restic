@@ -7,6 +7,7 @@ import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.datastore.readScreenOffCountDown
 import com.xayah.core.model.OperationState
 import com.xayah.core.model.ProcessingType
+import com.xayah.core.model.ProgressStat
 import com.xayah.core.model.StorageMode
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.TaskEntity
@@ -27,6 +28,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.delay
@@ -90,6 +93,27 @@ abstract class AbstractProcessingViewModel(
         msg
     }
 
+    /**
+     * 内存实时进度（总量 / 增量 / 速度）：直连处理服务的 StateFlow，独立于 Room。
+     * binder 同进程直通，实时值不落库、不涉及任何 schema 迁移。
+     */
+    private val _progressStats: MutableStateFlow<Map<String, ProgressStat>> = MutableStateFlow(emptyMap())
+    val progressStats: StateFlow<Map<String, ProgressStat>> = _progressStats.asStateFlow()
+    private var mProgressStatsJob: Job? = null
+
+    private fun collectProgressStats(storageType: StorageMode) {
+        mProgressStatsJob?.cancel()
+        _progressStats.value = emptyMap()
+        mProgressStatsJob = launchOnIO {
+            runCatching {
+                val stats = if (storageType == StorageMode.Cloud) mCloudService.getProgressStats() else mLocalService.getProgressStats()
+                stats.collect { _progressStats.value = it }
+            }.onFailure {
+                log { "collectProgressStats failed: ${it.message}" }
+            }
+        }
+    }
+
     open suspend fun onOtherEvent(state: IndexUiState, intent: ProcessingUiIntent) {}
 
     init {
@@ -109,6 +133,8 @@ abstract class AbstractProcessingViewModel(
             is ProcessingUiIntent.Process -> {
                 mProcessJob = coroutineContext[Job]
                 try {
+                    // 处理服务与本 VM 同进程，直接从它拿内存进度流作为独立于 DB 的第二条数据源
+                    collectProgressStats(state.storageType)
                     emitState(state.copy(state = OperationState.PROCESSING))
                     if (state.storageType == StorageMode.Cloud) {
                         // Cloud
