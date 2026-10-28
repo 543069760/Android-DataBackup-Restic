@@ -32,6 +32,7 @@ import com.xayah.core.service.util.CommonBackupUtil
 import com.xayah.core.service.util.PackagesBackupUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.localBackupSaveDir
+import com.xayah.core.util.toFriendlyMessage
 import com.xayah.core.util.encodeAccountId
 import com.xayah.core.util.command.Tar
 import com.xayah.core.util.IconRelativeDir
@@ -186,7 +187,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                 val isCancel = e.message?.contains("rustic backup canceled") == true ||
                         e.message?.contains("cancelled by the user") == true
                 t.update(dataType = type, state = OperationState.ERROR,
-                    log = if (isCancel) "canceled" else (e.message ?: "unknown"))
+                    log = if (isCancel) "canceled" else e.toFriendlyMessage(mContext))
                 if (isCancel) {
                     runCatching {
                         t.update(state = OperationState.ERROR)
@@ -313,7 +314,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                             e.message?.contains("cancelled by the user") == true ||
                             e.message?.contains("tar aborted via cancelFd") == true
                     t.update(dataType = type, state = OperationState.ERROR,
-                        log = if (isCancel) "canceled" else (e.message ?: "unknown"))
+                        log = if (isCancel) "canceled" else e.toFriendlyMessage(mContext))
                     if (isCancel) {
                         runCatching {
                             t.update(state = OperationState.ERROR)

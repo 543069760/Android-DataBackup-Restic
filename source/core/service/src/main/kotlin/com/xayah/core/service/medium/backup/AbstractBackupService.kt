@@ -27,6 +27,7 @@ import com.xayah.core.service.medium.AbstractMediumService
 import com.xayah.core.service.util.MediumBackupUtil
 import com.xayah.core.util.DateUtil
 import com.xayah.core.util.NotificationUtil
+import com.xayah.core.util.toFriendlyMessage
 import com.xayah.core.util.PathUtil
 import com.xayah.core.restic.ResticRepository
 import com.xayah.core.restic.ResticRepository.ResticProgressCallback
@@ -628,7 +629,7 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
                                         e.message?.contains("cancelled by the user") == true ||
                                         e.message?.contains("tar aborted via cancelFd") == true
                                 media.update(state = OperationState.ERROR,
-                                    log = if (isCancel) "canceled" else (e.message ?: "unknown"))
+                                    log = if (isCancel) "canceled" else e.toFriendlyMessage(mContext))
                                 if (isCancel) {
                                     mTaskEntity.update(failureCount = mTaskEntity.failureCount + 1)
                                     throw kotlinx.coroutines.CancellationException("backup canceled: ${e.message}")

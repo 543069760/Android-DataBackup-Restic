@@ -24,6 +24,7 @@ import com.xayah.core.util.LogUtil
 import com.xayah.core.util.decodeURL
 import com.xayah.core.util.localBackupSaveDir
 import com.xayah.core.util.navigateSingle
+import com.xayah.core.util.toFriendlyMessage
 import com.xayah.feature.main.processing.AbstractMediumProcessingViewModel
 import com.xayah.feature.main.processing.FinishSetup
 import com.xayah.feature.main.processing.IndexUiState
@@ -141,7 +142,7 @@ class RestoreViewModelImpl @Inject constructor(
                     }.onFailure {
                         emitEffect(IndexUiEffect.DismissSnackbar)
                         if (it.localizedMessage != null)
-                            emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Error, message = it.localizedMessage!!, duration = SnackbarDuration.Long))
+                            emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Error, message = it.toFriendlyMessage(mContext), duration = SnackbarDuration.Long))
                     }
                     _isTesting.value = false
                 } else {

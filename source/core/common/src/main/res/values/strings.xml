@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Native (rustic / librclone) errors, collapsed into a single friendly line. -->
+    <string name="native_error_canceled">Operation canceled</string>
+    <string name="native_error_auth">Authentication failed. Please check your password or credentials.</string>
+    <string name="native_error_repo_not_found">Backup repository not found</string>
+    <string name="native_error_network">Network connection failed. Please check the network and the server address.</string>
+    <string name="native_error_no_space">Not enough storage space</string>
+    <string name="native_error_tls">Certificate verification failed</string>
+    <string name="native_error_permission">Access denied. Please check permissions.</string>
+    <string name="native_error_smb_share">The SMB share name is invalid or unreachable</string>
+    <string name="native_error_obscure">Failed to decode the password</string>
+    <string name="native_error_unknown">Operation failed: %1$s</string>
+</resources>

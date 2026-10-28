@@ -23,6 +23,7 @@ import com.xayah.core.service.util.CommonBackupUtil
 import com.xayah.core.service.util.MediumBackupUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.localBackupSaveDir
+import com.xayah.core.util.toFriendlyMessage
 import com.xayah.core.restic.CloudResticBackend
 import com.xayah.core.restic.ResticRepository.ResticProgressCallback
 import com.xayah.core.restic.ResticSnapshot
@@ -175,7 +176,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
                     } catch (e: Exception) {
                         if (e is kotlinx.coroutines.CancellationException) throw e
                         Log.e(mTAG, "Upload failed for ${m.name}", e)
-                        t.update(state = OperationState.ERROR, log = e.message)
+                        t.update(state = OperationState.ERROR, log = e.toFriendlyMessage(mContext))
                         return
                     }
                 } else {
@@ -190,7 +191,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(mTAG, "Backup failed for ${m.name}", e)
-            t.update(state = OperationState.ERROR, log = e.message)
+            t.update(state = OperationState.ERROR, log = e.toFriendlyMessage(mContext))
             throw e
         }
     }

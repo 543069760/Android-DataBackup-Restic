@@ -18,6 +18,7 @@ import kotlinx.coroutines.isActive
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.coroutineContext
 import java.io.File
+import com.xayah.core.util.toFriendlyMessage
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -247,7 +248,7 @@ class ResticRepositorySftp @Inject constructor(
                 Pair(1, "用户取消")
             } else {
                 Log.e("RusticCancel", "backupFileToSftp failed, cancelId=$cancelId, msg=$msg")
-                Pair(1, msg)
+                Pair(1, e.toFriendlyMessage(shared.context))
             }
         } finally {
             // 先停轮询、等它干净结束，再停 serve，避免 serve 停后轮询仍打 RPC。

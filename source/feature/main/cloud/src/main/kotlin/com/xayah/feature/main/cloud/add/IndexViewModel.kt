@@ -30,6 +30,7 @@ import com.xayah.core.ui.viewmodel.IndexUiEffect
 import com.xayah.core.ui.viewmodel.UiIntent
 import com.xayah.core.ui.viewmodel.UiState
 import com.xayah.core.util.GsonUtil
+import com.xayah.core.util.toFriendlyMessage
 import com.xayah.core.util.decodeURL
 import com.xayah.feature.main.cloud.R
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -471,7 +472,7 @@ class IndexViewModel @Inject constructor(
                 }.onFailure {
                     emitEffect(IndexUiEffect.DismissSnackbar)
                     if (it.localizedMessage != null)
-                        emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Error, message = it.localizedMessage!!, duration = SnackbarDuration.Long))
+                        emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Error, message = it.toFriendlyMessage(cloudRepo.context), duration = SnackbarDuration.Long))
                 }
                 emitState(state.copy(isProcessing = false))
             }
@@ -505,7 +506,7 @@ class IndexViewModel @Inject constructor(
                 }.onFailure {
                     emitEffect(IndexUiEffect.DismissSnackbar)
                     if (it.localizedMessage != null)
-                        emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Error, message = it.localizedMessage!!, duration = SnackbarDuration.Long))
+                        emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Error, message = it.toFriendlyMessage(cloudRepo.context), duration = SnackbarDuration.Long))
                 }
                 emitState(uiState.value.copy(isProcessing = false))
             }

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="native_error_canceled">操作已取消</string>
+    <string name="native_error_auth">密码或认证失败，请检查凭据</string>
+    <string name="native_error_repo_not_found">未找到备份仓库</string>
+    <string name="native_error_network">网络连接失败，请检查网络与服务器地址</string>
+    <string name="native_error_no_space">存储空间不足</string>
+    <string name="native_error_tls">证书校验失败</string>
+    <string name="native_error_permission">访问被拒绝，请检查权限</string>
+    <string name="native_error_smb_share">SMB 共享名无效或不可访问</string>
+    <string name="native_error_obscure">密码解码失败</string>
+    <string name="native_error_unknown">操作失败：%1$s</string>
+</resources>

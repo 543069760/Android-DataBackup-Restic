@@ -12,6 +12,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import com.xayah.core.util.toFriendlyMessage
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -40,6 +42,7 @@ fun ContinueButton(
     check: suspend () -> Boolean,
 ) {
     var isChecking by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
     val repositoryCheckingText = stringResource(id = R.string.repository_checking)
     val repositoryCheckFailedText = stringResource(id = R.string.repository_check_failed)
 
@@ -75,7 +78,7 @@ fun ContinueButton(
                     viewModel.emitEffect(IndexUiEffect.DismissSnackbar)
                     viewModel.emitEffectOnIO(
                         IndexUiEffect.ShowSnackbar(
-                            message = it.localizedMessage ?: repositoryCheckFailedText,
+                            message = it.toFriendlyMessage(context),
                             type = SnackbarType.Error,
                             duration = SnackbarDuration.Long,
                         )

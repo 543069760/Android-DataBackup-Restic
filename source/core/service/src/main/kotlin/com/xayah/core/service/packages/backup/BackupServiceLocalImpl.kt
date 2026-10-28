@@ -25,6 +25,7 @@ import com.xayah.core.service.util.CommonBackupUtil
 import com.xayah.core.service.util.PackagesBackupUtil
 import com.xayah.core.util.PathUtil
 import com.xayah.core.util.localBackupSaveDir
+import com.xayah.core.util.toFriendlyMessage
 import dagger.hilt.android.AndroidEntryPoint
 import java.io.File
 import javax.inject.Inject
@@ -103,7 +104,7 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
                 val isCancel = e.message?.contains("rustic backup canceled") == true ||
                         e.message?.contains("cancelled by the user") == true
                 t.update(dataType = type, state = OperationState.ERROR,
-                    log = if (isCancel) "canceled" else (e.message ?: "unknown"))
+                    log = if (isCancel) "canceled" else e.toFriendlyMessage(mContext))
                 if (isCancel) {
                     runCatching {
                         t.update(state = OperationState.ERROR)
@@ -237,7 +238,7 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
                     t.update(
                         dataType = type,
                         state = OperationState.ERROR,   // UI 只有 5 态无 CANCELED，先用 ERROR 收圈
-                        log = if (isCancel) "canceled" else (e.message ?: "unknown")
+                        log = if (isCancel) "canceled" else e.toFriendlyMessage(mContext)
                     )
                     if (isCancel) {
                         runCatching {

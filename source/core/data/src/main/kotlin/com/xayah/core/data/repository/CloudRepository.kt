@@ -11,6 +11,7 @@ import com.xayah.core.network.client.getCloud
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.LogUtil
 import com.xayah.core.util.PathUtil
+import com.xayah.core.util.toFriendlyMessage
 import com.xayah.core.util.model.ShellResult
 import com.xayah.core.database.dao.UploadIdDao
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -21,7 +22,7 @@ import java.io.StringWriter
 import javax.inject.Inject
 
 class CloudRepository @Inject constructor(
-    @ApplicationContext private val context: Context,
+    @ApplicationContext val context: Context,
     private val rootService: RemoteRootService,
     private val cloudDao: CloudDao,
     private val uploadIdDao: UploadIdDao
@@ -120,7 +121,7 @@ class CloudRepository @Inject constructor(
         if (!success) {
             code = -2
             if (lastException?.localizedMessage != null)
-                out.add(log { "Failed after $maxRetries attempts: ${lastException!!.localizedMessage!!}" })
+                out.add(log { "Failed after $maxRetries attempts: ${lastException!!.toFriendlyMessage(context)}" })
         }
 
         if (code == 0) {

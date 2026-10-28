@@ -18,6 +18,7 @@ import kotlinx.coroutines.isActive
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.coroutineContext
 import java.io.File
+import com.xayah.core.util.toFriendlyMessage
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -235,7 +236,7 @@ class ResticRepositorySmb @Inject constructor(
                 Pair(1, "用户取消")
             } else {
                 Log.e("RusticCancel", "backupFileToSmb failed, cancelId=$cancelId, msg=$msg")
-                Pair(1, msg)
+                Pair(1, e.toFriendlyMessage(shared.context))
             }
         } finally {
             polling.set(false)

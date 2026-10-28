@@ -2,6 +2,7 @@ package com.xayah.feature.main.cloud
 
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.xayah.core.data.repository.CloudRepository
+import com.xayah.core.util.toFriendlyMessage
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.network.client.getCloud
 import com.xayah.core.ui.material3.SnackbarDuration
@@ -48,7 +49,7 @@ class IndexViewModel @Inject constructor(
                 }.onFailure {
                     emitEffect(IndexUiEffect.DismissSnackbar)
                     if (it.localizedMessage != null)
-                        emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Error, message = it.localizedMessage!!, duration = SnackbarDuration.Long))
+                        emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Error, message = it.toFriendlyMessage(cloudRepo.context), duration = SnackbarDuration.Long))
                 }
                 emitState(state.copy(isProcessing = false))
             }

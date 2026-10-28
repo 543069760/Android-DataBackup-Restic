@@ -40,6 +40,7 @@ import com.xayah.core.ui.model.DialogRadioItem
 import com.xayah.core.ui.route.MainRoutes
 import com.xayah.core.ui.viewmodel.IndexUiEffect
 import com.xayah.core.util.navigateSingle
+import com.xayah.core.util.toFriendlyMessage
 import com.xayah.feature.main.processing.AbstractPackagesProcessingViewModel
 import com.xayah.feature.main.processing.FinishSetup
 import com.xayah.feature.main.processing.IndexUiState
@@ -146,7 +147,7 @@ class BackupViewModelImpl @Inject constructor(
                     }.onFailure {
                         emitEffect(IndexUiEffect.DismissSnackbar)
                         if (it.localizedMessage != null)
-                            emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Error, message = it.localizedMessage!!, duration = SnackbarDuration.Long))
+                            emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Error, message = it.toFriendlyMessage(mContext), duration = SnackbarDuration.Long))
                     }
                     _isTesting.value = false
                 } else if (state.storageType == StorageMode.Otg) {
@@ -200,7 +201,7 @@ class BackupViewModelImpl @Inject constructor(
                         mIsOtgTask = false
                         emitEffect(IndexUiEffect.DismissSnackbar)
                         if (it.localizedMessage != null)
-                            emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Error, message = it.localizedMessage!!, duration = SnackbarDuration.Long))
+                            emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Error, message = it.toFriendlyMessage(mContext), duration = SnackbarDuration.Long))
                     }
                     _isTesting.value = false
                 } else {
@@ -235,7 +236,7 @@ class BackupViewModelImpl @Inject constructor(
                     }.onFailure {
                         emitEffect(IndexUiEffect.DismissSnackbar)
                         if (it.localizedMessage != null)
-                            emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Error, message = it.localizedMessage!!, duration = SnackbarDuration.Long))
+                            emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Error, message = it.toFriendlyMessage(mContext), duration = SnackbarDuration.Long))
                     }
                     _isTesting.value = false
                 }

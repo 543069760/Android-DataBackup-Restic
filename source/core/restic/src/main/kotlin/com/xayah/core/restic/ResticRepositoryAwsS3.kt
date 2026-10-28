@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import java.io.File
+import com.xayah.core.util.toFriendlyMessage
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -134,7 +135,7 @@ class ResticRepositoryAwsS3 @Inject constructor(
                 Pair(1, "用户取消")
             } else {
                 Log.e("RusticCancel", "backupFile(awss3) failed, cancelId=$cancelId, msg=$msg")
-                Pair(1, msg)
+                Pair(1, e.toFriendlyMessage(shared.context))
             }
         }
     }
