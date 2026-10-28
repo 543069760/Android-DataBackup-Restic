@@ -48,6 +48,10 @@ sealed class MainRoutes(val route: String) {
         fun getRoute(name: String) = "main_aws_s3_setup/$name"
     }
 
+    data object AliyunOssSetup : MainRoutes(route = "main_aliyun_oss_setup/{$ARG_ACCOUNT_NAME}") {
+        fun getRoute(name: String) = "main_aliyun_oss_setup/$name"
+    }
+
     data object CacheManagement : MainRoutes(route = "main_cache_management")
     data object Settings : MainRoutes(route = "main_settings")
     data object Restore : MainRoutes(route = "main_restore")

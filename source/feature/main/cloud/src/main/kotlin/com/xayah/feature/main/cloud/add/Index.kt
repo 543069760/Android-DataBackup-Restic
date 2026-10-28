@@ -81,6 +81,12 @@ fun PageCloudAddAccount() {
                 ) {
                     navController.navigateSingle(MainRoutes.AwsS3Setup.getRoute(encodedURLWithSpace))
                 }
+                Clickable(
+                    icon = CloudType.ALIYUNOSS.icon,
+                    title = stringResource(id = R.string.cloud_type_aliyun_oss),
+                ) {
+                    navController.navigateSingle(MainRoutes.AliyunOssSetup.getRoute(encodedURLWithSpace))
+                }
             }
         }
     }

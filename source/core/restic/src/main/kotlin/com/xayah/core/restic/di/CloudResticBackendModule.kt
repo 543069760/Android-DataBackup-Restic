@@ -2,6 +2,7 @@ package com.xayah.core.restic.di
 
 import com.xayah.core.model.CloudType
 import com.xayah.core.restic.CloudResticBackend
+import com.xayah.core.restic.ResticRepositoryAliyunOss
 import com.xayah.core.restic.ResticRepositoryAwsS3
 import com.xayah.core.restic.ResticRepositoryCos
 import com.xayah.core.restic.ResticRepositoryFtp
@@ -55,4 +56,9 @@ abstract class CloudResticBackendModule {
     @IntoMap
     @CloudTypeKey(CloudType.AWSS3)
     abstract fun bindAwsS3Backend(impl: ResticRepositoryAwsS3): CloudResticBackend
+
+    @Binds
+    @IntoMap
+    @CloudTypeKey(CloudType.ALIYUNOSS)
+    abstract fun bindAliyunOssBackend(impl: ResticRepositoryAliyunOss): CloudResticBackend
 }

@@ -32,6 +32,11 @@ val KeyAwsS3ResticRepoPath = stringPreferencesKey("aws_s3_restic_repo_path")
 val KeyAwsS3ResticPassword = stringPreferencesKey("aws_s3_restic_password")
 val KeyAwsS3ResticInitialized = booleanPreferencesKey("aws_s3_restic_initialized")
 
+// 阿里云 OSS Restic 配置键
+val KeyAliyunOssResticRepoPath = stringPreferencesKey("aliyun_oss_restic_repo_path")
+val KeyAliyunOssResticPassword = stringPreferencesKey("aliyun_oss_restic_password")
+val KeyAliyunOssResticInitialized = booleanPreferencesKey("aliyun_oss_restic_initialized")
+
 // FTP Restic 配置键
 val KeyFtpResticRepoPath = stringPreferencesKey("ftp_restic_repo_path")
 val KeyFtpResticPassword = stringPreferencesKey("ftp_restic_password")
@@ -146,6 +151,43 @@ suspend fun Context.saveAwsS3ResticRepoPath(path: String) {
 suspend fun Context.readAwsS3ResticRepoPath(): String? {
     return dataStore.data.map { preferences ->
         preferences[KeyAwsS3ResticRepoPath]
+    }.first()
+}
+
+// 阿里云 OSS Restic 配置扩展函数
+suspend fun Context.saveAliyunOssResticPassword(password: String) {
+    dataStore.edit { settings ->
+        settings[KeyAliyunOssResticPassword] = password
+    }
+}
+
+suspend fun Context.readAliyunOssResticPassword(): String? {
+    return dataStore.data.map { preferences ->
+        preferences[KeyAliyunOssResticPassword]
+    }.first()
+}
+
+suspend fun Context.saveAliyunOssResticInitialized(initialized: Boolean) {
+    dataStore.edit { settings ->
+        settings[KeyAliyunOssResticInitialized] = initialized
+    }
+}
+
+suspend fun Context.readAliyunOssResticInitialized(): Boolean {
+    return dataStore.data.map { preferences ->
+        preferences[KeyAliyunOssResticInitialized] ?: false
+    }.first()
+}
+
+suspend fun Context.saveAliyunOssResticRepoPath(path: String) {
+    dataStore.edit { settings ->
+        settings[KeyAliyunOssResticRepoPath] = path
+    }
+}
+
+suspend fun Context.readAliyunOssResticRepoPath(): String? {
+    return dataStore.data.map { preferences ->
+        preferences[KeyAliyunOssResticRepoPath]
     }.first()
 }
 

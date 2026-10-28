@@ -31,4 +31,12 @@
     <!-- S3 (COS) Endpoint Hint & URL Preview -->
     <string name="s3_endpoint_example">Enter only the regional domain (without bucket name or protocol), e.g. cos.ap-shanghai.myqcloud.com</string>
     <string name="s3_url_preview">Full access URL: %s</string>
+    <!-- Aliyun OSS -->
+    <string name="cloud_type_aliyun_oss">Aliyun OSS</string>
+    <string name="aliyun_oss_setup">Aliyun OSS</string>
+    <string name="aliyun_oss_access_key_id">AccessKey ID</string>
+    <string name="aliyun_oss_access_key_secret">AccessKey Secret</string>
+    <string name="aliyun_oss_endpoint">Endpoint (Region Node)</string>
+    <string name="aliyun_oss_endpoint_example">Fill in the OSS region node (no bucket, no protocol), e.g. oss-cn-hangzhou.aliyuncs.com. For a custom domain or an ECS VPC/internal endpoint, fill in that address instead. If http(s):// is present it is used as-is, otherwise it is completed with the selected protocol.</string>
+    <string name="aliyun_oss_url_preview">Full URL: %1$s</string>
 </resources>

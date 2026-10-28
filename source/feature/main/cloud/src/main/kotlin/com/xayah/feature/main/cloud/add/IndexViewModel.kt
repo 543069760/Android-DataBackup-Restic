@@ -16,6 +16,8 @@ import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.database.S3Protocol
 import com.xayah.core.model.database.AwsS3Extra
 import com.xayah.core.model.database.AwsS3Protocol
+import com.xayah.core.model.database.AliyunOssExtra
+import com.xayah.core.model.database.AliyunOssProtocol
 import com.xayah.core.model.database.SMBExtra
 import com.xayah.core.network.client.getCloud
 import com.xayah.core.ui.material3.SnackbarDuration
@@ -295,6 +297,61 @@ class IndexViewModel @Inject constructor(
                 url = bucket,
                 username = accessKeyId,
                 password = secretAccessKey,
+                extra = entity.extra,
+                remote = remote,
+            )
+        )
+        return entity
+    }
+
+    // 阿里云 OSS：纯构造，字段映射必须与 updateAliyunOssEntity 完全一致
+    fun buildAliyunOssCloudEntity(
+        name: String, remote: String, type: String,
+        accessKeyId: String, accessKeySecret: String,
+        bucket: String, endpoint: String,
+        protocol: AliyunOssProtocol,
+        resticPassword: String,
+    ): CloudEntity {
+        val extra = GsonUtil().toJson(
+            AliyunOssExtra(
+                type = type, accessKeyId = accessKeyId,
+                accessKeySecret = accessKeySecret, bucket = bucket,
+                endpoint = endpoint, protocol = protocol,
+                resticPassword = resticPassword,
+            )
+        )
+        return CloudEntity(
+            name = name,
+            type = CloudType.ALIYUNOSS,
+            host = bucket,
+            user = accessKeyId,
+            pass = accessKeySecret,
+            remote = remote,
+            extra = extra,
+            activated = false,
+        )
+    }
+
+    suspend fun updateAliyunOssEntity(
+        name: String, remote: String, type: String,
+        accessKeyId: String, accessKeySecret: String,
+        bucket: String, endpoint: String,
+        protocol: AliyunOssProtocol,
+        resticPassword: String,
+    ): CloudEntity {
+        val entity = buildAliyunOssCloudEntity(
+            name = name, remote = remote, type = type,
+            accessKeyId = accessKeyId, accessKeySecret = accessKeySecret,
+            bucket = bucket, endpoint = endpoint,
+            protocol = protocol, resticPassword = resticPassword,
+        )
+        emitIntent(
+            IndexUiIntent.UpdateEntity(
+                name = name,
+                type = CloudType.ALIYUNOSS,
+                url = bucket,
+                username = accessKeyId,
+                password = accessKeySecret,
                 extra = entity.extra,
                 remote = remote,
             )

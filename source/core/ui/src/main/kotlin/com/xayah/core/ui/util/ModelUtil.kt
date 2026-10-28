@@ -21,6 +21,7 @@ val CloudType.icon: ImageVector
             CloudType.SMB -> Icons.Rounded.Lan
             CloudType.S3 -> Icons.Rounded.Storage
             CloudType.AWSS3 -> Icons.Rounded.Storage
+            CloudType.ALIYUNOSS -> Icons.Rounded.Storage
         }
     }
 

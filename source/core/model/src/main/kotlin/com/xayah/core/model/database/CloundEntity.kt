@@ -74,6 +74,28 @@ enum class AwsS3Protocol {
     HTTPS
 }
 
+/**
+ * 阿里云 OSS 账户附加配置。
+ * 字段与 opendal 0.57 `opendal-service-oss` 的 OssConfig 一一对应：
+ *   bucket / endpoint / access_key_id / access_key_secret（OSS 无 region，地域由 endpoint 表达）。
+ * endpoint 必须填写（如 oss-cn-hangzhou.aliyuncs.com），未带 scheme 时按 protocol 补 http(s)://。
+ */
+@Serializable
+data class AliyunOssExtra(
+    val type: String = "ALIYUNOSS",
+    val accessKeyId: String,
+    val accessKeySecret: String,
+    val bucket: String,
+    val endpoint: String = "",
+    val protocol: AliyunOssProtocol = AliyunOssProtocol.HTTPS,
+    val resticPassword: String = "",
+)
+
+enum class AliyunOssProtocol {
+    HTTP,
+    HTTPS
+}
+
 @Entity
 data class CloudEntity(
     @PrimaryKey var name: String,

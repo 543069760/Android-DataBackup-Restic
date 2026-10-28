@@ -31,4 +31,12 @@
     <!-- S3 (COS) 端点提示与完整地址预览 -->
     <string name="s3_endpoint_example">端点只填地域域名（不含桶名与协议），例如：cos.ap-shanghai.myqcloud.com</string>
     <string name="s3_url_preview">完整访问地址：%s</string>
+    <!-- 阿里云 OSS -->
+    <string name="cloud_type_aliyun_oss">阿里云OSS</string>
+    <string name="aliyun_oss_setup">阿里云 OSS</string>
+    <string name="aliyun_oss_access_key_id">访问密钥 ID (AccessKey ID)</string>
+    <string name="aliyun_oss_access_key_secret">访问密钥 Secret (AccessKey Secret)</string>
+    <string name="aliyun_oss_endpoint">地域节点 (Endpoint)</string>
+    <string name="aliyun_oss_endpoint_example">Endpoint 填写 OSS 地域节点（不含桶名与协议），例如：oss-cn-hangzhou.aliyuncs.com（华东1·杭州）；使用自定义域名或 ECS 的 VPC/内网地址时填写对应地址。已带 http(s):// 时按原样使用，否则按所选协议补全。</string>
+    <string name="aliyun_oss_url_preview">完整访问地址：%1$s</string>
 </resources>

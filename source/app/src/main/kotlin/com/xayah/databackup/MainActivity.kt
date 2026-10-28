@@ -54,6 +54,7 @@ import com.xayah.feature.main.cloud.add.PageSMBSetup
 import com.xayah.feature.main.cloud.add.PageWebDAVSetup
 import com.xayah.feature.main.cloud.add.PageS3Setup
 import com.xayah.feature.main.cloud.add.PageAwsS3Setup
+import com.xayah.feature.main.cloud.add.PageAliyunOssSetup
 import com.xayah.feature.main.configurations.PageConfigurations
 import com.xayah.feature.main.dashboard.PageDashboard
 import com.xayah.feature.main.details.DetailsRoute
@@ -194,6 +195,9 @@ class MainActivity : AppCompatActivity() {
                         }
                         composable(MainRoutes.AwsS3Setup.route) {
                             PageAwsS3Setup()
+                        }
+                        composable(MainRoutes.AliyunOssSetup.route) {
+                            PageAliyunOssSetup()
                         }
                         composable(
                             route = MainRoutes.List.route,
