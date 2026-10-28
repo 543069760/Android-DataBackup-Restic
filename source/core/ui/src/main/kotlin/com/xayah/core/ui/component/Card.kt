@@ -327,6 +327,8 @@ private fun ProgressStatChip(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             LabelSmallText(
+                // 数值优先：标签吃掉剩余空间并在不足时自身省略，保证右側数值永远完整可见
+                modifier = Modifier.weight(1f, fill = false),
                 text = label,
                 color = content.value.withState(enabled).copy(alpha = 0.7f),
                 maxLines = 1,

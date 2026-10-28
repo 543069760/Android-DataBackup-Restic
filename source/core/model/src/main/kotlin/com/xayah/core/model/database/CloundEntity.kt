@@ -96,6 +96,29 @@ enum class AliyunOssProtocol {
     HTTPS
 }
 
+/**
+ * 华为云 OBS 账户附加配置。
+ * 字段与 opendal 0.57 `opendal-service-obs` 的 ObsConfig 一一对应：
+ *   bucket / endpoint / access_key_id / secret_access_key（OBS 无 region，地域由 endpoint 表达）。
+ * endpoint 必须填写（如 obs.cn-north-4.myhuaweicloud.com）；OBS SDK 会自行拼接
+ * https://{bucket}.{endpoint}，因此下发前一律剥离 scheme，protocol 仅用于界面地址预览。
+ */
+@Serializable
+data class HuaweiObsExtra(
+    val type: String = "HUAWEIOBS",
+    val accessKeyId: String,
+    val secretAccessKey: String,
+    val bucket: String,
+    val endpoint: String = "",
+    val protocol: HuaweiObsProtocol = HuaweiObsProtocol.HTTPS,
+    val resticPassword: String = "",
+)
+
+enum class HuaweiObsProtocol {
+    HTTP,
+    HTTPS
+}
+
 @Entity
 data class CloudEntity(
     @PrimaryKey var name: String,

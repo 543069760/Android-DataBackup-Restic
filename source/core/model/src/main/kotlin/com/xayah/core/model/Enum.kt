@@ -98,6 +98,7 @@ enum class CloudType(val title: String) {
     S3("Tencent Cloud COS"),
     AWSS3("Amazon S3"),
     ALIYUNOSS("Aliyun OSS"),
+    HUAWEIOBS("Huawei Cloud OBS"),
 }
 
 enum class SFTPAuthMode(val index: Int) {

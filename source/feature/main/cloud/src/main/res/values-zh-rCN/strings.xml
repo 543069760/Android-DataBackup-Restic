@@ -37,6 +37,14 @@
     <string name="aliyun_oss_access_key_id">访问密钥 ID (AccessKey ID)</string>
     <string name="aliyun_oss_access_key_secret">访问密钥 Secret (AccessKey Secret)</string>
     <string name="aliyun_oss_endpoint">地域节点 (Endpoint)</string>
-    <string name="aliyun_oss_endpoint_example">Endpoint 填写 OSS 地域节点（不含桶名与协议），例如：oss-cn-hangzhou.aliyuncs.com（华东1·杭州）；使用自定义域名或 ECS 的 VPC/内网地址时填写对应地址。已带 http(s):// 时按原样使用，否则按所选协议补全。</string>
+    <string name="aliyun_oss_endpoint_example">Endpoint 填写 OSS 地域节点（不含桶名与协议），例如：oss-cn-hangzhou.aliyuncs.com（华东1·杭州）。已带 http(s):// 时按原样使用，否则按所选协议补全。</string>
     <string name="aliyun_oss_url_preview">完整访问地址：%1$s</string>
+    <!-- 华为云 OBS -->
+    <string name="cloud_type_huawei_obs">华为云OBS</string>
+    <string name="huawei_obs_setup">华为云 OBS</string>
+    <string name="huawei_obs_access_key_id">访问密钥 ID (Access Key Id / AK)</string>
+    <string name="huawei_obs_access_key_secret">秘密访问密钥 (Secret Access Key / SK)</string>
+    <string name="huawei_obs_endpoint">区域节点 (Endpoint)</string>
+    <string name="huawei_obs_endpoint_example">Endpoint 填写 OBS 区域节点（不含桶名与协议），例如：obs.cn-north-4.myhuaweicloud.com（华北-北京四）。下发前会剥离 http(s):// 前缀。</string>
+    <string name="huawei_obs_url_preview">完整访问地址：%1$s</string>
 </resources>

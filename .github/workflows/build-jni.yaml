@@ -28,7 +28,7 @@ on:
           - release
         default: 'pre-release'
       version_name:
-        description: 'Version Name (e.g., 3.0.1-S3)'
+        description: 'Version Name (留空自动联动 Release Type：release → 3.0.1-Rustic-JNI，pre-release → 3.0.1-Rustic-JNI-Pre)'
         required: false
         default: ''
 
@@ -40,6 +40,8 @@ jobs:
       contents: write
     timeout-minutes: 90
     env:
+      # 稳定版基础版本名；pre-release 在其后追加 -Pre。手动填 Version Name 时以手动值为准。
+      BASE_VERSION_NAME: '3.0.1-Rustic-JNI'
       CARGO_TARGET_DIR: ${{ github.workspace }}/source/native/src/main/jni/external/rustic/rustic/target
     steps:
       - name: Checkout
@@ -172,11 +174,19 @@ jobs:
           COMMIT_SUBJECT=$(git log -1 --pretty=%s)  
           echo "commit_subject=$COMMIT_SUBJECT" >> $GITHUB_OUTPUT  
           
-          # 确定版本名称  
-          if [ -n "${{ github.event.inputs.version_name }}" ]; then  
-            VERSION_NAME="${{ github.event.inputs.version_name }}"  
+          # 确定版本名称：手动填写优先；留空时按 Release Type 联动默认值  
+          INPUT_VERSION_NAME="$(echo "${{ github.event.inputs.version_name }}" | xargs)"  
+          INPUT_RELEASE_TYPE="${{ github.event.inputs.release_type }}"  
+          if [ "${INPUT_RELEASE_TYPE}" = 'release' ]; then  
+            DEFAULT_VERSION_NAME="${BASE_VERSION_NAME}"  
           else  
-            VERSION_NAME=$(grep "versionName" gradle/libs.versions.toml | cut -d'"' -f2)  
+            DEFAULT_VERSION_NAME="${BASE_VERSION_NAME}-Pre"  
+          fi  
+          echo "Default Version Name: $DEFAULT_VERSION_NAME (release_type=${INPUT_RELEASE_TYPE})"
+          if [ -n "${INPUT_VERSION_NAME}" ]; then  
+            VERSION_NAME="${INPUT_VERSION_NAME}"  
+          else  
+            VERSION_NAME="${DEFAULT_VERSION_NAME}"  
           fi  
           echo "name=$VERSION_NAME" >> $GITHUB_OUTPUT  
           

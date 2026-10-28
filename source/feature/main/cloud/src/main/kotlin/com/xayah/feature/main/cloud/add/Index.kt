@@ -87,6 +87,12 @@ fun PageCloudAddAccount() {
                 ) {
                     navController.navigateSingle(MainRoutes.AliyunOssSetup.getRoute(encodedURLWithSpace))
                 }
+                Clickable(
+                    icon = CloudType.HUAWEIOBS.icon,
+                    title = stringResource(id = R.string.cloud_type_huawei_obs),
+                ) {
+                    navController.navigateSingle(MainRoutes.HuaweiObsSetup.getRoute(encodedURLWithSpace))
+                }
             }
         }
     }

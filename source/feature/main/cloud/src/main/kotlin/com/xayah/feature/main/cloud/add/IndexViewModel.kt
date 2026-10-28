@@ -18,6 +18,8 @@ import com.xayah.core.model.database.AwsS3Extra
 import com.xayah.core.model.database.AwsS3Protocol
 import com.xayah.core.model.database.AliyunOssExtra
 import com.xayah.core.model.database.AliyunOssProtocol
+import com.xayah.core.model.database.HuaweiObsExtra
+import com.xayah.core.model.database.HuaweiObsProtocol
 import com.xayah.core.model.database.SMBExtra
 import com.xayah.core.network.client.getCloud
 import com.xayah.core.ui.material3.SnackbarDuration
@@ -352,6 +354,61 @@ class IndexViewModel @Inject constructor(
                 url = bucket,
                 username = accessKeyId,
                 password = accessKeySecret,
+                extra = entity.extra,
+                remote = remote,
+            )
+        )
+        return entity
+    }
+
+    // 华为云 OBS：纯构造，字段映射必须与 updateHuaweiObsEntity 完全一致
+    fun buildHuaweiObsCloudEntity(
+        name: String, remote: String, type: String,
+        accessKeyId: String, secretAccessKey: String,
+        bucket: String, endpoint: String,
+        protocol: HuaweiObsProtocol,
+        resticPassword: String,
+    ): CloudEntity {
+        val extra = GsonUtil().toJson(
+            HuaweiObsExtra(
+                type = type, accessKeyId = accessKeyId,
+                secretAccessKey = secretAccessKey, bucket = bucket,
+                endpoint = endpoint, protocol = protocol,
+                resticPassword = resticPassword,
+            )
+        )
+        return CloudEntity(
+            name = name,
+            type = CloudType.HUAWEIOBS,
+            host = bucket,
+            user = accessKeyId,
+            pass = secretAccessKey,
+            remote = remote,
+            extra = extra,
+            activated = false,
+        )
+    }
+
+    suspend fun updateHuaweiObsEntity(
+        name: String, remote: String, type: String,
+        accessKeyId: String, secretAccessKey: String,
+        bucket: String, endpoint: String,
+        protocol: HuaweiObsProtocol,
+        resticPassword: String,
+    ): CloudEntity {
+        val entity = buildHuaweiObsCloudEntity(
+            name = name, remote = remote, type = type,
+            accessKeyId = accessKeyId, secretAccessKey = secretAccessKey,
+            bucket = bucket, endpoint = endpoint,
+            protocol = protocol, resticPassword = resticPassword,
+        )
+        emitIntent(
+            IndexUiIntent.UpdateEntity(
+                name = name,
+                type = CloudType.HUAWEIOBS,
+                url = bucket,
+                username = accessKeyId,
+                password = secretAccessKey,
                 extra = entity.extra,
                 remote = remote,
             )

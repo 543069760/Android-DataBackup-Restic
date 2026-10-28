@@ -95,6 +95,7 @@ fun PageCloud() {
                                             CloudType.S3 -> MainRoutes.S3Setup.getRoute(it.name.encodeURL())
                                             CloudType.AWSS3 -> MainRoutes.AwsS3Setup.getRoute(it.name.encodeURL())
                                             CloudType.ALIYUNOSS -> MainRoutes.AliyunOssSetup.getRoute(it.name.encodeURL())
+                                            CloudType.HUAWEIOBS -> MainRoutes.HuaweiObsSetup.getRoute(it.name.encodeURL())
                                         }
                                     )
                                 }

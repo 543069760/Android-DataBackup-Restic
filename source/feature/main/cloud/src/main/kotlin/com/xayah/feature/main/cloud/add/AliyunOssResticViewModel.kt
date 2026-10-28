@@ -4,9 +4,6 @@ import android.content.Context
 import android.util.Log
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.lifecycle.viewModelScope
-import com.xayah.core.datastore.readAliyunOssResticInitialized
-import com.xayah.core.datastore.readAliyunOssResticPassword
-import com.xayah.core.datastore.readAliyunOssResticRepoPath
 import com.xayah.core.datastore.saveAliyunOssResticInitialized
 import com.xayah.core.datastore.saveAliyunOssResticPassword
 import com.xayah.core.datastore.saveAliyunOssResticRepoPath
@@ -61,18 +58,8 @@ class AliyunOssResticViewModel @Inject constructor(
         data class Error(val message: String) : OssInitializationState()
     }
 
-    init {
-        viewModelScope.launch {
-            val savedPassword = context.readAliyunOssResticPassword() ?: ""
-            _ossPasswordState.value = savedPassword
-
-            val isInitialized = context.readAliyunOssResticInitialized()
-            if (isInitialized) {
-                val repoPath = context.readAliyunOssResticRepoPath() ?: ""
-                _ossInitializationState.value = OssInitializationState.Success(repoPath)
-            }
-        }
-    }
+    // 新增账户不再回填历史初始化密码：状态为全新开始，必须重新输入并初始化。
+    // 编辑既有账户时由 restoreStateFromEntity() 从 CloudEntity 的 resticPassword 恢复。
 
     fun restoreStateFromEntity(cloudEntity: CloudEntity) {
         if (cloudEntity.type != CloudType.ALIYUNOSS) return

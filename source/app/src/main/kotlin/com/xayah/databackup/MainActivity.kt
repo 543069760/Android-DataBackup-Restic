@@ -55,6 +55,7 @@ import com.xayah.feature.main.cloud.add.PageWebDAVSetup
 import com.xayah.feature.main.cloud.add.PageS3Setup
 import com.xayah.feature.main.cloud.add.PageAwsS3Setup
 import com.xayah.feature.main.cloud.add.PageAliyunOssSetup
+import com.xayah.feature.main.cloud.add.PageHuaweiObsSetup
 import com.xayah.feature.main.configurations.PageConfigurations
 import com.xayah.feature.main.dashboard.PageDashboard
 import com.xayah.feature.main.details.DetailsRoute
@@ -198,6 +199,9 @@ class MainActivity : AppCompatActivity() {
                         }
                         composable(MainRoutes.AliyunOssSetup.route) {
                             PageAliyunOssSetup()
+                        }
+                        composable(MainRoutes.HuaweiObsSetup.route) {
+                            PageHuaweiObsSetup()
                         }
                         composable(
                             route = MainRoutes.List.route,

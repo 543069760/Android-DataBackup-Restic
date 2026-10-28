@@ -38,14 +38,12 @@
 | **本地存储 / USB OTG外部存储**        | ✅ 已支持 | ✅ **块级去重（JNI rustic，已完成）**                |    
 | **AWS S3(兼容Minio Rustfs) 协议** | ❌ 不支持 | ✅ **块级去重（JNI rustic，已完成）**                |    
 | **Tencent COS 协议**            | ❌ 不支持 | ✅ **块级去重（JNI rustic，已完成）**                |    
-| **Aliyun OSS 协议**             | ❌ 不支持 | ❗ **块级去重（JNI rustic，待实现）**                |    
-| **HuaWei OBS 协议**             | ❌ 不支持 | ❗ **块级去重（JNI rustic，待实现）**                |    
+| **Aliyun OSS 协议**             | ❌ 不支持 | ✅ **块级去重（JNI rustic，已完成）**                |    
+| **HuaWei OBS 协议**             | ❌ 不支持 | ✅ **块级去重（JNI rustic，已完成）**                |    
 | **FTP 协议**                    | ✅ 已支持 | ✅ **块级去重（JNI rustic over librclone，已完成）** |    
 | **SFTP 协议**                   | ✅ 已支持 | ✅ **块级去重（JNI rustic over librclone，已完成）** |    
 | **WebDAV 协议**                 | ✅ 已支持 | ✅ **块级去重（JNI rustic，已完成）**                |    
 | **SMB/CIFS 协议**               | ✅ 已支持 | ✅ **块级去重（JNI rustic over librclone，已完成）** |
-
-> 阿里云 OOS、华为云OBS：在逐步适配中，敬请期待.
 
 ### 备份架构演进
 

@@ -52,6 +52,10 @@ sealed class MainRoutes(val route: String) {
         fun getRoute(name: String) = "main_aliyun_oss_setup/$name"
     }
 
+    data object HuaweiObsSetup : MainRoutes(route = "main_huawei_obs_setup/{$ARG_ACCOUNT_NAME}") {
+        fun getRoute(name: String) = "main_huawei_obs_setup/$name"
+    }
+
     data object CacheManagement : MainRoutes(route = "main_cache_management")
     data object Settings : MainRoutes(route = "main_settings")
     data object Restore : MainRoutes(route = "main_restore")

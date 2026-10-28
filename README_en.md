@@ -38,14 +38,12 @@
 | **Local storage / USB OTG**      | ✅ Supported | ✅ **Block-level dedup (JNI rustic, done)**               |  
 | **AWS S3 (Minio/Rustfs compatible)** | ❌ Not supported | ✅ **Block-level dedup (JNI rustic, done)**           |  
 | **Tencent COS**                  | ❌ Not supported | ✅ **Block-level dedup (JNI rustic, done)**               |  
-| **Aliyun OSS**                   | ❌ Not supported | ❗ **Block-level dedup (JNI rustic, WIP)**                |  
-| **HuaWei OBS**                   | ❌ Not supported | ❗ **Block-level dedup (JNI rustic, WIP)**                |  
+| **Aliyun OSS**                   | ❌ Not supported | ✅ **Block-level dedup (JNI rustic, done)**              |  
+| **HuaWei OBS**                   | ❌ Not supported | ✅ **Block-level dedup (JNI rustic, done)**              |  
 | **FTP**                          | ✅ Supported | ✅ **Block-level dedup (JNI rustic over librclone, done)** |  
 | **SFTP**                         | ✅ Supported | ✅ **Block-level dedup (JNI rustic over librclone, done)** |  
 | **WebDAV**                       | ✅ Supported | ✅ **Block-level dedup (JNI rustic, done)**               |  
 | **SMB/CIFS**                     | ✅ Supported | ✅ **Block-level dedup (JNI rustic over librclone, done)** |
-
-> Aliyun OSS, HuaWei OBS: being adapted progressively — stay tuned.
 
 ### Backup Architecture Evolution
 

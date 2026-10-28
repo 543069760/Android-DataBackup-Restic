@@ -37,6 +37,14 @@
     <string name="aliyun_oss_access_key_id">AccessKey ID</string>
     <string name="aliyun_oss_access_key_secret">AccessKey Secret</string>
     <string name="aliyun_oss_endpoint">Endpoint (Region Node)</string>
-    <string name="aliyun_oss_endpoint_example">Fill in the OSS region node (no bucket, no protocol), e.g. oss-cn-hangzhou.aliyuncs.com. For a custom domain or an ECS VPC/internal endpoint, fill in that address instead. If http(s):// is present it is used as-is, otherwise it is completed with the selected protocol.</string>
+    <string name="aliyun_oss_endpoint_example">Fill in the OSS region node (no bucket, no protocol), e.g. oss-cn-hangzhou.aliyuncs.com. If http(s):// is present it is used as-is, otherwise it is completed with the selected protocol.</string>
     <string name="aliyun_oss_url_preview">Full URL: %1$s</string>
+    <!-- Huawei Cloud OBS -->
+    <string name="cloud_type_huawei_obs">Huawei Cloud OBS</string>
+    <string name="huawei_obs_setup">Huawei Cloud OBS</string>
+    <string name="huawei_obs_access_key_id">Access Key Id (AK)</string>
+    <string name="huawei_obs_access_key_secret">Secret Access Key (SK)</string>
+    <string name="huawei_obs_endpoint">Endpoint (Region Node)</string>
+    <string name="huawei_obs_endpoint_example">Fill in the OBS region node (no bucket, no protocol), e.g. obs.cn-north-4.myhuaweicloud.com. Any http(s):// prefix is stripped before use.</string>
+    <string name="huawei_obs_url_preview">Full URL: %1$s</string>
 </resources>

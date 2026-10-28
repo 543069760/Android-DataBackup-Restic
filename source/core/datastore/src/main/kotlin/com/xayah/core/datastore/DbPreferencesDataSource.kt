@@ -37,6 +37,11 @@ val KeyAliyunOssResticRepoPath = stringPreferencesKey("aliyun_oss_restic_repo_pa
 val KeyAliyunOssResticPassword = stringPreferencesKey("aliyun_oss_restic_password")
 val KeyAliyunOssResticInitialized = booleanPreferencesKey("aliyun_oss_restic_initialized")
 
+// 华为云 OBS Restic 配置键
+val KeyHuaweiObsResticRepoPath = stringPreferencesKey("huawei_obs_restic_repo_path")
+val KeyHuaweiObsResticPassword = stringPreferencesKey("huawei_obs_restic_password")
+val KeyHuaweiObsResticInitialized = booleanPreferencesKey("huawei_obs_restic_initialized")
+
 // FTP Restic 配置键
 val KeyFtpResticRepoPath = stringPreferencesKey("ftp_restic_repo_path")
 val KeyFtpResticPassword = stringPreferencesKey("ftp_restic_password")
@@ -188,6 +193,43 @@ suspend fun Context.saveAliyunOssResticRepoPath(path: String) {
 suspend fun Context.readAliyunOssResticRepoPath(): String? {
     return dataStore.data.map { preferences ->
         preferences[KeyAliyunOssResticRepoPath]
+    }.first()
+}
+
+// 华为云 OBS Restic 配置扩展函数
+suspend fun Context.saveHuaweiObsResticPassword(password: String) {
+    dataStore.edit { settings ->
+        settings[KeyHuaweiObsResticPassword] = password
+    }
+}
+
+suspend fun Context.readHuaweiObsResticPassword(): String? {
+    return dataStore.data.map { preferences ->
+        preferences[KeyHuaweiObsResticPassword]
+    }.first()
+}
+
+suspend fun Context.saveHuaweiObsResticInitialized(initialized: Boolean) {
+    dataStore.edit { settings ->
+        settings[KeyHuaweiObsResticInitialized] = initialized
+    }
+}
+
+suspend fun Context.readHuaweiObsResticInitialized(): Boolean {
+    return dataStore.data.map { preferences ->
+        preferences[KeyHuaweiObsResticInitialized] ?: false
+    }.first()
+}
+
+suspend fun Context.saveHuaweiObsResticRepoPath(path: String) {
+    dataStore.edit { settings ->
+        settings[KeyHuaweiObsResticRepoPath] = path
+    }
+}
+
+suspend fun Context.readHuaweiObsResticRepoPath(): String? {
+    return dataStore.data.map { preferences ->
+        preferences[KeyHuaweiObsResticRepoPath]
     }.first()
 }
 
