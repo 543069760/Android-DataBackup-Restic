@@ -161,6 +161,7 @@ fun ResticInitializationScreen(isOtg: Boolean = false, reinitialize: Boolean = f
             onRepoPathToDeleteChange = { repoPathToDelete = it },
             showDeleteConfirmDialog = showDeleteConfirmDialog,
             onDeleteConfirmDialogChange = { showDeleteConfirmDialog = it },
+            isOtg = isOtg,
         )
     }
 }

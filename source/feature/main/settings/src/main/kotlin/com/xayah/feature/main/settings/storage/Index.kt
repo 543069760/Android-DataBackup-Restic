@@ -102,9 +102,9 @@ fun PageStorageStats(isOtg: Boolean = false) {
                     Button(
                         onClick = {
                             if (isOtg) {
-                                // OTG 没有引导页第二步，仍走 OTG 专用初始化页，并强制进「选择仓库」流程
+                                // OTG 没有引导页第二步，仍走 OTG 专用初始化页
                                 navController.navigateSingle(
-                                    MainRoutes.ResticInitialization.getRoute(isOtg = true, reinitialize = true)
+                                    MainRoutes.ResticInitialization.getRoute(isOtg = true)
                                 )
                             } else {
                                 // 本地：与设置页胶囊一致，直接复用引导页第二阶段（setup_two）

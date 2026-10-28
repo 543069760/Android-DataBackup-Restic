@@ -298,7 +298,7 @@ fun PageSettings() {
 
                         // 胶囊始终可点：父级行若被 disabled，会把胶囊的点击一起吞掉
                         ChooseRepoChip {
-                            navController.navigateSingle(MainRoutes.ResticInitialization.getRoute(isOtg = true, reinitialize = true))
+                            navController.navigateSingle(MainRoutes.ResticInitialization.getRoute(isOtg = true))
                         }
 
                         Clickable(
