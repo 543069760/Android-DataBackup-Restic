@@ -49,8 +49,13 @@ private val RUSTIC_MULTILINE_MESSAGE = Regex("""Message:\s*(.+?)(?:\n\s*\n|Some 
 /** rustic 的稳定错误码，C002 = 仓库密码错误。 */
 private val RUSTIC_CODE_C002 = Regex("""code:\s*C002""")
 
-/** rclone：`output=` 之后就是 rc 接口的错误 JSON，真正的文案在 error 字段里。 */
-private val RCLONE_OUTPUT = Regex("""output=\s*(\{.*})\s*$""", RegexOption.DOT_MATCHES_ALL)
+/**
+ * rclone：`output=` 之后就是 rc 接口的错误 JSON，真正的文案在 error 字段里。
+ * 注意：这里必须用字符类 `[{]` / `[}]`，不能写 `\{` / `}`——部分 Android ICU 版本
+ * 不认转义花括号，会在类初始化阶段抛 PatternSyntaxException，进而让整个格式化器变成
+ * NoClassDefFoundError（连调用它的错误出口一起崩）。
+ */
+private val RCLONE_OUTPUT = Regex("""output=\s*([{].*[}])\s*$""", RegexOption.DOT_MATCHES_ALL)
 
 private fun String.containsAny(vararg keywords: String): Boolean {
     val lower = lowercase()
@@ -139,15 +144,20 @@ fun Throwable.toFriendlyRawMessage(): String = shorten(fullText(this))
 fun Throwable.nativeErrorKind(): NativeErrorKind = classify(fullText(this))
 
 /** 一行本地化友好文案；未命中分类时附截断后的原文。 */
-fun Throwable.toFriendlyMessage(context: Context): String = fullText(this).let { full ->
-    when (val kind = classify(full)) {
-        NativeErrorKind.UNKNOWN -> context.getString(R.string.native_error_unknown, shorten(full).truncate(MAX_RAW_LENGTH))
-        else -> context.getString(stringRes(kind))
+fun Throwable.toFriendlyMessage(context: Context): String = runCatching {
+    val t = this
+    fullText(t).let { full ->
+        when (val kind = classify(full)) {
+            NativeErrorKind.UNKNOWN -> context.getString(R.string.native_error_unknown, shorten(full).truncate(MAX_RAW_LENGTH))
+            else -> context.getString(stringRes(kind))
+        }
     }
-}
+}.getOrElse { (message ?: toString()).truncate(MAX_RAW_LENGTH) }
 
 /** 已经在别处取到 message 时的重载。 */
-fun String.toFriendlyMessage(context: Context): String = when (val kind = classify(this)) {
-    NativeErrorKind.UNKNOWN -> context.getString(R.string.native_error_unknown, shorten(this).truncate(MAX_RAW_LENGTH))
-    else -> context.getString(stringRes(kind))
-}
+fun String.toFriendlyMessage(context: Context): String = runCatching {
+    when (val kind = classify(this)) {
+        NativeErrorKind.UNKNOWN -> context.getString(R.string.native_error_unknown, shorten(this).truncate(MAX_RAW_LENGTH))
+        else -> context.getString(stringRes(kind))
+    }
+}.getOrElse { truncate(MAX_RAW_LENGTH) }

@@ -1,5 +1,6 @@
 package com.xayah.feature.main.directory
 
+import android.content.Context
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.xayah.core.data.repository.DirectoryRepository
 import com.xayah.core.model.StorageType
@@ -9,7 +10,9 @@ import com.xayah.core.ui.viewmodel.BaseViewModel
 import com.xayah.core.ui.viewmodel.IndexUiEffect
 import com.xayah.core.ui.viewmodel.UiIntent
 import com.xayah.core.ui.viewmodel.UiState
+import com.xayah.core.util.toFriendlyMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import javax.inject.Inject
@@ -35,15 +38,14 @@ sealed class IndexUiIntent : UiIntent {
 @HiltViewModel
 class IndexViewModel @Inject constructor(
     rootService: RemoteRootService,
+    @ApplicationContext private val mContext: Context,
     private val directoryRepo: DirectoryRepository,
 ) : BaseViewModel<IndexUiState, IndexUiIntent, IndexUiEffect>(IndexUiState(updating = true)) {
 
     init {
         // 根服务错误监听
         rootService.onFailure = {
-            val msg = it.message
-            if (msg != null)
-                emitEffectOnIO(IndexUiEffect.ShowSnackbar(message = msg))
+            emitEffectOnIO(IndexUiEffect.ShowSnackbar(message = it.toFriendlyMessage(mContext)))
         }
     }
 

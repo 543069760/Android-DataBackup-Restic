@@ -12,6 +12,7 @@ import com.xayah.core.model.StorageMode
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.TaskEntity
 import com.xayah.core.rootservice.service.RemoteRootService
+import com.xayah.core.util.toFriendlyMessage
 import com.xayah.core.service.AbstractProcessingServiceProxy
 import com.xayah.core.ui.model.ProcessingCardItem
 import com.xayah.core.ui.model.ProcessingDataCardItem
@@ -118,9 +119,8 @@ abstract class AbstractProcessingViewModel(
 
     init {
         mRootService.onFailure = {
-            val msg = it.message
-            if (msg != null)
-                emitEffectOnIO(IndexUiEffect.ShowSnackbar(message = msg))
+            log { "Root service failure: ${it.message}" }
+            emitEffectOnIO(IndexUiEffect.ShowSnackbar(message = it.toFriendlyMessage(mContext)))
         }
     }
 
