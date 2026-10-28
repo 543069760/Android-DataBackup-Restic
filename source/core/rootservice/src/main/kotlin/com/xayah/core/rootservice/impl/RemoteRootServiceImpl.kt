@@ -580,11 +580,13 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         val packageName = packageInfo.packageName
         val requestedPermissions = packageInfo.requestedPermissions?.toList() ?: listOf()
         val requestedPermissionsFlags = packageInfo.requestedPermissionsFlags?.toList() ?: listOf()
+        // getOpsForPackage 返回多个 PackageOps entry（按 op 分组的历史记录），只取第一个会漏掉绝大部分 op，
+        // 导致后续把缺失的 op 误记为 MODE_IGNORED（= 显式拒绝）。这里必须遍历所有 entry。
         val ops = runCatching {
-            appOpsManager.getOpsForPackage(uid, packageName, null).getOrNull(0)?.ops?.associate {
-                it.op to it.mode
-            }
-        }.getOrNull()
+            appOpsManager.getOpsForPackage(uid, packageName, null)
+                ?.flatMap { it.ops }
+                ?.associate { it.op to it.mode }
+        }.getOrNull() ?: emptyMap()
         requestedPermissions.forEachIndexed { i, name ->
             runCatching {
                 val permissionInfo = packageManager.getPermissionInfo(name, 0)
@@ -592,7 +594,9 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
                 val protectionFlags = PermissionInfoCompat.getProtectionFlags(permissionInfo)
                 val isGranted = (requestedPermissionsFlags[i] and PackageInfo.REQUESTED_PERMISSION_GRANTED) != 0
                 val op = AppOpsManagerHidden.permissionToOpCode(name)
-                val mode = ops?.get(op) ?: AppOpsManager.MODE_IGNORED
+                // 采样不到的 op 说明系统未记录过，用 MODE_DEFAULT（由系统按 runtime 授权状态推导），
+                // 绝不能记为 MODE_IGNORED——恢复时它会把刚授予的权限重新掐掉。
+                val mode = ops.get(op) ?: AppOpsManager.MODE_DEFAULT
                 if ((op != AppOpsManagerHidden.OP_NONE)
                     || (protection == PermissionInfo.PROTECTION_DANGEROUS || (protectionFlags and PermissionInfo.PROTECTION_FLAG_DEVELOPMENT) != 0)
                 ) {

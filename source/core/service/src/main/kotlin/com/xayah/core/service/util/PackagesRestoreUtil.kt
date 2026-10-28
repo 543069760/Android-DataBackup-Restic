@@ -1,7 +1,9 @@
 package com.xayah.core.service.util
 
+import android.app.AppOpsManager
 import android.app.AppOpsManagerHidden
 import android.content.Context
+import android.content.pm.PackageManager
 import com.xayah.core.common.util.toLineString
 import com.xayah.core.data.repository.CloudRepository
 import com.xayah.core.data.repository.PackageRepository
@@ -44,6 +46,11 @@ class PackagesRestoreUtil @Inject constructor(
 ) {
     companion object {
         private const val TAG = "PackagesRestoreUtil"
+
+        // android.content.pm.PackageManager 的 FLAG_PERMISSION_* 属于 hidden 常量，
+        // 这里按 AOSP 取值内联，避免依赖 hidden api 常量引用。
+        private const val FLAG_PERMISSION_USER_SET = 0x0002
+        private const val FLAG_PERMISSION_USER_FIXED = 0x0004
     }
 
     private fun log(onMsg: () -> String): String = run {
@@ -445,24 +452,84 @@ class PackagesRestoreUtil @Inject constructor(
         val permissions = p.extraInfo.permissions
 
         if (p.permissionSelected) {
-            if (uid != -1) {
+            if (uid != -1 && user != null) {
                 Appops.reset(userId = userId, packageName = packageName)
+                var succeeded = 0
+                var failed = 0
                 log { "Permissions size: ${permissions.size}..." }
-                permissions.forEach {
-                    log { "Permission name: ${it.name}, isGranted: ${it.isGranted}, op: ${it.op}, mode: ${it.mode}" }
-                    runCatching {
-                        if (it.isGranted) {
-                            rootService.grantRuntimePermission(packageName, it.name, user!!)
-                        } else {
-                            rootService.revokeRuntimePermission(packageName, it.name, user!!)
+                permissions.forEach { perm ->
+                    log { "Permission name: ${perm.name}, isGranted: ${perm.isGranted}, op: ${perm.op}, mode: ${perm.mode}" }
+                    var ok = true
+
+                    // (1) 先清 USER_SET / USER_FIXED，带这些 flag 时系统会拒绝本次 grant/revoke。
+                    rootService.updatePermissionFlags(
+                        packageName, perm.name, user,
+                        FLAG_PERMISSION_USER_SET or FLAG_PERMISSION_USER_FIXED, 0,
+                    )
+
+                    // (2) runtime 权限 grant / revoke
+                    if (perm.isGranted) {
+                        rootService.grantRuntimePermission(packageName, perm.name, user)
+                    } else {
+                        rootService.revokeRuntimePermission(packageName, perm.name, user)
+                    }.onFailure {
+                        ok = false
+                        log { "Runtime permission failed: ${perm.name}, ${it.message}" }
+                    }
+
+                    // (3) 补回 USER_SET，标记该权限由用户显式决定，避免被系统自动重置
+                    rootService.updatePermissionFlags(
+                        packageName, perm.name, user,
+                        FLAG_PERMISSION_USER_SET, FLAG_PERMISSION_USER_SET,
+                    )
+
+                    // (4) appops 与 runtime 状态对齐：
+                    //     - 未授予 -> 强制 IGNORED，避免"runtime 拒绝但 appops 放行"
+                    //     - 已授予但备份值是 IGNORED -> 自相矛盾（老版本把采样不到的 op 全记成 IGNORED），
+                    //       按 DEFAULT 处理，恢复旧备份时不再把授权掐掉
+                    //     - 已授予且备份值是 DEFAULT -> 不回写，交给系统推导
+                    //     - 已授予且备份值是具体 mode -> 原样回写
+                    if (perm.op != AppOpsManagerHidden.OP_NONE) {
+                        val targetMode = when {
+                            perm.isGranted.not() -> AppOpsManager.MODE_IGNORED
+                            perm.mode == AppOpsManager.MODE_IGNORED -> null
+                            perm.mode == AppOpsManager.MODE_DEFAULT -> null
+                            else -> perm.mode
                         }
-                        if (it.op != AppOpsManagerHidden.OP_NONE) {
-                            rootService.setOpsMode(it.op, uid, packageName, it.mode)
+                        if (targetMode != null) {
+                            rootService.setOpsMode(perm.op, uid, packageName, targetMode).onFailure {
+                                ok = false
+                                log { "setOpsMode failed: ${perm.name}, op=${perm.op}, mode=$targetMode, ${it.message}" }
+                            }
+                        }
+                    }
+
+                    if (ok) succeeded++ else failed++
+                }
+                log { "Permissions restored: $succeeded, failed: $failed" }
+
+                // (5) 兜底：备份快照之外、当前仍被授予的运行时权限一律撤销。
+                //     覆盖应用更新新增权限、split 权限自动授予、appops reset 后系统重新授予等情况。
+                val recordedNames = permissions.map { it.name }.toSet()
+                val currentPackageInfo = rootService.getPackageInfoAsUser(packageName, PackageManager.GET_PERMISSIONS, userId)
+                val currentPermissions = if (currentPackageInfo != null) rootService.getPermissions(packageInfo = currentPackageInfo) else listOf()
+                currentPermissions.filter { it.name !in recordedNames && it.isGranted }.forEach { extra ->
+                    log { "Extra granted permission not in backup, revoking: ${extra.name}" }
+                    runCatching {
+                        rootService.updatePermissionFlags(
+                            packageName, extra.name, user,
+                            FLAG_PERMISSION_USER_SET or FLAG_PERMISSION_USER_FIXED, 0,
+                        )
+                        rootService.revokeRuntimePermission(packageName, extra.name, user).onFailure {
+                            log { "Revoke extra permission failed: ${extra.name}, ${it.message}" }
+                        }
+                        if (extra.op != AppOpsManagerHidden.OP_NONE) {
+                            rootService.setOpsMode(extra.op, uid, packageName, AppOpsManager.MODE_IGNORED)
                         }
                     }
                 }
             } else {
-                log { "Failed to get uid of $packageName." }
+                log { "Failed to get uid or user handle of $packageName." }
             }
         } else {
             log { "Skip." }

@@ -766,9 +766,14 @@ class PackagesBackupUtil @Inject constructor(
         val userId = p.userId
 
         val packageInfo = rootService.getPackageInfoAsUser(packageName, PackageManager.GET_PERMISSIONS, userId)
-        packageInfo?.apply { p.extraInfo.permissions = rootService.getPermissions(packageInfo = this) }
+        if (packageInfo == null) {
+            // 取不到 PackageInfo 时不能把已采集的权限清空：空快照会让恢复流程把全部权限都当成"多余的"撤销掉。
+            log { "PackageInfo is null, keep the existing permissions (${p.extraInfo.permissions.size})." }
+            return
+        }
+        p.extraInfo.permissions = rootService.getPermissions(packageInfo = packageInfo)
         val permissions = p.extraInfo.permissions
-        log { "Permissions size: ${permissions.size}..." }
+        log { "Permissions size: ${permissions.size}, granted: ${permissions.count { it.isGranted }}..." }
         permissions.forEach {
             log { "Permission name: ${it.name}, isGranted: ${it.isGranted}, op: ${it.op}, mode: ${it.mode}" }
         }
