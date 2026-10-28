@@ -39,6 +39,7 @@ import com.xayah.core.model.database.PackageEntity
 import com.xayah.core.database.dao.PackageDao
 import com.xayah.core.rootservice.service.RemoteRootService
 import dagger.hilt.android.lifecycle.HiltViewModel
+import com.xayah.core.util.toFriendlyMessage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import com.xayah.core.datastore.readLoadedIconMD5
 import com.xayah.core.datastore.saveLoadedIconMD5
@@ -301,7 +302,7 @@ class ResticRestoreViewModel @Inject constructor(
                 Log.d("ResticRestore", "后台刷新完成，静默替换 ${freshApps.size} 条")
             } catch (e: Exception) {
                 if (cachedApps.isEmpty()) {
-                    _uiState.value = ResticRestoreUiState.Error(e.message ?: context.getString(R.string.restore_error_unknown))
+                    _uiState.value = ResticRestoreUiState.Error(e.toFriendlyMessage(context))
                 } else {
                     Log.w("ResticRestore", "后台刷新失败，保留缓存: ${e.message}")
                 }
@@ -849,7 +850,7 @@ class ResticRestoreViewModel @Inject constructor(
             true  // 成功时返回 true
         } catch (e: Exception) {
             Log.e("ResticRestore", "快照恢复异常: ${e.message}", e)
-            _uiState.value = ResticRestoreUiState.Error(e.message ?: "Unknown error")
+            _uiState.value = ResticRestoreUiState.Error(e.toFriendlyMessage(context))
             false  // 失败时返回 false
         }
     }

@@ -37,6 +37,7 @@ import com.xayah.core.model.restic.ResticRestoreQueueItem
 import kotlinx.serialization.encodeToString
 import kotlinx.coroutines.flow.first
 import dagger.hilt.android.lifecycle.HiltViewModel
+import com.xayah.core.util.toFriendlyMessage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -297,7 +298,7 @@ class CloudRestoreViewModel @Inject constructor(
             } catch (e: Exception) {
                 // 缓存已展示则保留缓存、只记日志；无缓存才报错
                 if (cachedApps.isEmpty()) {
-                    _uiState.value = CloudRestoreUiState.Error(context.getString(R.string.restore_load_failed_reason, e.message ?: ""))
+                    _uiState.value = CloudRestoreUiState.Error(context.getString(R.string.restore_load_failed_reason, e.toFriendlyMessage(context)))
                 } else {
                     Log.w("CloudRestore", "后台刷新失败，保留缓存列表: ${e.message}")
                 }

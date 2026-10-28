@@ -23,6 +23,7 @@ import com.xayah.core.util.localBackupSaveDir
 import com.xayah.core.util.decodeURL
 import com.xayah.feature.main.restore.R
 import dagger.hilt.android.lifecycle.HiltViewModel
+import com.xayah.core.util.toFriendlyMessage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -87,7 +88,7 @@ class CloudFilesRestoreViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "查询云端账户时发生异常: $cleanAccountName", e)
-                _uiState.value = CloudFilesRestoreUiState.Error(context.getString(R.string.restore_query_account_failed, e.message ?: ""))
+                _uiState.value = CloudFilesRestoreUiState.Error(context.getString(R.string.restore_query_account_failed, e.toFriendlyMessage(context)))
             }
         }
         Log.d(TAG, "=== setCloudEntity 结束 ===")
@@ -158,7 +159,7 @@ class CloudFilesRestoreViewModel @Inject constructor(
 
             } catch (e: Exception) {
                 Log.e(TAG, "加载云端文件备份时发生异常", e)
-                _uiState.value = CloudFilesRestoreUiState.Error(context.getString(R.string.restore_load_failed_reason, e.message ?: ""))
+                _uiState.value = CloudFilesRestoreUiState.Error(context.getString(R.string.restore_load_failed_reason, e.toFriendlyMessage(context)))
             }
         }
         Log.d(TAG, "=== loadCloudBackedUpFiles 结束 ===")

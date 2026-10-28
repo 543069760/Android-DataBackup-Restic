@@ -22,6 +22,7 @@ import com.xayah.core.ui.viewmodel.IndexUiEffect
 import com.xayah.core.ui.viewmodel.UiIntent
 import com.xayah.core.ui.viewmodel.UiState
 import dagger.hilt.android.lifecycle.HiltViewModel
+import com.xayah.core.util.toFriendlyMessage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -148,13 +149,13 @@ class FtpResticViewModel @Inject constructor(
                     Log.d(TAG, "FTP Restic仓库初始化成功")
                     true
                 } else {
-                    val errorMsg = result.exceptionOrNull()?.message ?: "初始化失败"
+                    val errorMsg = result.exceptionOrNull()?.toFriendlyMessage(context) ?: "初始化失败"
                     _ftpInitializationState.value = FtpInitializationState.Error(errorMsg)
-                    Log.e(TAG, "FTP Restic仓库初始化失败: $errorMsg")
+                    Log.e(TAG, "FTP Restic仓库初始化失败: ${result.exceptionOrNull()?.message}")
                     false
                 }
             } catch (e: Exception) {
-                val errorMsg = e.message ?: "未知错误"
+                val errorMsg = e.toFriendlyMessage(context)
                 _ftpInitializationState.value = FtpInitializationState.Error(errorMsg)
                 Log.e(TAG, "FTP Restic仓库初始化异常", e)
                 false

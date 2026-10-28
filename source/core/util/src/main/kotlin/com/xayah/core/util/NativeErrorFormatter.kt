@@ -38,6 +38,14 @@ private val JAVA_EXCEPTION_PREFIX = Regex("""^[\w.$]+(?:Exception|Error)\s*:\s*"
 /** rustic：`<guidance>` 位于 `Error: ` 与 ` (kind:` 之间。 */
 private val RUSTIC_GUIDANCE = Regex("""Error:\s*(.+?)\s*\(kind:""")
 
+/**
+ * rustic 的多行 Display（非 display_log）格式：
+ * `Error: `rustic_core` experienced ...` / `Message: <真正原因>` / `Some additional details ...` / `Backtrace: ...`。
+ * 这种形态没有 ` (kind:` 段落，[RUSTIC_GUIDANCE] 会失配，必须单独抠出 Message 段，
+ * 否则回退到「取首个非空行」只会得到 ``rustic_core` experienced ...`` 这种无信息量头部。
+ */
+private val RUSTIC_MULTILINE_MESSAGE = Regex("""Message:\s*(.+?)(?:\n\s*\n|Some additional details|Backtrace:|$)""", RegexOption.DOT_MATCHES_ALL)
+
 /** rustic 的稳定错误码，C002 = 仓库密码错误。 */
 private val RUSTIC_CODE_C002 = Regex("""code:\s*C002""")
 
@@ -72,6 +80,10 @@ private fun shorten(text: String): String {
 
     val guidance = RUSTIC_GUIDANCE.find(text)?.groupValues?.getOrNull(1)?.trim()
     if (!guidance.isNullOrBlank()) return guidance
+
+    // 多行 Display 格式：没有 (kind:) 段，改取 Message: 段并压平成一行。
+    val multiline = RUSTIC_MULTILINE_MESSAGE.find(text)?.groupValues?.getOrNull(1)?.replace('\n', ' ')?.trim()
+    if (!multiline.isNullOrBlank()) return multiline
 
     return text.lineSequence().map { it.trim() }.firstOrNull { it.isNotBlank() } ?: text
 }

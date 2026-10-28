@@ -24,6 +24,7 @@ import com.xayah.core.model.DataType
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.feature.main.restore.R
 import dagger.hilt.android.lifecycle.HiltViewModel
+import com.xayah.core.util.toFriendlyMessage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -521,7 +522,7 @@ class ResticFilesRestoreViewModel @Inject constructor(
 
             } catch (e: Exception) {
                 Log.e("ResticFilesRestore", "加载本地文件备份时发生异常", e)
-                _uiState.value = ResticFilesRestoreUiState.Error(context.getString(R.string.restore_load_failed_reason, e.message ?: ""))
+                _uiState.value = ResticFilesRestoreUiState.Error(context.getString(R.string.restore_load_failed_reason, e.toFriendlyMessage(context)))
             }
         }
         Log.d("ResticFilesRestore", "=== loadBackedUpFiles 结束 ===")

@@ -36,6 +36,7 @@ import com.xayah.feature.main.settings.R
 import com.xayah.libpickyou.parcelables.DirChildrenParcelable
 import com.xayah.libpickyou.parcelables.FileParcelable
 import dagger.hilt.android.lifecycle.HiltViewModel
+import com.xayah.core.util.toFriendlyMessage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -658,7 +659,7 @@ class ResticViewModel @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
-                _initializationState.value = InitializationState.Error(e.message ?: "Unknown error")
+                _initializationState.value = InitializationState.Error(e.toFriendlyMessage(context))
                 false
             }
         }

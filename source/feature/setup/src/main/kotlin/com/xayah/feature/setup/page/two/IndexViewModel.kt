@@ -18,6 +18,7 @@ import com.xayah.core.ui.viewmodel.IndexUiEffect
 import com.xayah.core.ui.viewmodel.UiIntent
 import com.xayah.core.ui.viewmodel.UiState
 import com.xayah.core.util.ActivityUtil
+import com.xayah.core.util.toFriendlyMessage
 import com.xayah.core.util.command.SELinux
 import com.xayah.core.work.WorkManagerInitializer
 import com.xayah.feature.setup.R
@@ -108,13 +109,15 @@ class IndexViewModel @Inject constructor(
                     context.saveResticPassword(pwd)
                     _initializationState.value = InitializationState.ReadyToUse(repoPath)
                 } else {
-                    val msg = initResult.exceptionOrNull()?.message ?: "Restic init failed"
-                    Log.e(TAG, "Restic init failed: $msg")
+                    val initError = initResult.exceptionOrNull()
+                    val msg = initError?.toFriendlyMessage(context) ?: "Restic init failed"
+                    // Logcat 保留完整原文，界面只拿友好文案
+                    Log.e(TAG, "Restic init failed: ${initError?.message}")
                     _initializationState.value = InitializationState.Error(msg)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "setup init error", e)
-                _initializationState.value = InitializationState.Error(e.message ?: "Unknown error")
+                _initializationState.value = InitializationState.Error(e.toFriendlyMessage(context))
             }
         }
     }
@@ -185,7 +188,7 @@ class IndexViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "open existing repo error", e)
-                _initializationState.value = InitializationState.Error(e.message ?: "Unknown error")
+                _initializationState.value = InitializationState.Error(e.toFriendlyMessage(context))
             }
         }
     }
