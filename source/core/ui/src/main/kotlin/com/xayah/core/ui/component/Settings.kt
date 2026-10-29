@@ -1,6 +1,7 @@
 package com.xayah.core.ui.component
 
 import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.Indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,9 +31,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.datastore.preferences.core.Preferences
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xayah.core.datastore.readStoreBoolean
@@ -215,7 +219,9 @@ fun Selectable(
     title: String,
     value: String? = null,
     desc: String? = null,
-    current: String,
+    current: String = "",
+    /** 非空时按钮内展示该图标而不是 [current] 文本。 */
+    currentIcon: ImageBitmap? = null,
     onClick: suspend () -> Unit = suspend {}
 ) {
     val scope = rememberCoroutineScope()
@@ -229,8 +235,15 @@ fun Selectable(
         },
         trailingContent = {
             FilledTonalButton(enabled = enabled, onClick = { scope.launch { onClick() } }) {
-
-                Text(text = current)
+                if (currentIcon != null) {
+                    Image(
+                        bitmap = currentIcon,
+                        contentDescription = current,
+                        modifier = Modifier.size(28.dp),
+                    )
+                } else {
+                    Text(text = current)
+                }
             }
         },
         onClick = { scope.launch { onClick() } }

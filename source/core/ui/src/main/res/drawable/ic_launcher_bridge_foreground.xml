@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    设备桥 Device Bridge：两台设备之间的数据迁移。
+    设计稿视口 128x128，此处按 adaptive icon 规范缩至 108dp 画布的安全区（18dp ~ 90dp）内。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="128"
+    android:viewportHeight="128">
+    <group
+        android:pivotX="64.0"
+        android:pivotY="64.0"
+        android:scaleX="0.82"
+        android:scaleY="0.82">
+        <!-- 左侧设备 -->
+        <path
+            android:fillColor="#A63C35"
+            android:pathData="M20,38a13,13 0 0 1 13,-13h13a13,13 0 0 1 13,13v52a13,13 0 0 1 -13,13h-13a13,13 0 0 1 -13,-13z" />
+        <!-- 右侧设备 -->
+        <path
+            android:fillColor="#5D1916"
+            android:pathData="M69,38a13,13 0 0 1 13,-13h13a13,13 0 0 1 13,13v52a13,13 0 0 1 -13,13h-13a13,13 0 0 1 -13,-13z" />
+        <!-- 左侧设备顶部细节 -->
+        <path
+            android:pathData="m31,43 -4,-6m21,6 4,-6M29,51c0,-6 4.8,-11 11,-11s11,5 11,11"
+            android:strokeColor="#FFEDEA"
+            android:strokeWidth="4"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:fillColor="#00000000" />
+        <path
+            android:fillColor="#FFEDEA"
+            android:pathData="M32.5,50a2.5,2.5 0 1 1 5,0a2.5,2.5 0 1 1 -5,0" />
+        <path
+            android:fillColor="#FFEDEA"
+            android:pathData="M42.5,50a2.5,2.5 0 1 1 5,0a2.5,2.5 0 1 1 -5,0" />
+        <!-- 右侧设备底部按键 -->
+        <path
+            android:pathData="M84,87h9"
+            android:strokeColor="#FFEDEA"
+            android:strokeWidth="5"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:fillColor="#00000000" />
+        <!-- 桥接箭头 -->
+        <path
+            android:pathData="M48,63h29"
+            android:strokeColor="#FFF8F6"
+            android:strokeWidth="8"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:fillColor="#00000000" />
+        <path
+            android:pathData="m68,54 9,9 -9,9"
+            android:strokeColor="#FFF8F6"
+            android:strokeWidth="8"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:fillColor="#00000000" />
+    </group>
+</vector>

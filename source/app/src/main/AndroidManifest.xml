@@ -30,15 +30,62 @@
         tools:replace="android:enableOnBackInvokedCallback"
         tools:targetApi="31">
 
+        <!--
+            图标切换与 Telegram 同构：
+            SplashActivity 只保留 MAIN、不带 LAUNCHER，桌面入口全部由 activity-alias 提供，
+            任一时刻恰好启用一个别名。好处是永远不需要禁用真实 Activity，
+            不会出现"入口被自己禁用掉、桌面彻底没图标"的情况。
+        -->
         <activity
             android:name="com.xayah.databackup.SplashActivity"
             android:exported="true"
             android:theme="@style/Theme.DataBackup.SplashScreen">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 默认图标：不声明 icon/label，直接继承 <application> 上的 ic_launcher 与 app_name。 -->
+        <activity-alias
+            android:name="com.xayah.databackup.SplashActivityDefault"
+            android:enabled="true"
+            android:exported="true"
+            android:targetActivity="com.xayah.databackup.SplashActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- 可选图标：默认禁用，切换时启用其中一个并禁用其余别名。 -->
+
+        <activity-alias
+            android:name="com.xayah.databackup.SplashActivityBridge"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_bridge"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_bridge"
+            android:targetActivity="com.xayah.databackup.SplashActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name="com.xayah.databackup.SplashActivityShield"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_shield"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_shield"
+            android:targetActivity="com.xayah.databackup.SplashActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <activity
             android:name="com.xayah.databackup.MainActivity"

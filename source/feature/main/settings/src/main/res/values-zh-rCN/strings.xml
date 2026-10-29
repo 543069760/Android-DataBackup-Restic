@@ -111,4 +111,10 @@
     <string name="otg_partition_fs_type">文件系统：%1$s</string>
     <string name="otg_storage_tips_title">小提示</string>
     <string name="otg_storage_tips_content">如果之前存在（曾初始化过）仓库，请点击上方的重新初始化按钮，选择原来备份仓库的路径。密码正确的情况下即可恢复原来的仓库快照，旧的仓库快照不会丢失；如果密码错误或选择全新路径，则需要将仓库重新初始化为新的仓库。</string>
+    <!-- 应用图标切换 -->
+    <string name="app_icon">应用图标</string>
+    <string name="app_icon_desc">点击切换，切换后应用会自动退出以便新图标生效</string>
+    <string name="app_icon_default">默认</string>
+    <string name="app_icon_device_bridge">设备桥</string>
+    <string name="app_icon_shield_sync">安全同步</string>
 </resources>

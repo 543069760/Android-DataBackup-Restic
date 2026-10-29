@@ -1,11 +1,19 @@
 package com.xayah.feature.main.settings
 
+import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,6 +23,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Block
@@ -33,20 +43,27 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xayah.core.datastore.KeyAutoScreenOff
 import com.xayah.core.datastore.KeyMonet
 import com.xayah.core.datastore.KeyResticOtgEnabled
+import com.xayah.core.datastore.readAppIcon
 import com.xayah.core.datastore.readResticCompressionLevel
 import com.xayah.core.datastore.readResticOtgEnabled
 import com.xayah.core.datastore.readUpdateChannel
+import com.xayah.core.datastore.saveAppIcon
 import com.xayah.core.datastore.saveUpdateChannel
+import com.xayah.core.model.AppIconType
 import com.xayah.core.model.OpType
 import com.xayah.core.model.Target
 import com.xayah.core.ui.component.Clickable
@@ -68,6 +85,7 @@ import com.xayah.core.ui.theme.value
 import com.xayah.core.ui.theme.withState
 import com.xayah.core.ui.token.SizeTokens
 import com.xayah.core.ui.util.LocalNavController
+import com.xayah.core.util.AppIconUtil
 import com.xayah.core.util.LanguageUtil
 import com.xayah.core.util.getActivity
 import com.xayah.core.util.navigateSingle
@@ -168,6 +186,40 @@ fun PageSettings() {
                     value = locale.getDisplayName(locale)
                 ) {
                     navController.navigateSingle(MainRoutes.LanguageSettings.route)
+                }
+
+                // 应用图标：每个选项对应一个 activity-alias，切换后立即退出应用让桌面生效
+                val appIconTypes = remember { AppIconType.values().toList() }
+                val currentAppIconIndex by context.readAppIcon().collectAsStateWithLifecycle(initialValue = AppIconType.DEFAULT.id)
+                val currentAppIcon = remember(currentAppIconIndex) { AppIconType.of(currentAppIconIndex) }
+                val appIconTitle = stringResource(id = R.string.app_icon)
+                // 设置行上直接展示当前样式真实的桌面图标，名称只作为无障碍描述保留
+                val currentAppIconBitmap = remember(currentAppIcon) { renderAppIcon(context, currentAppIcon) }
+                Selectable(
+                    title = appIconTitle,
+                    desc = stringResource(id = R.string.app_icon_desc),
+                    current = stringResource(id = currentAppIcon.titleRes),
+                    currentIcon = currentAppIconBitmap,
+                ) {
+                    val (state, selectedIndex) = dialogState.open(
+                        initialState = appIconTypes.indexOf(currentAppIcon).coerceAtLeast(0),
+                        title = appIconTitle,
+                        contentHorizontalPadding = false,
+                    ) { uiState ->
+                        AppIconOptions(
+                            types = appIconTypes,
+                            selectedIndex = uiState.value,
+                            onSelectedChange = { uiState.value = it },
+                        )
+                    }
+                    if (state.isConfirm) {
+                        val type = appIconTypes.getOrNull(selectedIndex) ?: return@Selectable
+                        if (type != currentAppIcon) {
+                            context.saveAppIcon(type.id)
+                            AppIconUtil.apply(context, type)
+                            AppIconUtil.exitApp(context)
+                        }
+                    }
                 }
             }
 
@@ -433,6 +485,81 @@ private fun ChooseRepoChip(
                 text = stringResource(id = R.string.restic_choose_new_repo),
                 color = ThemedColorSchemeKeyTokens.OnPrimaryContainer.value,
             )
+        }
+    }
+}
+
+/** 图标样式对应的显示名。 */
+private val AppIconType.titleRes: Int
+    get() = when (this) {
+        AppIconType.DEFAULT -> R.string.app_icon_default
+        AppIconType.DEVICE_BRIDGE -> R.string.app_icon_device_bridge
+        AppIconType.SHIELD_SYNC -> R.string.app_icon_shield_sync
+    }
+
+/** PackageManager 中该别名声明的图标，直接栅格化，保证预览与桌面完全一致。 */
+private fun renderAppIcon(context: Context, type: AppIconType): ImageBitmap? {
+    val drawable = AppIconUtil.getIcon(context, type) ?: return null
+    val px = 192
+    val bitmap = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    drawable.setBounds(0, 0, px, px)
+    drawable.draw(canvas)
+    return bitmap.asImageBitmap()
+}
+
+/**
+ * 三个图标横向平铺，只展示图标本身。
+ *
+ * 图标在进入弹窗时一次性栅格化并缓存：若在每一项内部按需 remember，
+ * 选中项变化时重组会导致未选中项被重新解码，表现为"只剩选中项渲染"。
+ */
+@Composable
+private fun AppIconOptions(
+    types: List<AppIconType>,
+    selectedIndex: Int,
+    onSelectedChange: (Int) -> Unit,
+) {
+    val context = LocalContext.current
+    val icons = remember { types.map { renderAppIcon(context, it) } }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = SizeTokens.Level24, vertical = SizeTokens.Level8),
+        horizontalArrangement = Arrangement.spacedBy(SizeTokens.Level16),
+    ) {
+        types.forEachIndexed { index, type ->
+            AppIconBadge(
+                modifier = Modifier
+                    .weight(1f)
+                    .selectable(selected = index == selectedIndex, onClick = { onSelectedChange(index) }),
+                icon = icons[index],
+                label = stringResource(id = type.titleRes),
+                selected = index == selectedIndex,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AppIconBadge(
+    modifier: Modifier = Modifier,
+    icon: ImageBitmap?,
+    label: String,
+    selected: Boolean,
+) {
+    val shape = RoundedCornerShape(SizeTokens.Level16)
+    val outline = if (selected) ThemedColorSchemeKeyTokens.Primary.value else ThemedColorSchemeKeyTokens.Outline.value
+    Box(
+        modifier = modifier
+            .aspectRatio(1f)
+            .background(ThemedColorSchemeKeyTokens.Surface.value, shape)
+            .border(width = 3.dp, color = outline, shape = shape)
+            .padding(SizeTokens.Level12),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (icon != null) {
+            Image(bitmap = icon, contentDescription = label, modifier = Modifier.fillMaxSize())
         }
     }
 }

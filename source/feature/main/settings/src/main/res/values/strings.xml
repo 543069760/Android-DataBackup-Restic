@@ -113,4 +113,10 @@
     <string name="otg_partition_fs_type">Filesystem: %1$s</string>
     <string name="otg_storage_tips_title">Tips</string>
     <string name="otg_storage_tips_content">If the device previously had a repository (it was initialized before), tap the reinitialize button above and select the original backup repository path. With the correct password, the original repository snapshots will be restored and old snapshots will not be lost. If the password is wrong or a brand-new path is chosen, the repository will be reinitialized as a new one.</string>
+    <!-- 应用图标切换 -->
+    <string name="app_icon">App Icon</string>
+    <string name="app_icon_desc">Tap to switch. The app will close itself so the new icon can take effect.</string>
+    <string name="app_icon_default">Default</string>
+    <string name="app_icon_device_bridge">Device Bridge</string>
+    <string name="app_icon_shield_sync">Shield Sync</string>
 </resources>

@@ -2,4 +2,8 @@
 <resources>
     <color name="colorPrimary">#00668B</color>
     <color name="colorOnPrimary">#ffffff</color>
+
+    <!-- 可选应用图标的背景层（与 mipmap-anydpi-v26 下的 adaptive-icon 配套） -->
+    <color name="ic_launcher_bridge_background">#FFDAD5</color>
+    <color name="ic_launcher_shield_background">#D5F8DE</color>
 </resources>

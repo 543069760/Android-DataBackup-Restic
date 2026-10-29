@@ -10,6 +10,7 @@ val KeyScreenOffTimeout = intPreferencesKey("screen_off_timeout")
 val KeyRestoreUser = intPreferencesKey("restore_user")
 val KeyCompressionLevel = intPreferencesKey("compression_level")
 val KeyUpdateChannel = intPreferencesKey("update_channel")
+val KeyAppIcon = intPreferencesKey("app_icon")
 
 
 // -----------------------------------------Read-----------------------------------------
@@ -18,6 +19,7 @@ fun Context.readScreenOffTimeout() = readStoreInt(key = KeyScreenOffTimeout, def
 fun Context.readRestoreUser() = readStoreInt(key = KeyRestoreUser, defValue = -1)
 fun Context.readCompressionLevel() = readStoreInt(key = KeyCompressionLevel, defValue = 1)
 fun Context.readUpdateChannel() = readStoreInt(key = KeyUpdateChannel, defValue = 0)
+fun Context.readAppIcon() = readStoreInt(key = KeyAppIcon, defValue = 0)
 
 
 // -----------------------------------------Write-----------------------------------------
@@ -26,3 +28,4 @@ suspend fun Context.saveScreenOffTimeout(value: Int) = saveStoreInt(key = KeyScr
 suspend fun Context.saveRestoreUser(value: Int) = saveStoreInt(key = KeyRestoreUser, value = value)
 suspend fun Context.saveCompressionLevel(value: Int) = saveStoreInt(key = KeyCompressionLevel, value = value)
 suspend fun Context.saveUpdateChannel(value: Int) = saveStoreInt(key = KeyUpdateChannel, value = value)
+suspend fun Context.saveAppIcon(value: Int) = saveStoreInt(key = KeyAppIcon, value = value)
