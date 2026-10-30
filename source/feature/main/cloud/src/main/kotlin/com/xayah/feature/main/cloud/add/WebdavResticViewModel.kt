@@ -3,13 +3,6 @@ package com.xayah.feature.main.cloud.add
 import android.content.Context
 import android.util.Log
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.lifecycle.viewModelScope
-import com.xayah.core.datastore.readWebdavResticInitialized
-import com.xayah.core.datastore.readWebdavResticPassword
-import com.xayah.core.datastore.readWebdavResticRepoPath
-import com.xayah.core.datastore.saveWebdavResticInitialized
-import com.xayah.core.datastore.saveWebdavResticPassword
-import com.xayah.core.datastore.saveWebdavResticRepoPath
 import com.xayah.core.model.CloudType
 import com.xayah.core.model.database.CloudEntity
 import com.xayah.core.model.database.WebDAVExtra
@@ -64,20 +57,9 @@ class WebdavResticViewModel @Inject constructor(
         data class Error(val message: String) : WebdavInitializationState()
     }
 
-    init {
-        viewModelScope.launch {
-            // 初始化时加载已保存的密码
-            val savedPassword = context.readWebdavResticPassword() ?: ""
-            _webdavPasswordState.value = savedPassword
-
-            // 检查初始化状态
-            val isInitialized = context.readWebdavResticInitialized()
-            if (isInitialized) {
-                val repoPath = context.readWebdavResticRepoPath() ?: ""
-                _webdavInitializationState.value = WebdavInitializationState.Success(repoPath)
-            }
-        }
-    }
+    // 不在 ViewModel 创建时从全局 DataStore 回填初始化状态：DataStore 的 restic 配置按云类型
+    // 全局只存一份，同类型建多个账户时会互相串（第二个账户显示第一个账户的初始化目录）。
+    // 统一走账户级：编辑既有账户时由 restoreStateFromEntity() 从 CloudEntity 恢复。
 
     /**
      * 从既有账户 CloudEntity 恢复 WebDAV restic 初始化状态。
@@ -145,11 +127,8 @@ class WebdavResticViewModel @Inject constructor(
                 val result = resticRepoWebdav.initWebdavRepository(cloudEntity, remotePath, password)
 
                 if (result.isSuccess) {
-                    // 保存配置到DataStore
-                    context.saveWebdavResticPassword(password)
-                    context.saveWebdavResticInitialized(true)
-                    context.saveWebdavResticRepoPath(remotePath)
-
+                    // 账户级存储：restic 密码与仓库路径由 CloudEntity 承载（extra.resticPassword / remote），
+                    // 不再写全局 DataStore，避免同类型多账户互相覆盖。
                     _webdavInitializationState.value = WebdavInitializationState.Success(remotePath)
                     Log.d(TAG, "WebDAV Restic仓库初始化成功")
                     true
@@ -180,16 +159,8 @@ class WebdavResticViewModel @Inject constructor(
     }
 
     fun saveWebdavPassword(password: String) {
-        Log.d(TAG, "保存WebDAV Restic密码")
+        Log.d(TAG, "保存WebDAV Restic密码（仅内存，随账户 CloudEntity 持久化）")
         _webdavPasswordState.value = password
-        viewModelScope.launch {
-            try {
-                context.saveWebdavResticPassword(password)
-                Log.d(TAG, "WebDAV Restic密码保存成功")
-            } catch (e: Exception) {
-                Log.e(TAG, "WebDAV Restic密码保存失败", e)
-            }
-        }
     }
 
     override suspend fun onEvent(state: WebdavResticUiState, intent: WebdavResticUiIntent) {

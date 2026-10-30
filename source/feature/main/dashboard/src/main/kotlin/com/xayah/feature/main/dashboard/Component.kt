@@ -602,7 +602,6 @@ fun NavigationListItem(
     iconTint: Color = MaterialTheme.colorScheme.primary,
     iconBackgroundColor: Color = MaterialTheme.colorScheme.primaryContainer,
     title: String,
-    subtitle: String,
     enabled: Boolean = true,
     onClick: () -> Unit = {},
 ) {
@@ -638,18 +637,13 @@ fun NavigationListItem(
                 )
             }
 
-            // 标题 + 副标题
+            // 标题
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 

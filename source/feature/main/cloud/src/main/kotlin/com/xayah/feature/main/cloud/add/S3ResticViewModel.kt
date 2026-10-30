@@ -3,13 +3,6 @@ package com.xayah.feature.main.cloud.add
 import android.content.Context
 import android.util.Log
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.lifecycle.viewModelScope
-import com.xayah.core.datastore.readS3ResticInitialized
-import com.xayah.core.datastore.readS3ResticPassword
-import com.xayah.core.datastore.readS3ResticRepoPath
-import com.xayah.core.datastore.saveS3ResticInitialized
-import com.xayah.core.datastore.saveS3ResticPassword
-import com.xayah.core.datastore.saveS3ResticRepoPath
 import com.xayah.core.model.database.S3Extra
 import com.xayah.core.model.database.S3Protocol
 import com.xayah.core.model.CloudType
@@ -63,20 +56,9 @@ class S3ResticViewModel @Inject constructor(
         data class Error(val message: String) : S3InitializationState()
     }
 
-    init {
-        viewModelScope.launch {
-            // 初始化时加载已保存的密码
-            val savedPassword = context.readS3ResticPassword() ?: ""
-            _s3PasswordState.value = savedPassword
-
-            // 检查初始化状态
-            val isInitialized = context.readS3ResticInitialized()
-            if (isInitialized) {
-                val repoPath = context.readS3ResticRepoPath() ?: ""
-                _s3InitializationState.value = S3InitializationState.Success(repoPath)
-            }
-        }
-    }
+    // 不在 ViewModel 创建时从全局 DataStore 回填初始化状态：DataStore 的 restic 配置按云类型
+    // 全局只存一份，同类型建多个账户时会互相串（第二个账户显示第一个账户的初始化目录）。
+    // 统一走账户级：编辑既有账户时由 restoreStateFromEntity() 从 CloudEntity 恢复。
 
     /**
      * 从既有账户 CloudEntity 恢复 S3 restic 初始化状态。
@@ -115,11 +97,8 @@ class S3ResticViewModel @Inject constructor(
                 val result = resticRepoCos.initRepository(cloudEntity, remotePath, password)
 
                 if (result.isSuccess) {
-                    // 保存配置到DataStore
-                    context.saveS3ResticPassword(password)
-                    context.saveS3ResticInitialized(true)
-                    context.saveS3ResticRepoPath(remotePath)
-
+                    // 账户级存储：restic 密码与仓库路径由 CloudEntity 承载（extra.resticPassword / remote），
+                    // 不再写全局 DataStore，避免同类型多账户互相覆盖。
                     _s3InitializationState.value = S3InitializationState.Success(remotePath)
                     Log.d(TAG, "S3 Restic仓库初始化成功")
                     true
@@ -144,16 +123,8 @@ class S3ResticViewModel @Inject constructor(
     }
 
     fun saveS3Password(password: String) {
-        Log.d(TAG, "保存S3 Restic密码")
+        Log.d(TAG, "保存S3 Restic密码（仅内存，随账户 CloudEntity 持久化）")
         _s3PasswordState.value = password
-        viewModelScope.launch {
-            try {
-                context.saveS3ResticPassword(password)
-                Log.d(TAG, "S3 Restic密码保存成功")
-            } catch (e: Exception) {
-                Log.e(TAG, "S3 Restic密码保存失败", e)
-            }
-        }
     }
 
     override suspend fun onEvent(state: S3ResticUiState, intent: S3ResticUiIntent) {

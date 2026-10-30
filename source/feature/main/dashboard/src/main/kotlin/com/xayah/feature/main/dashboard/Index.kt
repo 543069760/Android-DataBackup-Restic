@@ -268,8 +268,7 @@ fun PageDashboard() {
                     icon = Icons.Outlined.Cloud,
                     iconTint = MaterialTheme.colorScheme.primary,
                     iconBackgroundColor = MaterialTheme.colorScheme.primaryContainer,
-                    title = stringResource(id = R.string.cloud),
-                    subtitle = "Remote vault",
+                    title = stringResource(id = R.string.cloud_account_manage),
                     enabled = nullBackupDir.not(),
                 ) {
                     navController.navigateSingle(MainRoutes.Cloud.route)
@@ -280,8 +279,7 @@ fun PageDashboard() {
                     icon = ImageVector.vectorResource(id = R.drawable.ic_rounded_history),
                     iconTint = MaterialTheme.colorScheme.tertiary,
                     iconBackgroundColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    title = stringResource(id = R.string.restore),
-                    subtitle = "Recovery tools",
+                    title = stringResource(id = R.string.backup_restore_delete),
                     enabled = nullBackupDir.not(),
                 ) {
                     navController.navigateSingle(MainRoutes.Restore.route)
@@ -293,7 +291,6 @@ fun PageDashboard() {
                     iconTint = MaterialTheme.colorScheme.secondary,
                     iconBackgroundColor = MaterialTheme.colorScheme.secondaryContainer,
                     title = stringResource(R.string.history),
-                    subtitle = "Audit logs",
                     enabled = nullBackupDir.not(),
                 ) {
                     navController.navigateSingle(MainRoutes.History.route)

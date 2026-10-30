@@ -8,4 +8,6 @@
     <string name="otg_repo_needs_reconnect">发现OTG设备中存在仓库，点击立即连接现有仓库</string>
     <string name="otg_disconnected_back_home">OTG 设备已断开，已返回首页</string>
     <string name="latest_version">最新版本</string>
+    <string name="cloud_account_manage">云端账户管理</string>
+    <string name="backup_restore_delete">备份恢复与删除</string>
 </resources>
