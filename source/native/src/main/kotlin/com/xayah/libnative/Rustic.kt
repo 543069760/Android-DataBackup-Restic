@@ -16,6 +16,27 @@ object Rustic {
         nativeInitRepository(repositoryPath, password, optionKeys, optionValues)
     }
 
+    /**
+     * 对**既有**仓库热改 config 里的 extra_verify 标志（rustic_core 写入路径自验证）。
+     *
+     * rustic 默认 true：写每个 blob 前都会在内存里解密+解压+逐字节比对一遍，写端 CPU 接近翻倍。
+     * 关掉后完整性仍由 SHA-256 内容寻址 + Poly1305 AEAD tag 在读路径兜底。
+     *
+     * 注意：apply_config 只落盘 config，不更新已打开的仓库句柄，
+     * 新设置在**下一次 open** 时生效；本方法是独立调用，天然满足该约束。
+     *
+     * @return true = 配置确有变化并已写入；false = 无变化（幂等，可安全重复调用）
+     */
+    fun setExtraVerify(
+        repositoryPath: String,
+        password: String,
+        options: Map<String, String> = emptyMap(),
+        enabled: Boolean,
+    ): Boolean {
+        val (optionKeys, optionValues) = options.toKeyValueArrays()
+        return nativeSetExtraVerify(repositoryPath, password, optionKeys, optionValues, enabled)
+    }
+
     fun repositoryExists(
         repositoryPath: String,
         options: Map<String, String> = emptyMap(),
@@ -201,6 +222,14 @@ object Rustic {
         optionKeys: Array<String>,
         optionValues: Array<String>,
     )
+
+    private external fun nativeSetExtraVerify(
+        repositoryPath: String,
+        password: String,
+        optionKeys: Array<String>,
+        optionValues: Array<String>,
+        enabled: Boolean,
+    ): Boolean
 
     private external fun nativeRepositoryConfigId(
         repositoryPath: String,

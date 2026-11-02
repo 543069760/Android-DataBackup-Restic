@@ -20,6 +20,12 @@ use crate::progress::{AndroidProgressBars, RusticProgressCallback, SharedProgres
 /// 因此 backends()/backends_with_progress() 会在构造后端前把它过滤掉。
 const COMPRESSION_KEY: &str = "__databackup_compression__";
 
+/// extra_verify 保留 key，必须与 Kotlin 侧 ResticExtraVerify.kt 中的常量逐字节一致：
+///   const val EXTRA_VERIFY_KEY = "__databackup_extra_verify__"
+/// 语义与 COMPRESSION_KEY 相同：只在 init_repository / set_extra_verify 中使用，
+/// 绝不能进入 opendal 后端配置，故 backends()/backends_with_progress() 同样会过滤掉它。
+const EXTRA_VERIFY_KEY: &str = "__databackup_extra_verify__";
+
 pub fn init_repository(
     repository_path: &str,
     password: &str,
@@ -49,6 +55,20 @@ pub fn init_repository(
         None => {
             log::info!("[ResticCompression] no explicit compression -> rustic default");
         }
+    }
+
+    // extra_verify 语义（写入路径自验证，对应 rustic_core ConfigOptions.set_extra_verify）：
+    //   - key 缺失            -> 不设字段 -> 保持 rustic 默认 true（写入时逐 blob 解密+解压+比对）
+    //   - EXTRA_VERIFY_KEY=0  -> Some(false) -> 关闭自验证（写吞吐约翻倍）
+    //   - 其它值              -> Some(true)  -> 显式开启
+    // 注意：ConfigOptions::apply 里是 config.extra_verify = self.set_extra_verify 的无条件赋值，
+    // 因此"不改动"只能靠不调用 apply/不设字段，绝不能传 None 绕过（None 会写回 None→读回 true）。
+    if let Some(v) = options.get(EXTRA_VERIFY_KEY) {
+        let enabled = !matches!(v.as_str(), "0" | "false");
+        config.set_extra_verify = Some(enabled);
+        log::info!("[ResticExtraVerify] applied set_extra_verify={}", enabled);
+    } else {
+        log::info!("[ResticExtraVerify] no explicit extra_verify -> rustic default (true)");
     }
 
     Repository::new(
@@ -508,6 +528,39 @@ pub fn forget_snapshot(
     Ok(())
 }
 
+/// 改写既有仓库 config 文件中的 `extra_verify` 标志（不改 rustic_core 自身）。
+///
+/// 语义要点：
+///   - `ConfigOptions::apply` 里 `config.extra_verify = self.set_extra_verify` 是无条件赋值，
+///     因此这里必须显式写 `Some(enabled)`；传 `None`（如 `ConfigOptions::default()` 原样）
+///     会把字段清空，下次 open 又按缺省读回 true。
+///   - `apply_config` 只落盘 config、不更新当前已打开 Repository 的 dbe
+///     （`set_extra_verify` 只在 open 时生效一次）。本函数内部 open 的仓库随后即释放，
+///     作为独立调用天然满足"下次 open 生效"，不会污染正在进行的备份。
+///   - 返回 `Ok(true)` = 配置确有变化并已写入；`Ok(false)` = 无变化（幂等，可重复调用）。
+///   - append_only 仓库会被 rustic_core 直接拒绝（ErrorKind::AppendOnly），由调用方决定是否忽略。
+pub fn set_extra_verify(
+    repository_path: &str,
+    password: &str,
+    options: &HashMap<String, String>,
+    enabled: bool,
+) -> Result<bool> {
+    let mut repo = open_repository(repository_path, password, options)?;
+
+    let mut config = ConfigOptions::default();
+    config.set_extra_verify = Some(enabled);
+
+    let changed = repo.apply_config(&config)?;
+    log::info!(
+        "[ResticExtraVerify] set_extra_verify path={} enabled={} changed={}",
+        repository_path,
+        enabled,
+        changed
+    );
+
+    Ok(changed)
+}
+
 pub fn prune_repository(
     repository_path: &str,
     password: &str,
@@ -688,11 +741,12 @@ fn backends(
     flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     _cancel_id: i64,
 ) -> Result<RepositoryBackends> {
-    // 剔除压缩保留 key：它只服务于 init_repository，绝不能进入 opendal 后端配置，
-    // 否则 BackendOptions::to_backends() 可能因未知 key 报错。
+    // 剔除保留 key（压缩级别、extra_verify 开关）：它们只服务于 init_repository /
+    // set_extra_verify，绝不能进入 opendal 后端配置，否则 BackendOptions::to_backends()
+    // 可能因未知 key 报错。
     let options: BTreeMap<String, String> = options
         .iter()
-        .filter(|(k, _)| k.as_str() != COMPRESSION_KEY)
+        .filter(|(k, _)| k.as_str() != COMPRESSION_KEY && k.as_str() != EXTRA_VERIFY_KEY)
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     let backends = BackendOptions::default()
@@ -713,10 +767,10 @@ fn backends_with_progress(
     cancel_id: i64,
 ) -> Result<RepositoryBackends> {
     if let Some(path) = repository_path.strip_prefix("opendal:") {
-        // 同样剔除压缩保留 key，避免污染 opendal 配置。
+        // 同样剔除保留 key（压缩级别、extra_verify 开关），避免污染 opendal 配置。
         let options: BTreeMap<String, String> = options
             .iter()
-            .filter(|(k, _)| k.as_str() != COMPRESSION_KEY)
+            .filter(|(k, _)| k.as_str() != COMPRESSION_KEY && k.as_str() != EXTRA_VERIFY_KEY)
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         let backend = OpenDALBackend::new_with_progress(path, options, Some(counter))?;

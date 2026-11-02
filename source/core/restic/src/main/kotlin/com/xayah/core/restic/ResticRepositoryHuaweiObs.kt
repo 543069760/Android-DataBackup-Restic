@@ -26,7 +26,7 @@ class ResticRepositoryHuaweiObs @Inject constructor(
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             val extra = ResticShared.json.decodeFromString<HuaweiObsExtra>(cloudEntity.extra)
-            val options = buildHuaweiObsBackendOptions(extra, remotePath) + shared.context.resticCompressionOptions()
+            val options = buildHuaweiObsBackendOptions(extra, remotePath) + shared.context.resticCompressionOptions() + resticExtraVerifyOptions()
             Log.i("ResticCompression", "huaweiobs initRepository options=$options")
             val result = shared.rootService.initRusticRepository("opendal:obs", password, options)
             if (result.isSuccess) Result.success("Huawei OBS repository initialized")

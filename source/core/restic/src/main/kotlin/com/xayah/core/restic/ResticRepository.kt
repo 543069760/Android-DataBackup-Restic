@@ -197,7 +197,7 @@ class ResticRepository @Inject constructor(
         return withContext(Dispatchers.IO) {
             try {
                 // 从设置页读取压缩级别并转成 options（本地仓库仅承载压缩配置）
-                val options = context.resticCompressionOptions()
+                val options = context.resticCompressionOptions() + resticExtraVerifyOptions()
                 Log.i("ResticCompression", "local initRepository options=$options")
 
                 val result = rootService.initRusticRepository(repoPath, password, options)

@@ -95,7 +95,7 @@ class ResticRepositoryWebdav @Inject constructor(
         cloudEntity: CloudEntity, remotePath: String, password: String
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val options = buildWebdavBackendOptions(cloudEntity, remotePath)
+            val options = buildWebdavBackendOptions(cloudEntity, remotePath) + resticExtraVerifyOptions()
             Log.i("ResticWebdavRoot", "initWebdav options=$options root=${options["root"]} endpoint=${options["endpoint"]}")
 
             // 1) 建库

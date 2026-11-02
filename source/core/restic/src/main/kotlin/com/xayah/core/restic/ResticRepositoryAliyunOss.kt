@@ -27,7 +27,7 @@ class ResticRepositoryAliyunOss @Inject constructor(
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
             val extra = ResticShared.json.decodeFromString<AliyunOssExtra>(cloudEntity.extra)
-            val options = buildAliyunOssBackendOptions(extra, remotePath) + shared.context.resticCompressionOptions()
+            val options = buildAliyunOssBackendOptions(extra, remotePath) + shared.context.resticCompressionOptions() + resticExtraVerifyOptions()
             Log.i("ResticCompression", "aliyunoss initRepository options=$options")
             val result = shared.rootService.initRusticRepository("opendal:oss", password, options)
             if (result.isSuccess) Result.success("Aliyun OSS repository initialized")

@@ -39,7 +39,7 @@ class ResticRepositoryAwsS3 @Inject constructor(
         try {
             val extra = ResticShared.json.decodeFromString<AwsS3Extra>(cloudEntity.extra)
             // 仅在 init 这一处合并压缩 key（与 COS 一致）
-            val options = buildAwsS3BackendOptions(extra, remotePath) + shared.context.resticCompressionOptions()
+            val options = buildAwsS3BackendOptions(extra, remotePath) + shared.context.resticCompressionOptions() + resticExtraVerifyOptions()
             Log.i("ResticCompression", "awss3 initRepository options=$options")
             val result = shared.rootService.initRusticRepository("opendal:s3", password, options)
             if (result.isSuccess) Result.success("AWS S3 repository initialized")

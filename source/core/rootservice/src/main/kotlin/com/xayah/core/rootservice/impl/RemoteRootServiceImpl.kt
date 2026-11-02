@@ -8,6 +8,7 @@ import android.app.AppOpsManager
 import android.app.AppOpsManagerHidden
 import android.app.usage.StorageStatsManager
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.pm.IPackageManager
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
@@ -38,6 +39,7 @@ import com.xayah.core.rootservice.util.ExceptionUtil.tryOn
 import com.xayah.core.rootservice.util.ExceptionUtil.tryWithBoolean
 import com.xayah.core.rootservice.util.SsaidUtil
 import com.xayah.core.rootservice.ICallback
+import com.xayah.core.util.CpuCoreSampler
 import com.xayah.core.util.FileUtil
 import com.xayah.core.util.HashUtil
 import com.xayah.core.util.PathUtil
@@ -54,6 +56,7 @@ import java.nio.file.Paths
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import kotlin.io.path.pathString
@@ -651,6 +654,56 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         Rustic.initRepository(repositoryPath, password, options.toStringMap())
     }
 
+    // ---------------------------------------------------------------- extra_verify 迁移
+    // rustic 的 extra_verify 默认 true：每个 blob 加密压缩后还要在内存里解密+解压+逐字节比对，
+    // 写端 CPU 接近翻倍（FD 备份 40MB/s 的主要瓶颈）。新仓库由 Kotlin 侧在建库 options 里
+    // 带 EXTRA_VERIFY_KEY="0" 直接关闭，老仓库只能在 open 后改 config。
+    //
+    // 语义要点：
+    //   - apply_config 只落盘 config、不更新已打开句柄（set_extra_verify 仅在 open 时应用一次），
+    //     所以必须走独立的一次 Rustic.setExtraVerify 调用，下次 open 自然生效。
+    //   - 返回 false = 无变化（幂等），重复调用安全。
+    //   - 每个仓库只付一次"多开一次仓库"的成本，用 SharedPreferences 按仓库身份记录。
+    private val extraVerifyMigrated: SharedPreferences by lazy {
+        context.getSharedPreferences("restic_extra_verify_migration", Context.MODE_PRIVATE)
+    }
+
+    private fun extraVerifyMigrationKey(repositoryPath: String, options: Map<String, String>): String =
+        // 云端多个账号共用同一 repositoryPath（如 "opendal:s3"），必须把 options 一起纳入身份，
+        // 否则 A 账号迁移后 B 账号会被误判为已迁移、永远保持 extra_verify=true。
+        (repositoryPath + "|" + options.toSortedMap().entries.joinToString("&") { "${it.key}=${it.value}" })
+            .hashCode().toString()
+
+    /**
+     * 对既有仓库做一次幂等的 extra_verify=false 迁移；每个仓库身份只尝试一次。
+     * 失败不抛（不能因为优化项把备份/校验链路弄挂）。
+     */
+    private fun ensureRusticExtraVerifyDisabled(
+        repositoryPath: String,
+        password: String,
+        options: Map<String, String>,
+    ) {
+        // 先看标记再探仓库：已迁移的仓库不该为这个优化多付任何一次 native 调用。
+        val key = extraVerifyMigrationKey(repositoryPath, options)
+        if (runCatching { extraVerifyMigrated.getBoolean(key, false) }.getOrDefault(false)) return
+        // 未初始化的仓库不处理：init 路径由 Kotlin 侧 options 自带 "0"。
+        if (!runCatching { Rustic.repositoryExists(repositoryPath, options) }.getOrDefault(false)) return
+        runCatching { Rustic.setExtraVerify(repositoryPath, password, options, false) }
+            .onSuccess { changed ->
+                Log.i("ResticExtraVerify", "migrated path=$repositoryPath changed=$changed")
+                runCatching { extraVerifyMigrated.edit().putBoolean(key, true).apply() }
+            }
+            .onFailure { e ->
+                val msg = e.message ?: ""
+                Log.w("ResticExtraVerify", "migration failed path=$repositoryPath msg=$msg")
+                // append-only 仓库被 rustic_core 显式拒绝，重试无用，直接打标记，
+                // 避免每次备份都白多开一次仓库。
+                if (msg.contains("append-only", ignoreCase = true)) {
+                    runCatching { extraVerifyMigrated.edit().putBoolean(key, true).apply() }
+                }
+            }
+    }
+
     override fun rusticRepositoryExists(repositoryPath: String, options: MutableMap<Any?, Any?>?): Boolean = synchronized(lock) {
         Rustic.repositoryExists(repositoryPath, options.toStringMap())
     }
@@ -668,7 +721,10 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
 
     override fun validateRusticRepository(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?): Unit = synchronized(lock) {
         try {
-            Rustic.validateRepository(repositoryPath, password, options.toStringMap())
+            val optionMap = options.toStringMap()
+            Rustic.validateRepository(repositoryPath, password, optionMap)
+            // 校验通过说明仓库与密码都正确，这是关掉写入自验证的最安全时机（每仓库仅一次）。
+            ensureRusticExtraVerifyDisabled(repositoryPath, password, optionMap)
         } catch (e: Exception) {
             Log.i("ResticRepository", "impl.validateRusticRepository threw, msg=${e.message}")
             throw IllegalStateException(e.message ?: "validateRusticRepository failed")
@@ -677,7 +733,10 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
 
     override fun createRusticSnapshot(repositoryPath: String, password: String, sourcePaths: MutableList<String>, tags: MutableList<String>, options: MutableMap<Any?, Any?>?, callback: ICallback?, cancelId: Long): String = synchronized(lock) {
         try {
-            Rustic.createSnapshot(repositoryPath, password, sourcePaths, tags, options.toStringMap(), callback, cancelId)
+            val optionMap = options.toStringMap()
+            // 兜底：部分调用链不经过 validateRusticRepository，写入前再确认一次（每仓库仅一次）。
+            ensureRusticExtraVerifyDisabled(repositoryPath, password, optionMap)
+            Rustic.createSnapshot(repositoryPath, password, sourcePaths, tags, optionMap, callback, cancelId)
         } catch (e: Exception) {
             Log.i("RusticCancel", "impl.createRusticSnapshot threw, msg=${e.message}")
             throw IllegalStateException(e.message ?: "createRusticSnapshot failed")
@@ -785,6 +844,10 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         // ConcurrentHashMap 自带线程安全）；若确认备份期间无其他模块调用
         // 加锁方法（UI 侧读文件/查统计等），可去掉 synchronized(lock)。
     ): String = synchronized(lock) {
+        // 写入自验证（extra_verify）是本次 FD 备份吞吐的主要 CPU 开销来源，
+        // 必须在真正开写之前关掉：老仓库在这里做一次额外 open + apply_config（每仓库仅一次），
+        // 新仓库在建库 options 里已带 "0"，此处直接命中标记跳过。
+        ensureRusticExtraVerifyDisabled(repositoryPath, password, options.toStringMap())
         val stdErrFile = File.createTempFile("fd-bak-err", ".tmp", context.cacheDir)
         val pipe = ParcelFileDescriptor.createPipe()
         val rfd = pipe[0]
@@ -806,6 +869,25 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         val tarCodeRef = AtomicInteger(-1)
         var snapshotId: String? = null
         var fedBytes = -1L
+        // FdPerf：采样本进程（root 守护进程）的 CPU 占用，约 1s 一条。
+        // 必须读 /proc/self/stat 而不是上层 app 的读数——rustic 的分块/哈希/压缩/加密全在本进程内
+        // 串行完成，app 只是转发 AIDL 进度回调，读它恒接近 0，会掩盖真正的瓶颈。
+        // 判据：cores≈1.0 → 单核打满（CPU bound）；明显 <1 → 瓶颈在 IO / fsync。
+        // 注意 tar 子进程是独立进程，其 CPU 不计入这里；本数反映的是 rustic 消费侧。
+        val perfSampler = CpuCoreSampler()
+        val perfStop = AtomicBoolean(false)
+        val perfThread = thread(start = true, name = "fd-perf", isDaemon = true) {
+            while (!perfStop.get()) {
+                try {
+                    Thread.sleep(200)
+                } catch (_: InterruptedException) {
+                    break
+                }
+                perfSampler.maybeLog()?.let {
+                    Log.i("FdPerf", "where=root pid=${android.os.Process.myPid()} $it")
+                }
+            }
+        }
         try {
             // tarOut 已在 try 外由 wfd.dup() 创建、wfd 已关闭——
             // 写端只剩 tarOut 一份引用，tar 退出 close 后内核即向读端发 EOF。
@@ -895,6 +977,8 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
             obj.put("tarCode", tarCode).put("warnings", warnings)
             obj.toString()
         } finally {
+            perfStop.set(true)
+            perfThread.interrupt()
             fdBackupCancelWriters.remove(cancelId, cancelWrite)
             runCatching { cancelWrite.close() }
             runCatching { cancelRead.close() }

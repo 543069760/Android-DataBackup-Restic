@@ -18,6 +18,7 @@ import com.xayah.core.model.database.TaskDetailPackageEntity
 import com.xayah.core.network.client.CloudClient
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.rootservice.ICallback
+import com.xayah.core.util.CpuCoreSampler
 import com.xayah.core.util.IconRelativeDir
 import com.xayah.core.util.LogUtil
 import com.xayah.core.util.PathUtil
@@ -328,6 +329,9 @@ class PackagesBackupUtil @Inject constructor(
         // 进度条沿用现有"速度 | 累积字节"的不确定模式，无百分比分母（fd 流 readTotal 恒 0）。
         // 始终自建 stub：打 logcat + 透传 onProgress 给 UI 侧；
         // 外部传入的 callback（若有）继续转发，语义不变。
+        // FdPerf：对照用。本进程只转发 AIDL 进度回调，读数应接近 0；
+        // 真正吃 CPU 的是 root 守护进程（见 RemoteRootServiceImpl 的 where=root 采样）。
+        val perfSampler = CpuCoreSampler()
         val effectiveCallback = object : ICallback.Stub() {
             override fun onProgress(
                 readBytes: Long,
@@ -340,6 +344,9 @@ class PackagesBackupUtil @Inject constructor(
                     "FdBackup",
                     "progress read=$readBytes/$readTotal written=$writtenBytes speed=${writtenSpeed.formatToStorageSizePerSecond()}"
                 )
+                perfSampler.maybeLog()?.let {
+                    android.util.Log.i("FdPerf", "where=app $it")
+                }
                 onProgress?.invoke(readBytes, writtenSpeed, writtenBytes)
                 callback?.onProgress(readBytes, readTotal, readProgress, writtenBytes, writtenSpeed)
             }

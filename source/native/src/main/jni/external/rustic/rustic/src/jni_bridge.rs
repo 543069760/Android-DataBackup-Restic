@@ -13,7 +13,7 @@ use crate::repository::{
     check_repository, create_snapshot, create_snapshot_from_fd_with_progress,
     create_snapshot_with_progress, forget_snapshot, get_version, init_repository,
     list_snapshots_db, prune_repository, repository_config_id, repository_exists,
-    restore_snapshot, restore_snapshot_with_progress, validate_repository,
+    restore_snapshot, restore_snapshot_with_progress, set_extra_verify, validate_repository,
 };
 use crate::opendal_ops::{opendal_create_dir, opendal_list};
 
@@ -65,6 +65,36 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeInitRepository<'loc
             let options = string_arrays_to_map(env, &option_keys, &option_values)?;
             init_repository(&repository_path.to_string(), &password.to_string(), &options)
                 .map_err(NativeError::from)
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+/// 对既有仓库热改 config 中的 extra_verify 标志。
+/// 返回值：true = 配置确有变化并已落盘；false = 无变化（幂等）。
+/// 注意 apply_config 不更新已打开的 dbe，新设置在下一次 open 时生效。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeSetExtraVerify<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    repository_path: JString<'local>,
+    password: JString<'local>,
+    option_keys: JObjectArray<'local, JString<'local>>,
+    option_values: JObjectArray<'local, JString<'local>>,
+    enabled: jboolean,
+) -> jboolean {
+    unowned_env
+        .with_env(|env| -> Result<jboolean, NativeError> {
+            let options = string_arrays_to_map(env, &option_keys, &option_values)?;
+            set_extra_verify(
+                &repository_path.to_string(),
+                &password.to_string(),
+                &options,
+                // 本仓库用的 jni 版本里 jboolean 就是 bool 的别名（同 prune 的 instant_delete），
+                // 不能写 `enabled != 0`。
+                enabled,
+            )
+            .map(jboolean::from)
+            .map_err(NativeError::from)
         })
         .resolve::<ThrowRuntimeExAndDefault>()
 }

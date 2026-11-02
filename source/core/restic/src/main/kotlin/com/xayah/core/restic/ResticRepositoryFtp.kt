@@ -120,7 +120,7 @@ class ResticRepositoryFtp @Inject constructor(
             Log.i("ResticFtpRoot", "initFtp restUrl=${session.restUrl} remotePath=$remotePath")
 
             // 1) 建库
-            val initResult = shared.rootService.initRusticRepository(session.restUrl, password, emptyMap())
+            val initResult = shared.rootService.initRusticRepository(session.restUrl, password, resticExtraVerifyOptions())
             if (initResult.isFailure) {
                 return@withContext Result.failure(
                     Exception(initResult.exceptionOrNull()?.message ?: "Unknown error during rustic init")
