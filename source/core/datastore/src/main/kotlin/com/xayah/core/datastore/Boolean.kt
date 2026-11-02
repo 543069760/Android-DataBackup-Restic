@@ -22,6 +22,7 @@ val KeyRestoreSsaid = booleanPreferencesKey("restore_ssaid")
 val KeyResticEnableCompression = booleanPreferencesKey("restic_enable_compression")
 val KeyResticOtgEnabled = booleanPreferencesKey("restic_otg_enabled")
 val KeyResticActiveIsOtg = booleanPreferencesKey("restic_active_is_otg")
+val KeyKeepAliveHintShown = booleanPreferencesKey("keep_alive_hint_shown")
 
 // -----------------------------------------Read-----------------------------------------
 fun Context.readMonet() = readStoreBoolean(key = KeyMonet, defValue = true)
@@ -41,6 +42,7 @@ fun Context.readRestoreSsaid() = readStoreBoolean(key = KeyRestoreSsaid, defValu
 fun Context.readResticEnableCompression() = readStoreBoolean(key = KeyResticEnableCompression, defValue = true)
 fun Context.readResticOtgEnabled() = readStoreBoolean(key = KeyResticOtgEnabled, defValue = false)
 suspend fun Context.readResticActiveIsOtg(): Boolean = readStoreBoolean(key = KeyResticActiveIsOtg, defValue = false).first()
+suspend fun Context.readKeepAliveHintShown(): Boolean = readStoreBoolean(key = KeyKeepAliveHintShown, defValue = false).first()
 
 // -----------------------------------------Write-----------------------------------------
 suspend fun Context.saveMonet(value: Boolean) = saveStoreBoolean(key = KeyMonet, value = value)
@@ -60,3 +62,4 @@ suspend fun Context.saveRestoreSsaid(value: Boolean) = saveStoreBoolean(key = Ke
 suspend fun Context.saveResticEnableCompression(value: Boolean) = saveStoreBoolean(key = KeyResticEnableCompression, value = value)
 suspend fun Context.saveResticOtgEnabled(value: Boolean) = saveStoreBoolean(key = KeyResticOtgEnabled, value = value)
 suspend fun Context.saveResticActiveIsOtg(value: Boolean) = saveStoreBoolean(key = KeyResticActiveIsOtg, value = value)
+suspend fun Context.saveKeepAliveHintShown(value: Boolean) = saveStoreBoolean(key = KeyKeepAliveHintShown, value = value)

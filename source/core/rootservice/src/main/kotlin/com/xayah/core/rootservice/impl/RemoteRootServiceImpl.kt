@@ -66,6 +66,9 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
     // 长耗时只读遍历持公共锁会把服务里其它 Binder 调用一并拖死（参见下文 rcloneRpcNoLock 的注释）。
     // 这里用一把独立锁，仅用于避免多个 calculateSize 同时跑、把 CPU 与 fd 吃满。
     private val calculateSizeLock = Any()
+    // settings 命令共用同一个 root shell（ShellUtils.fastCmd），只能彼此串行；
+    // 但它们不应该排队等备份/恢复释放公共 lock，故用独立锁。
+    private val settingsLock = Any()
     private val fdBackupCancelWriters = java.util.concurrent.ConcurrentHashMap<Long, ParcelFileDescriptor>()
     private var systemContext: Context
     private var packageManager: PackageManager
@@ -532,33 +535,38 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         synchronized(lock) { SsaidUtil(userId).setSsaid(packageName, uid, ssaid) }
     }
 
+    /**
+     * 息屏/设置相关调用不能再用全局 [lock]：
+     * 备份/恢复（[backupTarToRustic]、[createRusticSnapshot] 等）会整段持有 [lock]，
+     * 处理中的「自动息屏」请求会被阻塞到备份结束才真正执行，且守护进程一旦在备份期间死亡，
+     * 这些「在途」的 binder 调用会抛 DeadObjectException 并被 UI 当成任务出错。
+     * 这里改为只在本组设置命令之间串行（ShellUtils 共用同一个 root shell，不能再并发）。
+     */
     override fun setDisplayPowerMode(mode: Int) {
-        synchronized(lock) {
-            val physicalDisplayIds: LongArray = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                DisplayControl.getPhysicalDisplayIds()
+        val physicalDisplayIds: LongArray = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            DisplayControl.getPhysicalDisplayIds()
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            SurfaceControlHidden.getPhysicalDisplayIds()
+        } else {
+            LongArray(1) { 0L }
+        }
+        physicalDisplayIds.forEach { id ->
+            val token = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                DisplayControl.getPhysicalDisplayToken(id)
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                SurfaceControlHidden.getPhysicalDisplayIds()
+                SurfaceControlHidden.getPhysicalDisplayToken(id)
             } else {
-                LongArray(1) { 0L }
+                SurfaceControlHidden.getBuiltInDisplay(id.toInt())
             }
-            physicalDisplayIds.forEach { id ->
-                val token = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    DisplayControl.getPhysicalDisplayToken(id)
-                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    SurfaceControlHidden.getPhysicalDisplayToken(id)
-                } else {
-                    SurfaceControlHidden.getBuiltInDisplay(id.toInt())
-                }
-                SurfaceControlHidden.setDisplayPowerMode(token, mode)
-            }
+            SurfaceControlHidden.setDisplayPowerMode(token, mode)
         }
     }
 
-    override fun getScreenOffTimeout(): Int = synchronized(lock) {
+    override fun getScreenOffTimeout(): Int = synchronized(settingsLock) {
         ShellUtils.fastCmd("settings get system screen_off_timeout").toIntOrNull() ?: DEFAULT_IDLE_TIMEOUT
     }
 
-    override fun setScreenOffTimeout(timeout: Int): Unit = synchronized(lock) {
+    override fun setScreenOffTimeout(timeout: Int): Unit = synchronized(settingsLock) {
         ShellUtils.fastCmd("settings put system screen_off_timeout $timeout")
     }
 

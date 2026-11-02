@@ -12,6 +12,7 @@ import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.util.Log
 import android.os.RemoteException
+import android.os.SystemClock
 import android.os.UserHandle
 import com.google.gson.reflect.TypeToken
 import com.topjohnwu.superuser.ipc.RootService
@@ -45,11 +46,33 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 
+/** 同一错误文案在该时间窗内只上报一次，避免一次故障刷屏。 */
+private const val REPORT_DEDUP_WINDOW_MS = 3_000L
+
 class RemoteRootService(private val context: Context) {
+    @Volatile
     private var mService: IRemoteRootService? = null
+    @Volatile
     private var mConnection: ServiceConnection? = null
     private var mutex = Mutex()
     private var retries = 0
+
+    /**
+     * 每次成功拿到新的 binder 自增。守护进程（root 进程）死亡属于「基础设施级」事件，
+     * 一次死亡会让所有在途/紧随其后的调用同时抛 DeadObjectException，如果每个调用都上报，
+     * 用户会连收 N 条「操作失败」。这里按绑定代际去重：同一次死亡只上报一次。
+     */
+    @Volatile
+    private var mBinderGeneration = 0
+    private var mDeathReportedGeneration = -1
+    private val reportLock = Any()
+    private var mLastReportedMessage: String? = null
+    private var mLastReportedAt = 0L
+
+    /** 取消兜底强杀守护进程期间，binder 死亡是预期行为，不应再弹错误。 */
+    @Volatile
+    private var mSuppressFailureReporting = false
+
     private val intent by lazy {
         Intent().apply {
             component = ComponentName(context.packageName, RemoteRootService::class.java.name)
@@ -61,6 +84,75 @@ class RemoteRootService(private val context: Context) {
     var onFailure: (Throwable) -> Unit = {}
 
     private fun log(msg: () -> String) = LogUtil.log { "RemoteRootService" to msg() }
+
+    /**
+     * 是否由「守护进程死亡」导致的失败。
+     * 这类失败调用方只会拿到默认值，本身没有可操作的补救动作，重复弹窗只会制造噪音。
+     */
+    private fun isBinderDeath(t: Throwable): Boolean {
+        var current: Throwable? = t
+        repeat(3) {
+            val e = current ?: return false
+            if (e is android.os.DeadObjectException) return true
+            val msg = e.message.orEmpty().lowercase()
+            if (
+                msg.contains("service disconnected") ||
+                msg.contains("binding died") ||
+                msg.contains("null binding") ||
+                msg.contains("binder died") ||
+                msg.contains("binder has died")
+            ) return true
+            current = e.cause
+        }
+        return false
+    }
+
+    /**
+     * 所有 root 调用的统一失败出口：去重后再交给 [onFailure]。
+     * 包装方法（含 public inline + reified 的 readJson/readProtoBuf）与跨模块调用都走这里，
+     * 避免同一次守护进程死亡被每个调用点各弹一次错误。
+     */
+    fun reportFailure(t: Throwable) {
+        val message = t.message ?: t.javaClass.name
+        if (mSuppressFailureReporting) {
+            log { "Root failure (suppressed): $message" }
+            return
+        }
+        val now = SystemClock.elapsedRealtime()
+        val shouldReport = synchronized(reportLock) {
+            if (isBinderDeath(t)) {
+                val generation = mBinderGeneration
+                if (mDeathReportedGeneration == generation) {
+                    false
+                } else {
+                    mDeathReportedGeneration = generation
+                    mLastReportedMessage = message
+                    mLastReportedAt = now
+                    true
+                }
+            } else if (message == mLastReportedMessage && now - mLastReportedAt < REPORT_DEDUP_WINDOW_MS) {
+                false
+            } else {
+                mLastReportedMessage = message
+                mLastReportedAt = now
+                true
+            }
+        }
+        if (shouldReport) {
+            if (isBinderDeath(t)) log { "[RootDeath] root daemon died, reporting once: $message" }
+            onFailure(t)
+        } else {
+            log { "Root failure (deduped): $message" }
+        }
+    }
+
+    /**
+     * 取消兜底（强杀守护进程）前后调用：
+     * 静默期内的 root 失败只写日志，不再以 Snackbar 形式打扰用户。
+     */
+    fun setSuppressFailureReporting(suppress: Boolean) {
+        mSuppressFailureReporting = suppress
+    }
 
     class RemoteRootService : RootService() {
         init {
@@ -154,12 +246,37 @@ class RemoteRootService(private val context: Context) {
                 destroyService()
                 log { "Trying to bind the service..." }
                 mConnection = object : ServiceConnection {
+                    /**
+                     * 连接是被替换掉的旧连接时要忽略它的回调：
+                     * 否则旧连接稍后的 onServiceDisconnected 会把「新连接」的 mService 清空，
+                     * 引发无意义的反复重绑（每次重绑都要多等 1s）。
+                     */
+                    private fun isStale(): Boolean = this !== mConnection
+
                     override fun onServiceConnected(name: ComponentName, service: IBinder) {
-                        mService = IRemoteRootService.Stub.asInterface(service)
-                        if (continuation.context.isActive) continuation.resume(mService!!)
+                        if (isStale()) {
+                            log { "Ignore stale onServiceConnected." }
+                            return
+                        }
+                        // 主动监听守护进程死亡：进程一死立即作废本地引用，
+                        // 下一次调用会先重绑再发起，而不是拿死掉的 binder 去抛 DeadObjectException。
+                        runCatching {
+                            service.linkToDeath({
+                                log { "[RootDeath] The root daemon died, invalidating binder." }
+                                if (mService?.asBinder() === service) mService = null
+                            }, 0)
+                        }.onFailure { e ->
+                            log { "[RootDeath] linkToDeath threw (ignored): ${e.message}" }
+                        }
+                        // 用局部变量 resume：mService 可能在死亡回调里被置空，避免 !! 崩在竞态上
+                        val binderProxy = IRemoteRootService.Stub.asInterface(service)
+                        mService = binderProxy
+                        mBinderGeneration++
+                        if (continuation.context.isActive) continuation.resume(binderProxy)
                     }
 
                     override fun onServiceDisconnected(name: ComponentName) {
+                        if (isStale()) return
                         mService = null
                         mConnection = null
                         val msg = "Service disconnected."
@@ -168,6 +285,7 @@ class RemoteRootService(private val context: Context) {
                     }
 
                     override fun onBindingDied(name: ComponentName) {
+                        if (isStale()) return
                         mService = null
                         mConnection = null
                         val msg = "Binding died."
@@ -176,6 +294,7 @@ class RemoteRootService(private val context: Context) {
                     }
 
                     override fun onNullBinding(name: ComponentName) {
+                        if (isStale()) return
                         mService = null
                         mConnection = null
                         val msg = "Null binding."
@@ -183,7 +302,15 @@ class RemoteRootService(private val context: Context) {
                         if (continuation.context.isActive) continuation.resumeWithException(RemoteException(msg))
                     }
                 }
-                RootService.bind(intent, mConnection!!)
+                // bind 同步抛异常时回调不会再回来，必须手动唤醒 continuation，否则调用方永久挂起
+                runCatching {
+                    RootService.bind(intent, mConnection!!)
+                }.onFailure { e ->
+                    log { "bind threw: ${e.message}" }
+                    mService = null
+                    mConnection = null
+                    if (continuation.context.isActive) continuation.resumeWithException(e)
+                }
             } else {
                 retries = 0
                 mService
@@ -197,14 +324,16 @@ class RemoteRootService(private val context: Context) {
     fun destroyService(killDaemon: Boolean = false) {
         log { "Trying to destroy the service..." }
         try {
-            if (killDaemon) {
-                if (mConnection != null) {
-                    runCatching {
-                        RootService.unbind(mConnection!!)
-                    }.onFailure { e ->
-                        log { "[CancelFallback] destroyService: unbind threw (ignored): ${e.message}" }
-                    }
+            // 只要有连接就必须解绑：之前只在 killDaemon 时解绑，每次重绑都会残留一个
+            // ServiceConnection，旧连接后续回调还会把新连接的 mService 清空。
+            mConnection?.let { connection ->
+                runCatching {
+                    RootService.unbind(connection)
+                }.onFailure { e ->
+                    log { "destroyService: unbind threw (ignored): ${e.message}" }
                 }
+            }
+            if (killDaemon) {
                 runCatching {
                     RootService.stopOrTask(intent)
                 }.onFailure { e ->
@@ -249,17 +378,17 @@ class RemoteRootService(private val context: Context) {
         )
     }
 
-    suspend fun readStatFs(path: String): StatFsParcelable = runCatching { getService().readStatFs(path) }.onFailure(onFailure).getOrElse { StatFsParcelable() }
+    suspend fun readStatFs(path: String): StatFsParcelable = runCatching { getService().readStatFs(path) }.onFailure(::reportFailure).getOrElse { StatFsParcelable() }
 
-    suspend fun mkdirs(path: String): Boolean = runCatching { getService().mkdirs(path) }.onFailure(onFailure).getOrElse { false }
+    suspend fun mkdirs(path: String): Boolean = runCatching { getService().mkdirs(path) }.onFailure(::reportFailure).getOrElse { false }
 
     suspend fun copyRecursively(path: String, targetPath: String, overwrite: Boolean): Boolean =
-        runCatching { getService().copyRecursively(path, targetPath, overwrite) }.onFailure(onFailure).getOrElse { false }
+        runCatching { getService().copyRecursively(path, targetPath, overwrite) }.onFailure(::reportFailure).getOrElse { false }
 
     suspend fun copyTo(path: String, targetPath: String, overwrite: Boolean): Boolean =
-        runCatching { getService().copyTo(path, targetPath, overwrite) }.onFailure(onFailure).getOrElse { false }
+        runCatching { getService().copyTo(path, targetPath, overwrite) }.onFailure(::reportFailure).getOrElse { false }
 
-    suspend fun renameTo(src: String, dst: String): Boolean = runCatching { getService().renameTo(src, dst) }.onFailure(onFailure).getOrElse { false }
+    suspend fun renameTo(src: String, dst: String): Boolean = runCatching { getService().renameTo(src, dst) }.onFailure(::reportFailure).getOrElse { false }
 
     suspend fun writeText(text: String, dst: String): Boolean = runCatching {
         var isSuccess = true
@@ -270,7 +399,7 @@ class RemoteRootService(private val context: Context) {
         if (getService().copyTo(tmpFilePath, dst, true).not()) isSuccess = false
         tmpFile.deleteRecursively()
         isSuccess
-    }.onFailure(onFailure).getOrElse { false }
+    }.onFailure(::reportFailure).getOrElse { false }
 
     suspend fun writeBytes(bytes: ByteArray, dst: String): Boolean = runCatching {
         var isSuccess = true
@@ -281,16 +410,16 @@ class RemoteRootService(private val context: Context) {
         isSuccess = isSuccess and getService().copyTo(tmpFilePath, dst, true)
         tmpFile.deleteRecursively()
         isSuccess
-    }.onFailure(onFailure).getOrElse { false }
+    }.onFailure(::reportFailure).getOrElse { false }
 
-    suspend fun exists(path: String): Boolean = runCatching { getService().exists(path) }.onFailure(onFailure).getOrElse { false }
+    suspend fun exists(path: String): Boolean = runCatching { getService().exists(path) }.onFailure(::reportFailure).getOrElse { false }
 
-    suspend fun createNewFile(path: String): Boolean = runCatching { getService().createNewFile(path) }.onFailure(onFailure).getOrElse { false }
+    suspend fun createNewFile(path: String): Boolean = runCatching { getService().createNewFile(path) }.onFailure(::reportFailure).getOrElse { false }
 
-    suspend fun deleteRecursively(path: String): Boolean = runCatching { getService().deleteRecursively(path) }.onFailure(onFailure).getOrElse { false }
+    suspend fun deleteRecursively(path: String): Boolean = runCatching { getService().deleteRecursively(path) }.onFailure(::reportFailure).getOrElse { false }
 
     suspend fun listFilePaths(path: String, listFiles: Boolean = true, listDirs: Boolean = true): List<String> =
-        runCatching { getService().listFilePaths(path, listFiles, listDirs) }.onFailure(onFailure).getOrElse { listOf() }
+        runCatching { getService().listFilePaths(path, listFiles, listDirs) }.onFailure(::reportFailure).getOrElse { listOf() }
 
     private fun readFromParcel(pfd: ParcelFileDescriptor, block: (Parcel) -> Unit) = run {
         val stream = ParcelFileDescriptor.AutoCloseInputStream(pfd)
@@ -309,7 +438,7 @@ class RemoteRootService(private val context: Context) {
             text = it.readString()
         }
         text ?: ""
-    }.onFailure(onFailure).getOrElse { "" }
+    }.onFailure(::reportFailure).getOrElse { "" }
 
     suspend fun readBytes(src: String): ByteArray = runCatching {
         val pfd = getService().readBytes(src)
@@ -319,7 +448,7 @@ class RemoteRootService(private val context: Context) {
             it.readByteArray(bytes)
         }
         bytes
-    }.onFailure(onFailure).getOrElse { ByteArray(0) }
+    }.onFailure(::reportFailure).getOrElse { ByteArray(0) }
 
     /**
      * 计算目录大小。
@@ -332,11 +461,11 @@ class RemoteRootService(private val context: Context) {
         withTimeoutOrNull(DEFAULT_TIMEOUT.toLong()) { getService().calculateSize(path) }.also {
             if (it == null) log { "calculateSize timeout (${DEFAULT_TIMEOUT}ms): $path" }
         } ?: 0L
-    }.onFailure(onFailure).getOrElse { 0 }
+    }.onFailure(::reportFailure).getOrElse { 0 }
 
-    suspend fun clearEmptyDirectoriesRecursively(path: String) = runCatching { getService().clearEmptyDirectoriesRecursively(path) }.onFailure(onFailure)
+    suspend fun clearEmptyDirectoriesRecursively(path: String) = runCatching { getService().clearEmptyDirectoriesRecursively(path) }.onFailure(::reportFailure)
 
-    suspend fun setAllPermissions(src: String) = runCatching { getService().setAllPermissions(src) }.onFailure(onFailure)
+    suspend fun setAllPermissions(src: String) = runCatching { getService().setAllPermissions(src) }.onFailure(::reportFailure)
 
     /**
      * Get the uid and gid of the file/directory
@@ -344,7 +473,7 @@ class RemoteRootService(private val context: Context) {
      * @param path
      * @return Uid to Gid
      */
-    suspend fun getUidGid(path: String): Pair<UInt, UInt> = runCatching { getService().getUidGid(path).let { it[0].toUInt() to it[1].toUInt() } }.onFailure(onFailure).getOrElse { UInt.MAX_VALUE to UInt.MAX_VALUE }
+    suspend fun getUidGid(path: String): Pair<UInt, UInt> = runCatching { getService().getUidGid(path).let { it[0].toUInt() to it[1].toUInt() } }.onFailure(::reportFailure).getOrElse { UInt.MAX_VALUE to UInt.MAX_VALUE }
 
     suspend fun getInstalledPackagesAsUser(flags: Int, userId: Int): List<PackageInfo> = runCatching {
         val pfd = getService().getInstalledPackagesAsUser(flags, userId)
@@ -353,10 +482,10 @@ class RemoteRootService(private val context: Context) {
             it.readTypedList(packages, PackageInfo.CREATOR)
         }
         packages
-    }.onFailure(onFailure).getOrElse { listOf() }
+    }.onFailure(::reportFailure).getOrElse { listOf() }
 
     suspend fun getPackageInfoAsUser(packageName: String, flags: Int, userId: Int) =
-        runCatching { getService().getPackageInfoAsUser(packageName, flags, userId) }.onFailure(onFailure).getOrNull()
+        runCatching { getService().getPackageInfoAsUser(packageName, flags, userId) }.onFailure(::reportFailure).getOrNull()
 
     suspend fun grantRuntimePermission(packageName: String, permName: String, user: UserHandle) =
         runCatching { getService().grantRuntimePermission(packageName, permName, user) }.withLog()
@@ -365,41 +494,41 @@ class RemoteRootService(private val context: Context) {
         runCatching { getService().revokeRuntimePermission(packageName, permName, user) }.withLog()
 
     suspend fun getPermissionFlags(packageName: String, permName: String, user: UserHandle) =
-        runCatching { getService().getPermissionFlags(packageName, permName, user) }.onFailure(onFailure).getOrElse { 0 }
+        runCatching { getService().getPermissionFlags(packageName, permName, user) }.onFailure(::reportFailure).getOrElse { 0 }
 
     suspend fun updatePermissionFlags(packageName: String, permName: String, user: UserHandle, flagMask: Int, flagValues: Int) =
-        runCatching { getService().updatePermissionFlags(packageName, permName, user, flagMask, flagValues) }.onFailure(onFailure)
+        runCatching { getService().updatePermissionFlags(packageName, permName, user, flagMask, flagValues) }.onFailure(::reportFailure)
 
     suspend fun getPackageSourceDir(packageName: String, userId: Int): List<String> =
-        runCatching { getService().getPackageSourceDir(packageName, userId) }.onFailure(onFailure).getOrElse { listOf() }
+        runCatching { getService().getPackageSourceDir(packageName, userId) }.onFailure(::reportFailure).getOrElse { listOf() }
 
     suspend fun queryInstalled(packageName: String, userId: Int): Boolean =
-        runCatching { getService().queryInstalled(packageName, userId) }.onFailure(onFailure).getOrElse { false }
+        runCatching { getService().queryInstalled(packageName, userId) }.onFailure(::reportFailure).getOrElse { false }
 
     suspend fun getPackageUid(packageName: String, userId: Int): Int =
-        runCatching { getService().getPackageUid(packageName, userId) }.onFailure(onFailure).getOrElse { -1 }
+        runCatching { getService().getPackageUid(packageName, userId) }.onFailure(::reportFailure).getOrElse { -1 }
 
     suspend fun getPackageDataDirs(packageName: String, userId: Int): List<String> =
-        runCatching { getService().getPackageDataDirs(packageName, userId) }.onFailure(onFailure).getOrElse { listOf("", "") }
+        runCatching { getService().getPackageDataDirs(packageName, userId) }.onFailure(::reportFailure).getOrElse { listOf("", "") }
 
     suspend fun isUserUnlocked(userId: Int): Boolean =
-        runCatching { getService().isUserUnlocked(userId) }.onFailure(onFailure).getOrElse { false }
+        runCatching { getService().isUserUnlocked(userId) }.onFailure(::reportFailure).getOrElse { false }
 
-    suspend fun getUserHandle(userId: Int): UserHandle? = runCatching { getService().getUserHandle(userId) }.onFailure(onFailure).getOrNull()
+    suspend fun getUserHandle(userId: Int): UserHandle? = runCatching { getService().getUserHandle(userId) }.onFailure(::reportFailure).getOrNull()
 
     suspend fun queryStatsForPackage(packageInfo: PackageInfo, user: UserHandle): StorageStatsParcelable? =
-        runCatching { getService().queryStatsForPackage(packageInfo, user) }.onFailure(onFailure).getOrNull()
+        runCatching { getService().queryStatsForPackage(packageInfo, user) }.onFailure(::reportFailure).getOrNull()
 
-    suspend fun getUsers(): List<UserInfo> = runCatching { getService().users }.onFailure(onFailure).getOrElse { listOf() }
+    suspend fun getUsers(): List<UserInfo> = runCatching { getService().users }.onFailure(::reportFailure).getOrElse { listOf() }
 
     suspend fun createUser(name: String): Int =
-        runCatching { getService().createUser(name) }.onFailure(onFailure).getOrElse { -1 }
+        runCatching { getService().createUser(name) }.onFailure(::reportFailure).getOrElse { -1 }
 
     suspend fun removeUser(userId: Int): Boolean =
-        runCatching { getService().removeUser(userId) }.onFailure(onFailure).getOrElse { false }
+        runCatching { getService().removeUser(userId) }.onFailure(::reportFailure).getOrElse { false }
 
     suspend fun startUser(userId: Int): Boolean =
-        runCatching { getService().startUser(userId) }.onFailure(onFailure).getOrElse { false }
+        runCatching { getService().startUser(userId) }.onFailure(::reportFailure).getOrElse { false }
 
     suspend fun walkFileTree(path: String): List<PathParcelable> = runCatching {
         val pfd = getService().walkFileTree(path)
@@ -408,51 +537,54 @@ class RemoteRootService(private val context: Context) {
             it.readTypedList(list, PathParcelable.CREATOR)
         }
         list
-    }.onFailure(onFailure).getOrElse { listOf() }
+    }.onFailure(::reportFailure).getOrElse { listOf() }
 
-    suspend fun getPackageArchiveInfo(path: String): PackageInfo? = runCatching { getService().getPackageArchiveInfo(path) }.onFailure(onFailure).getOrNull()
+    suspend fun getPackageArchiveInfo(path: String): PackageInfo? = runCatching { getService().getPackageArchiveInfo(path) }.onFailure(::reportFailure).getOrNull()
 
     suspend fun getPackageSsaidAsUser(packageName: String, uid: Int, userId: Int): String =
-        runCatching { getService().getPackageSsaidAsUser(packageName, uid, userId) ?: "" }.onFailure(onFailure).getOrElse { "" }
+        runCatching { getService().getPackageSsaidAsUser(packageName, uid, userId) ?: "" }.onFailure(::reportFailure).getOrElse { "" }
 
     suspend fun setPackageSsaidAsUser(packageName: String, uid: Int, userId: Int, ssaid: String) =
-        runCatching { getService().setPackageSsaidAsUser(packageName, uid, userId, ssaid) }.onFailure(onFailure)
+        runCatching { getService().setPackageSsaidAsUser(packageName, uid, userId, ssaid) }.onFailure(::reportFailure)
 
+    // 息屏属于尽力而为的体验功能：失败只影响「自动息屏」，不值得给整个任务弹一次错误
     suspend fun setDisplayPowerMode(mode: Int) =
-        runCatching { getService().setDisplayPowerMode(mode) }.onFailure(onFailure)
+        runCatching { getService().setDisplayPowerMode(mode) }.onFailure { log { "setDisplayPowerMode failed (ignored): ${it.message}" } }
 
     suspend fun getScreenOffTimeout() =
-        runCatching { getService().getScreenOffTimeout() }.onFailure(onFailure).getOrElse { DEFAULT_TIMEOUT }
+        runCatching { getService().getScreenOffTimeout() }
+            .onFailure { log { "getScreenOffTimeout failed (ignored): ${it.message}" } }
+            .getOrElse { DEFAULT_TIMEOUT }
 
     suspend fun setScreenOffTimeout(timeout: Int) =
-        runCatching { getService().setScreenOffTimeout(timeout) }.onFailure(onFailure)
+        runCatching { getService().setScreenOffTimeout(timeout) }.onFailure { log { "setScreenOffTimeout failed (ignored): ${it.message}" } }
 
     suspend fun forceStopPackageAsUser(packageName: String, userId: Int) =
-        runCatching { getService().forceStopPackageAsUser(packageName, userId) }.onFailure(onFailure)
+        runCatching { getService().forceStopPackageAsUser(packageName, userId) }.onFailure(::reportFailure)
 
     suspend fun setApplicationEnabledSetting(packageName: String, newState: Int, flags: Int, userId: Int, callingPackage: String?) =
-        runCatching { getService().setApplicationEnabledSetting(packageName, newState, flags, userId, callingPackage) }.onFailure(onFailure)
+        runCatching { getService().setApplicationEnabledSetting(packageName, newState, flags, userId, callingPackage) }.onFailure(::reportFailure)
 
     suspend fun getApplicationEnabledSetting(packageName: String, userId: Int): Int? =
-        runCatching { getService().getApplicationEnabledSetting(packageName, userId) }.onFailure(onFailure).getOrNull()
+        runCatching { getService().getApplicationEnabledSetting(packageName, userId) }.onFailure(::reportFailure).getOrNull()
 
     suspend fun getPermissions(packageInfo: PackageInfo): List<PackagePermission> =
-        runCatching { getService().getPermissions(packageInfo) }.onFailure(onFailure).getOrElse { listOf() }
+        runCatching { getService().getPermissions(packageInfo) }.onFailure(::reportFailure).getOrElse { listOf() }
 
     suspend fun setOpsMode(code: Int, uid: Int, packageName: String?, mode: Int) =
         runCatching { getService().setOpsMode(code, uid, packageName, mode) }.withLog()
 
     suspend fun calculateMD5(src: String): String? =
-        runCatching { getService().calculateMD5(src) }.onFailure(onFailure).getOrNull()
+        runCatching { getService().calculateMD5(src) }.onFailure(::reportFailure).getOrNull()
 
     suspend fun getRusticVersion(): String =
-        runCatching { getService().rusticVersion }.onFailure(onFailure).getOrElse { "" }
+        runCatching { getService().rusticVersion }.onFailure(::reportFailure).getOrElse { "" }
 
     suspend fun initRusticRepository(repositoryPath: String, password: String, options: Map<String, String> = emptyMap()) =
-        runCatching { getService().initRusticRepository(repositoryPath, password, options) }.onFailure(onFailure)
+        runCatching { getService().initRusticRepository(repositoryPath, password, options) }.onFailure(::reportFailure)
 
     suspend fun rusticRepositoryExists(repositoryPath: String, options: Map<String, String> = emptyMap()): Boolean =
-        runCatching { getService().rusticRepositoryExists(repositoryPath, options) }.onFailure(onFailure).getOrElse { false }
+        runCatching { getService().rusticRepositoryExists(repositoryPath, options) }.onFailure(::reportFailure).getOrElse { false }
 
     suspend fun rusticRepositoryConfigId(
         repositoryPath: String,
@@ -463,10 +595,10 @@ class RemoteRootService(private val context: Context) {
     )
 
     suspend fun validateRusticRepository(repositoryPath: String, password: String, options: Map<String, String> = emptyMap()) =
-        runCatching { getService().validateRusticRepository(repositoryPath, password, options) }.onFailure(onFailure)
+        runCatching { getService().validateRusticRepository(repositoryPath, password, options) }.onFailure(::reportFailure)
 
     suspend fun createRusticSnapshot(repositoryPath: String, password: String, sourcePaths: List<String>, tags: List<String> = emptyList(), options: Map<String, String> = emptyMap(), callback: ICallback? = null, cancelId: Long = 0L): String =
-        runCatching { getService().createRusticSnapshot(repositoryPath, password, sourcePaths, tags, options, callback, cancelId) }.onFailure(onFailure).getOrThrow()
+        runCatching { getService().createRusticSnapshot(repositoryPath, password, sourcePaths, tags, options, callback, cancelId) }.onFailure(::reportFailure).getOrThrow()
 
     /**
      * fd 流式备份：root 进程内建 pipe，后台线程跑 tar -cpf -，前台
@@ -489,10 +621,10 @@ class RemoteRootService(private val context: Context) {
     ): String =
         runCatching {
             getService().backupTarToRustic(repositoryPath, password, filename, argv, tags, options, callback, cancelId)
-        }.onFailure(onFailure).getOrThrow()
+        }.onFailure(::reportFailure).getOrThrow()
 
     suspend fun cancelRusticBackup(cancelId: Long) =
-        runCatching { getService().cancelRusticBackup(cancelId) }.onFailure(onFailure)
+        runCatching { getService().cancelRusticBackup(cancelId) }.onFailure(::reportFailure)
 
     /**
      * 兜底：协作式取消（cancelRusticBackup）在阈值内无效时，硬杀整个 root 守护进程。
@@ -530,34 +662,34 @@ class RemoteRootService(private val context: Context) {
             repositoryPath, password, snapshotId, destinationPath,
             options, includeGlob, callback
         )
-    }.onFailure(onFailure)
+    }.onFailure(::reportFailure)
 
     suspend fun callTarCli(stdOut: String, stdErr: String, argv: Array<String>): Int =
-        runCatching { getService().callTarCli(stdOut, stdErr, argv) }.onFailure(onFailure).getOrElse { -1 }
+        runCatching { getService().callTarCli(stdOut, stdErr, argv) }.onFailure(::reportFailure).getOrElse { -1 }
 
     suspend fun checkRusticRepository(repositoryPath: String, password: String, options: Map<String, String> = emptyMap()) =
-        runCatching { getService().checkRusticRepository(repositoryPath, password, options) }.onFailure(onFailure)
+        runCatching { getService().checkRusticRepository(repositoryPath, password, options) }.onFailure(::reportFailure)
 
     suspend fun forgetRusticSnapshot(repositoryPath: String, password: String, snapshotId: String, options: Map<String, String> = emptyMap()) =
-        runCatching { getService().forgetRusticSnapshot(repositoryPath, password, options, snapshotId) }.onFailure(onFailure)
+        runCatching { getService().forgetRusticSnapshot(repositoryPath, password, options, snapshotId) }.onFailure(::reportFailure)
 
     suspend fun pruneRusticRepository(repositoryPath: String, password: String, maxUnused: String, options: Map<String, String> = emptyMap(), instantDelete: Boolean = false) =
-        runCatching { getService().pruneRusticRepository(repositoryPath, password, options, maxUnused, instantDelete) }.onFailure(onFailure)
+        runCatching { getService().pruneRusticRepository(repositoryPath, password, options, maxUnused, instantDelete) }.onFailure(::reportFailure)
 
     suspend fun listRusticSnapshotsDb(repositoryPath: String, password: String, dbPath: String, options: Map<String, String> = emptyMap()) =
-        runCatching { getService().listRusticSnapshotsDb(repositoryPath, password, options, dbPath) }.onFailure(onFailure)
+        runCatching { getService().listRusticSnapshotsDb(repositoryPath, password, options, dbPath) }.onFailure(::reportFailure)
 
     suspend fun rcloneRpc(method: String, input: String): String =
-        runCatching { getService().rcloneRpc(method, input) }.onFailure(onFailure).getOrThrow()
+        runCatching { getService().rcloneRpc(method, input) }.onFailure(::reportFailure).getOrThrow()
 
     suspend fun rcloneRpcNoLock(method: String, input: String): String =
-        runCatching { getService().rcloneRpcNoLock(method, input) }.onFailure(onFailure).getOrThrow()
+        runCatching { getService().rcloneRpcNoLock(method, input) }.onFailure(::reportFailure).getOrThrow()
 
     suspend fun opendalList(scheme: String, path: String, options: Map<String, String> = emptyMap()): String =
-        runCatching { getService().opendalList(scheme, path, options) }.onFailure(onFailure).getOrThrow()
+        runCatching { getService().opendalList(scheme, path, options) }.onFailure(::reportFailure).getOrThrow()
 
     suspend fun opendalCreateDir(scheme: String, path: String, options: Map<String, String> = emptyMap()) =
-        runCatching { getService().opendalCreateDir(scheme, path, options) }.onFailure(onFailure)
+        runCatching { getService().opendalCreateDir(scheme, path, options) }.onFailure(::reportFailure)
 
     suspend fun writeJson(data: Any, dst: String): ShellResult = runCatching {
         var isSuccess: Boolean
@@ -574,12 +706,12 @@ class RemoteRootService(private val context: Context) {
         setAllPermissions(src = dst)
 
         ShellResult(code = if (isSuccess) 0 else -1, input = listOf(), out = out)
-    }.onFailure(onFailure).getOrElse { ShellResult(code = -1, input = listOf(), out = listOf()) }
+    }.onFailure(::reportFailure).getOrElse { ShellResult(code = -1, input = listOf(), out = listOf()) }
 
     suspend inline fun <reified T> readJson(src: String): T? = runCatching<T?> {
         val json = readText(path = src)
         gsonUtil.fromJson<T>(json, object : TypeToken<T>() {}.type)
-    }.onFailure(onFailure).getOrNull()
+    }.onFailure(::reportFailure).getOrNull()
 
     @OptIn(ExperimentalSerializationApi::class)
     suspend inline fun <reified T> writeProtoBuf(data: T, dst: String): ShellResult = runCatching {
@@ -598,7 +730,7 @@ class RemoteRootService(private val context: Context) {
         setAllPermissions(src = dst)
 
         ShellResult(code = if (isSuccess) 0 else -1, input = listOf(), out = out)
-    }.onFailure(onFailure).getOrElse { ShellResult(code = -1, input = listOf(), out = listOf()) }
+    }.onFailure(::reportFailure).getOrElse { ShellResult(code = -1, input = listOf(), out = listOf()) }
 
     /**
      * @see <a href="https://github.com/Kotlin/kotlinx.serialization/issues/2185#issuecomment-1420612365">Unsupported start group or end group wire type: 7</a>
@@ -607,5 +739,5 @@ class RemoteRootService(private val context: Context) {
     suspend inline fun <reified T> readProtoBuf(src: String): T? = runCatching<T?> {
         val bytes = readBytes(src = src)
         ProtoBuf.decodeFromByteArray<T>(bytes)
-    }.onFailure(onFailure).getOrNull()
+    }.onFailure(::reportFailure).getOrNull()
 }

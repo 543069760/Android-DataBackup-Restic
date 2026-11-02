@@ -1,5 +1,6 @@
 package com.xayah.feature.main.dashboard
 
+import android.content.Intent
 import android.util.Log
 import android.content.Context
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -7,7 +8,9 @@ import com.xayah.core.common.util.BuildConfigUtil
 import com.xayah.core.data.repository.DirectoryRepository
 import com.xayah.core.data.repository.ResticRepoLocator
 import com.xayah.core.data.repository.ResticRepoLocator.ResolveResult
+import com.xayah.core.datastore.readKeepAliveHintShown
 import com.xayah.core.datastore.readLastBackupTime
+import com.xayah.core.datastore.saveKeepAliveHintShown
 import com.xayah.core.datastore.readResticPassword
 import com.xayah.core.datastore.readResticRepoConfigId
 import com.xayah.core.datastore.readResticRepoPath
@@ -26,11 +29,15 @@ import com.xayah.core.network.model.Release
 import com.xayah.core.network.retrofit.GitHubRepository
 import com.xayah.core.restic.ResticRepository
 import com.xayah.core.rootservice.service.RemoteRootService
+import com.xayah.core.ui.material3.SnackbarDuration
+import com.xayah.core.ui.material3.SnackbarType
 import com.xayah.core.ui.viewmodel.BaseViewModel
 import com.xayah.core.ui.viewmodel.IndexUiEffect
 import com.xayah.core.ui.viewmodel.UiIntent
 import com.xayah.core.ui.viewmodel.UiState
 import com.xayah.core.util.localBackupSaveDir
+import com.xayah.core.util.command.KeepAlive
+import com.xayah.core.util.command.KeepAliveStatus
 import com.xayah.core.util.command.PreparationUtil
 import com.xayah.core.util.toBrowser
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -99,6 +106,8 @@ class IndexViewModel @Inject constructor(
     override suspend fun onEvent(state: IndexUiState, intent: IndexUiIntent) {
         when (intent) {
             is IndexUiIntent.Update -> {
+                // 存量用户的后台存活引导：放在网络请求之前，避免被更新检查拖慢
+                ensureKeepAliveThenHint()
                 // 全量刷新：update() 末尾对"无选中目录"会调用 resetDir() 选中 DEFAULT_PATH，
                 // 使 querySelectedByDirectoryTypeFlow() 返回非空，directoryState 非空后存储卡片即显示，
                 // childUsedBytes 填为 rustic 仓库目录大小
@@ -271,6 +280,84 @@ class IndexViewModel @Inject constructor(
         return Long.MIN_VALUE
     }
 
+    /**
+     * 存量用户的后台存活引导。
+     *
+     * 升级不会重走初始化向导（CI 只递增 versionCode，versionName 恒定，SplashActivity 的比较永不成立），
+     * 所以老用户可能一直是未加固状态。这里在首页刷新时补一次检测：
+     *
+     * 1. 只有明确查到未加固（[KeepAliveStatus.Unoptimized]）才提示；
+     * 2. [KeepAliveStatus.Optimized] / [KeepAliveStatus.Unsupported]（ROM 查不出来）一律不打扰；
+     * 3. 这里只读不写 —— 修复动作交给向导页（root 就绪后会自动加固），避免「提示判定」与「静默自愈」互相竞态。
+     *
+     * 「已提示」标记不是弹出时就写，而是等用户真的处理掉这条 Snackbar（点「去修复」或点关闭）才写：
+     * 用户没理它就直接退出的话，下次启动会再提醒一次，不会被静默吞掉。
+     */
+    private fun ensureKeepAliveThenHint() {
+        // 每个 ViewModel 实例只检测一次：Update 由首次进入 + 每次回前台触发，
+        // 重复 query 会反复启动 root shell，没有意义。
+        if (keepAliveHintChecked) return
+        keepAliveHintChecked = true
+
+        // emitEffect 里的 showSnackbar 会挂起到用户处理掉提示为止，
+        // 不能占用 Update intent 的协程，否则后续的目录/容量/OTG 刷新会一起卡住。
+        launchOnIO {
+            // 读不到标记时按「已提示」处理，宁可少弹也不要反复打扰
+            if (runCatching { context.readKeepAliveHintShown() }.getOrDefault(true)) return@launchOnIO
+
+            val status = runCatching { KeepAlive.query(context.packageName) }
+                .getOrDefault(KeepAliveStatus.Unsupported)
+            if (status != KeepAliveStatus.Unoptimized) return@launchOnIO
+
+            emitEffect(
+                IndexUiEffect.ShowSnackbar(
+                    message = context.getString(R.string.keep_alive_hint),
+                    type = SnackbarType.Warning,
+                    actionLabel = context.getString(R.string.keep_alive_hint_action),
+                    // 带 action 的 Snackbar 用 Indefinite：用户不点就一直留着，避免错过引导；
+                    // 同时给关闭按钮，符合 M3E 对 Indefinite + dismiss action 的建议。
+                    withDismissAction = true,
+                    duration = SnackbarDuration.Indefinite,
+                    // 点「去修复」和点关闭都算用户已经处理过这条提示，此后不再打扰；
+                    // 两者都不做（直接退出 App）则不写标记，下次启动会再提醒。
+                    onActionPerformed = {
+                        markKeepAliveHintShown()
+                        openSetupWizard()
+                    },
+                    onDismissed = { markKeepAliveHintShown() },
+                )
+            )
+        }
+    }
+
+    /** 记录「后台存活提示已被用户处理」，由 Snackbar 的回调在用户点动作/关闭时调用。 */
+    private suspend fun markKeepAliveHintShown() {
+        runCatching { context.saveKeepAliveHintShown(true) }
+    }
+
+    /**
+     * 打开初始化向导的第一步（权限校验页）。
+     *
+     * feature:main:dashboard 不依赖 feature:setup，只能按类名启动；
+     * [SETUP_WIZARD_ACTIVITY] / [SETUP_WIZARD_EXTRA_START] / [SETUP_WIZARD_ROUTE_ONE]
+     * 必须与 feature:setup 的 MainActivity 及其 `EXTRA_START_DESTINATION`、`SetupRoutes.One` 保持一致。
+     * 用 Application context 启动非 exported 的 Activity，必须显式带 [Intent.FLAG_ACTIVITY_NEW_TASK]。
+     */
+    private fun openSetupWizard() {
+        runCatching {
+            context.startActivity(
+                Intent().apply {
+                    setClassName(context.packageName, SETUP_WIZARD_ACTIVITY)
+                    putExtra(SETUP_WIZARD_EXTRA_START, SETUP_WIZARD_ROUTE_ONE)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            )
+        }.onFailure { Log.w(TAG, "open setup wizard failed", it) }
+    }
+
+    /** 本次进程内是否已做过后台存活检测，避免每次回首页都重复 query。 */
+    private var keepAliveHintChecked = false
+
     private val _lastBackupTime: Flow<Long> = context.readLastBackupTime().flowOnIO()
     val lastBackupTimeState: StateFlow<Long> = _lastBackupTime.stateInScope(0)
 
@@ -284,4 +371,13 @@ class IndexViewModel @Inject constructor(
     // OTG 仓库发现状态，供首页 Index.kt 消费
     private val _otgDiscoveryState: MutableStateFlow<OtgDiscoveryState> = MutableStateFlow(OtgDiscoveryState.None)
     val otgDiscoveryState: StateFlow<OtgDiscoveryState> = _otgDiscoveryState.asStateFlow()
+
+    private companion object {
+        const val TAG = "DashboardKeepAlive"
+
+        /** feature:setup 模块的 MainActivity 全限定类名（该模块未被 dashboard 依赖，故按字符串引用）。 */
+        const val SETUP_WIZARD_ACTIVITY = "com.xayah.feature.setup.MainActivity"
+        const val SETUP_WIZARD_EXTRA_START = "start_destination"
+        const val SETUP_WIZARD_ROUTE_ONE = "setup_one"
+    }
 }

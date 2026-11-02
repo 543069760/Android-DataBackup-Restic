@@ -170,7 +170,7 @@ class MediaRepository @Inject constructor(
                     val src = "${remoteArchivesMediumDir}/${m.archivesRelativeDir}"
                     if (client.exists(src)) client.deleteRecursively(src)
                 }
-            }.onFailure(rootService.onFailure).isSuccess
+            }.onFailure(rootService::reportFailure).isSuccess
         }
 
         if (isSuccess) mediaDao.delete(m.id)
@@ -203,7 +203,7 @@ class MediaRepository @Inject constructor(
                     rootService.deleteRecursively(tmpDir)
                     client.renameTo(src, dst)
                 }
-            }.onFailure(rootService.onFailure).isSuccess
+            }.onFailure(rootService::reportFailure).isSuccess
         }
         if (isSuccess) {
             mediaDao.delete(m.id)

@@ -119,4 +119,6 @@
     <string name="app_icon_default">Default</string>
     <string name="app_icon_device_bridge">Device Bridge</string>
     <string name="app_icon_shield_sync">Shield Sync</string>
+    <!-- 调试：连点版本号重置后台存活提示（仅 debug 构建可触发） -->
+    <string name="debug_reset_keep_alive_hint_done">Keep-alive hint reset. Restart the app to see it again.</string>
 </resources>

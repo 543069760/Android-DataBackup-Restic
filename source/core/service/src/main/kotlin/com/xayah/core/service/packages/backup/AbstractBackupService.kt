@@ -31,6 +31,7 @@ import com.xayah.core.service.util.PackagesBackupUtil
 import com.xayah.core.util.DateUtil
 import com.xayah.core.util.NotificationUtil
 import com.xayah.core.util.PathUtil
+import com.xayah.core.util.command.KeepAlive
 import com.xayah.core.util.command.PreparationUtil
 import com.xayah.core.restic.ResticRepository
 import com.xayah.core.restic.ResticRepository.ResticProgressCallback
@@ -336,6 +337,11 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
             mTaskEntity.update(isProcessing = false)
             return
         }
+        // 仓库可用后再确认后台存活加固（电池白名单 / 待机桶 / 后台 appop）。
+        // 放在仓库校验之后：仓库不可用会立刻中止，没必要先花几条 root 命令。
+        // 失败只会降级为 Unsupported，不会中断备份。
+        val keepAlive = KeepAlive.ensureBeforeBackup(mContext.packageName, KeepAlive.SCENE_PACKAGES)
+        log { "Pre-backup keep-alive (app): $keepAlive." }
         mTaskEntity.update(rawBytes = mTaskRepo.getRawBytes(TaskType.PACKAGE), availableBytes = mTaskRepo.getAvailableBytes(OpType.BACKUP), totalBytes = mTaskRepo.getTotalBytes(OpType.BACKUP), totalCount = mPkgEntities.size)
         log { "Task count: ${mPkgEntities.size}." }
 

@@ -57,6 +57,7 @@ fun PageOne() {
     val notificationState by viewModel.notificationState.collectAsStateWithLifecycle()
     val manageExternalStorageState by viewModel.manageExternalStorageState.collectAsStateWithLifecycle()
     val batteryOptimizationState by viewModel.batteryOptimizationState.collectAsStateWithLifecycle()
+    val backgroundAliveState by viewModel.backgroundAliveState.collectAsStateWithLifecycle()
     val allRequiredValidated by viewModel.allRequiredValidated.collectAsStateWithLifecycle()
     val allOptionalValidated by viewModel.allOptionalValidated.collectAsStateWithLifecycle()
     val dialogState = LocalSlotScope.current!!.dialogSlot
@@ -80,6 +81,7 @@ fun PageOne() {
                             viewModel.emitIntent(IndexUiIntent.ValidateNotification(context = context))
                             viewModel.emitIntent(IndexUiIntent.ValidateManageExternalStorage)
                             viewModel.emitIntent(IndexUiIntent.ValidateBatteryOptimization)
+                            viewModel.emitIntent(IndexUiIntent.ValidateBackgroundAlive)
                         }
                     }
                 ) {
@@ -132,6 +134,14 @@ fun PageOne() {
                     envState = abiState,
                 ) {
                     viewModel.launchOnIO { viewModel.emitIntent(IndexUiIntent.ValidateAbi) }
+                }
+                // root 就绪后会自动加固一次，正常情况无需用户点击
+                PermissionButton(
+                    title = stringResource(id = R.string.background_alive_permission),
+                    desc = stringResource(id = R.string.background_alive_permission_desc),
+                    envState = backgroundAliveState,
+                ) {
+                    viewModel.launchOnIO { viewModel.emitIntent(IndexUiIntent.ValidateBackgroundAlive) }
                 }
             }
 

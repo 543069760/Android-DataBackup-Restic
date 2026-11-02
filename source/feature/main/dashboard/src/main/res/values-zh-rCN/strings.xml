@@ -10,4 +10,6 @@
     <string name="latest_version">最新版本</string>
     <string name="cloud_account_manage">云端账户管理</string>
     <string name="backup_restore_delete">备份恢复与删除</string>
+    <string name="keep_alive_hint">后台存活未加固，长时间备份可能被系统中断</string>
+    <string name="keep_alive_hint_action">去修复</string>
 </resources>

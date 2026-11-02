@@ -178,7 +178,7 @@ class PackageRepository @Inject constructor(
                     rootService.deleteRecursively(tmpDir)
                     client.renameTo(src, dst)
                 }
-            }.onFailure(rootService.onFailure).isSuccess
+            }.onFailure(rootService::reportFailure).isSuccess
         }
         if (isSuccess) {
             packageDao.delete(p.id)
@@ -199,7 +199,7 @@ class PackageRepository @Inject constructor(
                     val src = "${remoteArchivesPackagesDir}/${p.archivesRelativeDir}"
                     if (client.exists(src)) client.deleteRecursively(src)
                 }
-            }.onFailure(rootService.onFailure).isSuccess
+            }.onFailure(rootService::reportFailure).isSuccess
         }
 
         if (isSuccess) packageDao.delete(p.id)
@@ -334,7 +334,7 @@ class PackageRepository @Inject constructor(
                     }
                 }
             }
-        }.onFailure(rootService.onFailure)
+        }.onFailure(rootService::reportFailure)
     }
 
     /**
@@ -380,7 +380,7 @@ class PackageRepository @Inject constructor(
                     }
                 }
             }
-        }.onFailure(rootService.onFailure)
+        }.onFailure(rootService::reportFailure)
     }
 
     /**
@@ -474,7 +474,7 @@ class PackageRepository @Inject constructor(
                     }
                 }
             }
-        }.onFailure(rootService.onFailure)
+        }.onFailure(rootService::reportFailure)
     }
 
     /**
@@ -508,7 +508,7 @@ class PackageRepository @Inject constructor(
                     }
                 }
             }
-        }.onFailure(rootService.onFailure)
+        }.onFailure(rootService::reportFailure)
     }
 
     /**
@@ -1181,7 +1181,7 @@ class PackageRepository @Inject constructor(
                 }
                 log { "Activated ${loadedApps.size} apps" }
             }
-        }.onFailure(rootService.onFailure)
+        }.onFailure(rootService::reportFailure)
     }
 
     suspend fun debugQueryPackages(cloudName: String, backupDir: String) {
@@ -1360,6 +1360,6 @@ class PackageRepository @Inject constructor(
                 }
                 log { "Activated ${loadedFiles.size} files" }
             }
-        }.onFailure(rootService.onFailure)
+        }.onFailure(rootService::reportFailure)
     }
 }

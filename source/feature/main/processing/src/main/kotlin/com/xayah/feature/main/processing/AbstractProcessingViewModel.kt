@@ -132,6 +132,8 @@ abstract class AbstractProcessingViewModel(
 
             is ProcessingUiIntent.Process -> {
                 mProcessJob = coroutineContext[Job]
+                // 上一次取消兜底可能把 root 失败静默打开，新任务开始必须恢复常规上报
+                mRootService.setSuppressFailureReporting(false)
                 try {
                     // 处理服务与本 VM 同进程，直接从它拿内存进度流作为独立于 DB 的第二条数据源
                     collectProgressStats(state.storageType)
@@ -183,7 +185,10 @@ abstract class AbstractProcessingViewModel(
                 // 3. 超时 => 底层网络调用卡死（restic 协作式令牌回不到检查点），强杀 rootservice 守护进程
                 // 兜底：协作式取消在阈值内未生效（如 FTP 网络卡死，控制流回不到 check_cancel）
                 if (!finishedInTime) {
-                    // 协作式取消超时 → 硬杀 root 进程
+                    // 协作式取消超时 → 硬杀 root 进程。强杀必然让所有「在途」的 root 调用
+                    // 抛 DeadObjectException，这属于预期行为：静默期内的失败只写日志，
+                    // 不再给用户弹「操作失败：android.os.DeadObjectException」。
+                    mRootService.setSuppressFailureReporting(true)
                     log { "[CancelFallback] cooperative cancel timed out, force stopping daemon" }
                     withTimeoutOrNull(FORCE_STOP_TIMEOUT_MS) {
                         runCatching { mRootService.forceStopDaemon() }
@@ -224,6 +229,8 @@ abstract class AbstractProcessingViewModel(
                     .onFailure { e -> log { "[$CANCEL_LOG] proxy destroyService error: ${e.message}" } }
 
                 // 7. 关闭 loading 提示
+                //    强杀守护进程引发的预期失败到此为止，恢复常规上报
+                mRootService.setSuppressFailureReporting(false)
                 emitEffect(IndexUiEffect.DismissSnackbar)
                 emitEffectOnIO(IndexUiEffect.ShowSnackbar(
                     message = "Backup canceled",

@@ -10,4 +10,6 @@
     <string name="latest_version">Latest version</string>
     <string name="cloud_account_manage">Cloud account management</string>
     <string name="backup_restore_delete">Backup restore and delete</string>
+    <string name="keep_alive_hint">Background survival is not optimized; long backups may be interrupted by the system</string>
+    <string name="keep_alive_hint_action">Fix</string>
 </resources>

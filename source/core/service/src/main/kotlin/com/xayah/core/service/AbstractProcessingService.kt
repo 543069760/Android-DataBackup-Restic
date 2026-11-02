@@ -7,7 +7,11 @@ import android.content.Intent
 import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
 import android.os.Binder
 import android.os.Build
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
 import android.os.IBinder
+import android.os.PowerManager
 import android.view.SurfaceControlHidden
 import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.database.dao.TaskDao
@@ -39,15 +43,104 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 internal abstract class AbstractProcessingService : Service() {
+    /**
+     * 长任务期间持有的 CPU 唤醒锁。
+     * 前台服务只提升进程优先级，并不阻止锁屏后 CPU 进入 suspend：一旦休眠，
+     * tar / rustic 子进程会停摆、binder 调用超时，表现出来就是「任务卡住」「服务被杀」。
+     */
+    private var mWakeLock: PowerManager.WakeLock? = null
+
+    /**
+     * 仅当前活动网络是 WiFi 时才持有的链路锁。
+     * 锁屏后 WiFi radio 会进入省电态，长时间空闲的 TCP 连接容易被降速或断开；
+     * 蜂窝数据由网络栈按 RRC 状态自行保持，WifiLock 对它没有作用，因此移动流量下不取锁。
+     */
+    private var mWifiLock: WifiManager.WifiLock? = null
+
     override fun onBind(intent: Intent): IBinder {
         startForegroundCompat()
+        acquireLocks()
         return mBinder
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // startForegroundService 会触发 onStartCommand，需在此处及时调用 startForeground
         startForegroundCompat()
+        acquireLocks()
         return START_STICKY
+    }
+
+    override fun onDestroy() {
+        releaseLocks()
+        super.onDestroy()
+    }
+
+    private fun acquireLocks() {
+        acquireWakeLock()
+        acquireWifiLock()
+    }
+
+    private fun releaseLocks() {
+        releaseWifiLock()
+        releaseWakeLock()
+    }
+
+    @Suppress("DEPRECATION")
+    @Synchronized
+    private fun acquireWifiLock() {
+        if (mWifiLock?.isHeld == true) return
+        runCatching {
+            val cm = mContext.getSystemService(ConnectivityManager::class.java)
+            val caps = cm?.let { it.getNetworkCapabilities(it.activeNetwork) }
+            if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
+                val wifiManager = mContext.applicationContext.getSystemService(WifiManager::class.java)
+                if (wifiManager != null) {
+                    mWifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "${mContext.packageName}:processing").apply {
+                        setReferenceCounted(false)
+                        acquire()
+                    }
+                    log { "WifiLock acquired." }
+                }
+            }
+        }.onFailure { e ->
+            log { "acquireWifiLock failed: ${e.message}" }
+        }
+    }
+
+    @Synchronized
+    private fun releaseWifiLock() {
+        runCatching {
+            mWifiLock?.takeIf { it.isHeld }?.release()
+        }.onFailure { e ->
+            log { "releaseWifiLock failed: ${e.message}" }
+        }
+        mWifiLock = null
+    }
+
+    @Synchronized
+    private fun acquireWakeLock() {
+        if (mWakeLock?.isHeld == true) return
+        runCatching {
+            val powerManager = getSystemService(PowerManager::class.java)
+            mWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "${mContext.packageName}:processing").apply {
+                // 不做引用计数：acquire/release 各一次，避免计数不匹配导致永不释放
+                setReferenceCounted(false)
+                acquire()
+            }
+            log { "WakeLock acquired." }
+        }.onFailure { e ->
+            log { "acquireWakeLock failed: ${e.message}" }
+        }
+    }
+
+    @Synchronized
+    private fun releaseWakeLock() {
+        runCatching {
+            mWakeLock?.takeIf { it.isHeld }?.release()
+        }.onFailure { e ->
+            log { "releaseWakeLock failed: ${e.message}" }
+        }
+        mWakeLock = null
     }
 
     private fun startForegroundCompat() {
@@ -72,7 +165,8 @@ internal abstract class AbstractProcessingService : Service() {
         msg
     }
 
-    protected suspend fun runCatchingOnService(block: suspend () -> Unit): Boolean = runCatching { block() }.onFailure { mRootService.onFailure(it) }.withLog().isSuccess
+    protected suspend fun runCatchingOnService(block: suspend () -> Unit): Boolean =
+        runCatching { block() }.onFailure { mRootService.reportFailure(it) }.withLog().isSuccess
 
     protected suspend fun ProcessingInfoEntity.update(
         bytes: Long? = null,
@@ -305,6 +399,8 @@ internal abstract class AbstractProcessingService : Service() {
             afterPostProcessing()
             mTaskEntity.update(endTimestamp = mEndTimestamp, isProcessing = false, processingIndex = mTaskEntity.processingIndex + 1)
         }
+        // 任务收尾完成即释放，避免服务常驻时空耗电量
+        releaseLocks()
     }
 
     // 新增清理方法

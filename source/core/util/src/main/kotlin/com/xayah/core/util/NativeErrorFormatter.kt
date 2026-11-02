@@ -19,6 +19,13 @@ import org.json.JSONObject
  */
 enum class NativeErrorKind {
     CANCELED,
+
+    /**
+     * root 守护进程（binder）重启/断开：`android.os.DeadObjectException`、
+     * `RemoteException("Service disconnected.")` 等。属于可自愈的基础设施故障，
+     * 不应把裸类名当成「未知错误」展示给用户。
+     */
+    ROOT_SERVICE,
     AUTH,
     REPO_NOT_FOUND,
     SMB_SHARE,
@@ -94,6 +101,13 @@ private fun shorten(text: String): String {
 }
 
 private fun classify(text: String): NativeErrorKind = when {
+    // 守护进程死亡要最先判断：这类异常通常没有 message（如 DeadObjectException），
+    // 只剩类名，若落到 UNKNOWN 会显示成「操作失败：android.os.DeadObjectException」。
+    text.containsAny(
+        "deadobject", "service disconnected", "binding died", "null binding",
+        "binder died", "binder has died", "dead binder",
+    ) -> NativeErrorKind.ROOT_SERVICE
+
     text.containsAny("canceled", "cancelled", "cancel", "aborted") && !RUSTIC_CODE_C002.containsMatchIn(text) ->
         NativeErrorKind.CANCELED
 
@@ -126,6 +140,7 @@ private fun classify(text: String): NativeErrorKind = when {
 
 private fun stringRes(kind: NativeErrorKind): Int = when (kind) {
     NativeErrorKind.CANCELED -> R.string.native_error_canceled
+    NativeErrorKind.ROOT_SERVICE -> R.string.native_error_root_service
     NativeErrorKind.AUTH -> R.string.native_error_auth
     NativeErrorKind.REPO_NOT_FOUND -> R.string.native_error_repo_not_found
     NativeErrorKind.SMB_SHARE -> R.string.native_error_smb_share

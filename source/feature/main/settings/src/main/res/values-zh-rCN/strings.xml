@@ -117,4 +117,6 @@
     <string name="app_icon_default">默认</string>
     <string name="app_icon_device_bridge">设备桥</string>
     <string name="app_icon_shield_sync">安全同步</string>
+    <!-- 调试：连点版本号重置后台存活提示（仅 debug 构建可触发） -->
+    <string name="debug_reset_keep_alive_hint_done">后台存活提示已重置，重启应用后生效</string>
 </resources>

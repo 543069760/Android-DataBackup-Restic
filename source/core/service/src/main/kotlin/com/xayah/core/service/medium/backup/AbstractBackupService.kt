@@ -29,6 +29,7 @@ import com.xayah.core.util.DateUtil
 import com.xayah.core.util.NotificationUtil
 import com.xayah.core.util.toFriendlyMessage
 import com.xayah.core.util.PathUtil
+import com.xayah.core.util.command.KeepAlive
 import com.xayah.core.restic.ResticRepository
 import com.xayah.core.restic.ResticRepository.ResticProgressCallback
 import com.xayah.core.datastore.readResticRepoPath
@@ -521,6 +522,12 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
             log { "onProcessing: 前置对齐失败,终止本次文件备份" }
             return
         }
+
+        // 仓库可用后确认后台存活加固（电池白名单 / 待机桶 / 后台 appop）。
+        // 放在仓库校验之后：仓库不可用会立刻中止，没必要先花几条 root 命令。
+        // 失败只会降级为 Unsupported，不会中断备份。
+        val keepAlive = KeepAlive.ensureBeforeBackup(mContext.packageName, KeepAlive.SCENE_MEDIA)
+        log { "Pre-backup keep-alive (media): $keepAlive." }
 
         mTaskEntity.update(rawBytes = mTaskRepo.getRawBytes(TaskType.MEDIA), availableBytes = mTaskRepo.getAvailableBytes(OpType.BACKUP), totalBytes = mTaskRepo.getTotalBytes(OpType.BACKUP), totalCount = mMediaEntities.size)
         log { "Task count: ${mMediaEntities.size}." }

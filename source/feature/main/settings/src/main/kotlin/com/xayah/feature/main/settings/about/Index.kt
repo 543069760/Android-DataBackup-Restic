@@ -2,6 +2,7 @@ package com.xayah.feature.main.settings.about
 
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,6 +59,9 @@ import com.xayah.feature.main.settings.ContributorCard
 import com.xayah.feature.main.settings.R
 import com.xayah.feature.main.settings.SettingsScaffold
 
+/** debug 构建下连点版本号触发重置所需的次数。 */
+private const val DEBUG_RESET_TAP_COUNT = 5
+
 @ExperimentalFoundationApi
 @ExperimentalLayoutApi
 @ExperimentalAnimationApi
@@ -69,6 +73,21 @@ fun PageAboutSettings() {
     val viewModel = hiltViewModel<IndexViewModel>()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
+
+    // debug 构建专用：连点版本号 5 次，清除「后台存活提示已展示」标记，
+    // 便于反复回归首页 Snackbar 与备份前置加固；release 构建不注册点击，行为与原来一致。
+    var debugVersionTapCount by remember { mutableStateOf(0) }
+    val debugVersionTapModifier = if (BuildConfigUtil.DEBUG) {
+        Modifier.clickable {
+            debugVersionTapCount += 1
+            if (debugVersionTapCount >= DEBUG_RESET_TAP_COUNT) {
+                debugVersionTapCount = 0
+                viewModel.emitIntentOnIO(IndexUiIntent.ResetKeepAliveHint)
+            }
+        }
+    } else {
+        Modifier
+    }
 
     LaunchedEffect(null) {
         viewModel.emitIntentOnIO(IndexUiIntent.Load)
@@ -90,6 +109,7 @@ fun PageAboutSettings() {
                 AppIcon(modifier = Modifier.paddingVertical(SizeTokens.Level16))
                 HeadlineSmallText(text = stringResource(id = R.string.app_name), color = ThemedColorSchemeKeyTokens.OnSurface.value)
                 BodyMediumText(
+                    modifier = debugVersionTapModifier,
                     text = joinOf(
                         stringResource(id = R.string.version),
                         " ${BuildConfigUtil.VERSION_NAME} ",

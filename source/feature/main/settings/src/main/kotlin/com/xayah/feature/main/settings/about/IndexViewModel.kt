@@ -3,6 +3,7 @@ package com.xayah.feature.main.settings.about
 import android.content.Context
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.google.gson.reflect.TypeToken
+import com.xayah.core.datastore.saveKeepAliveHintShown
 import com.xayah.core.model.ContributorItem
 import com.xayah.core.model.MutableWeblateItems
 import com.xayah.core.model.TranslatorRevisionItem
@@ -26,6 +27,9 @@ data class IndexUiState(
 
 sealed class IndexUiIntent : UiIntent {
     data object Load : IndexUiIntent()
+
+    /** 调试用：把「后台存活提示已展示」标记清回 false，让首页可以再次弹出提示。 */
+    data object ResetKeepAliveHint : IndexUiIntent()
     data class ToBrowser(val context: Context, val url: String) : IndexUiIntent()
 }
 
@@ -90,6 +94,12 @@ class IndexViewModel @Inject constructor(
                         translators = translatorsRevised
                     )
                 )
+            }
+
+            is IndexUiIntent.ResetKeepAliveHint -> {
+                // 只清标记，不动系统侧的加固状态：方便复现「未加固 + 提示未展示」的组合。
+                runCatching { context.saveKeepAliveHintShown(false) }
+                emitEffect(IndexUiEffect.ShowSnackbar(message = context.getString(R.string.debug_reset_keep_alive_hint_done)))
             }
 
             is IndexUiIntent.ToBrowser -> {
