@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
@@ -28,12 +30,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import com.xayah.core.ui.component.BodyMediumText
 import com.xayah.core.ui.component.Card
+import com.xayah.core.ui.component.Clickable
 import com.xayah.core.ui.component.paddingHorizontal
 import com.xayah.core.ui.material3.CardDefaults
 import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
 import com.xayah.core.ui.theme.value
 import com.xayah.core.datastore.KeyBackupConfigs
 import com.xayah.core.datastore.KeyFollowSymlinks
+import com.xayah.core.datastore.readCompressionBenchmark
 import com.xayah.core.datastore.readResticCompressionLevel
 import com.xayah.core.datastore.readKillAppOption
 import com.xayah.core.datastore.saveResticCompressionLevel
@@ -47,7 +51,10 @@ import com.xayah.core.ui.component.Slideable
 import com.xayah.core.ui.component.Switchable
 import com.xayah.core.ui.component.select
 import com.xayah.core.ui.model.DialogRadioItem
+import com.xayah.core.ui.route.MainRoutes
 import com.xayah.core.ui.token.SizeTokens
+import com.xayah.core.ui.util.LocalNavController
+import com.xayah.core.util.navigateSingle
 import com.xayah.feature.main.settings.R
 import com.xayah.feature.main.settings.SettingsScaffold
 import kotlinx.coroutines.launch
@@ -61,6 +68,7 @@ import kotlin.math.roundToInt  // 添加这行
 @Composable
 fun PageBackupSettings() {
     val context = LocalContext.current
+    val navController = LocalNavController.current!!
     val dialogState = LocalSlotScope.current!!.dialogSlot
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
 
@@ -80,6 +88,19 @@ fun PageBackupSettings() {
 
                 // Restic 压缩级别滑块（数值语义：-1=AUTO 不设→rustic 默认压缩；0=OFF 关闭压缩；1..22=指定 zstd 级别）
                 val compressionLevel by context.readResticCompressionLevel().collectAsStateWithLifecycle(initialValue = -1)
+                // 入口右侧直接给出上次的推荐结论：原来放在 desc（标题下方第二行），
+                // 设置项被撑高，而且必须读两行才知道到底测没测过。
+                val benchmarkReport by context.readCompressionBenchmark().collectAsStateWithLifecycle(initialValue = null)
+                val benchmarkStatusText = benchmarkReport.let { report ->
+                    when {
+                        report == null -> stringResource(id = R.string.compression_benchmark_status_unmeasured)
+                        report.recommendedLevel < 0 -> stringResource(id = R.string.compression_benchmark_status_none)
+                        else -> stringResource(
+                            id = R.string.compression_benchmark_status_measured,
+                            if (report.recommendedLevel == 0) "OFF" else "L${report.recommendedLevel}",
+                        )
+                    }
+                }
                 val currentLevelLabel = when (compressionLevel) {
                     -1 -> "AUTO"
                     0 -> "OFF"
@@ -116,6 +137,27 @@ fun PageBackupSettings() {
                         text = compressionDescText,
                         color = ThemedColorSchemeKeyTokens.BlueOnPrimaryContainer.value
                     )
+                }
+
+                // 滑块只能"猜"档位：压缩比与速度的关系依赖具体芯片与语料构成，
+                // 这里给一个入口实跑 5 档，用本机实测数据反推推荐值。
+                Clickable(
+                    title = stringResource(id = R.string.compression_benchmark),
+                    trailingContent = {
+                        Text(
+                            text = benchmarkStatusText,
+                            style = MaterialTheme.typography.bodyMedium,
+                            // 未测过用 outline 弱化，测过用 primary 与结果页的推荐色保持一致
+                            color = if (benchmarkReport == null) {
+                                MaterialTheme.colorScheme.outline
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            },
+                            maxLines = 1,
+                        )
+                    },
+                ) {
+                    navController.navigateSingle(MainRoutes.CompressionBenchmark.route)
                 }
 
                 val items = stringArrayResource(id = R.array.kill_app_options)

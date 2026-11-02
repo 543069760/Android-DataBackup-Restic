@@ -34,6 +34,7 @@
     <string name="restic_repo_will_be_created_at">Repository will be created at: %s(Local only)</string>
     <string name="restic_repo_path_root_hint">Tip: Tap the icon to browse any path including root directories (e.g. /data/adb), or enter the path manually. Path permissions will be fixed automatically after saving.</string>
     <string name="initialize">Initialize</string>
+    <string name="initialize_level_notice">New repositories are created with compression level %1$s. This cannot be changed later — an existing repository keeps its own setting.</string>
     <!-- Restic 初始化功能字符串 - 补充 -->
     <string name="select_directory">Select Directory(Local only)</string>
     <string name="checking_path">Checking path(Local only)...</string>
@@ -121,4 +122,8 @@
     <string name="app_icon_shield_sync">Shield Sync</string>
     <!-- 调试：连点版本号重置后台存活提示（仅 debug 构建可触发） -->
     <string name="debug_reset_keep_alive_hint_done">Keep-alive hint reset. Restart the app to see it again.</string>
+    <string name="compression_benchmark">Compression benchmark</string>
+    <string name="compression_benchmark_status_unmeasured">Not tested</string>
+    <string name="compression_benchmark_status_none">Not worth it</string>
+    <string name="compression_benchmark_status_measured">Recommends %1$s</string>
 </resources>

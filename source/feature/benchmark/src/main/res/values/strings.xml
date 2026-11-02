@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="benchmark_intro_title">How it works</string>
+    <string name="benchmark_intro_desc">Generates 128 MiB of fixed test data in the app private folder, builds a throwaway repository for each of 5 levels (OFF / L1 / L3 / L6 / L19), and writes a snapshot through exactly the same tar and rustic path as a real backup. Needs about 320 MiB of free space; the temporary repository and test data are deleted when finished, and your real repository is never touched.</string>
+    <string name="benchmark_start">Start test</string>
+    <string name="benchmark_retest">Run again</string>
+    <string name="benchmark_cancel">Cancel</string>
+    <string name="benchmark_progress">%1$d/%2$d · %3$s</string>
+    <string name="benchmark_phase_corpus">Preparing test data…</string>
+    <string name="benchmark_phase_warm">Warming up…</string>
+    <string name="benchmark_phase_init">Creating repository…</string>
+    <string name="benchmark_phase_write">Writing snapshot…</string>
+    <string name="benchmark_error">Test failed: %1$s</string>
+    <string name="benchmark_battery_hint">Benchmarking is CPU heavy. Keep the screen on and let the device stay cool; do not run a backup or browse files while measuring. Charging during the test causes heat and throttling, which skews the numbers low.</string>
+    <string name="benchmark_measured_at">Measured at %1$s</string>
+    <string name="benchmark_soc">SoC: %1$s</string>
+    <string name="benchmark_table_level">Level</string>
+    <string name="benchmark_table_speed">MiB/s</string>
+    <string name="benchmark_table_volume">Size</string>
+    <string name="benchmark_table_ratio">Ratio</string>
+    <string name="benchmark_table_time">Time×</string>
+    <string name="benchmark_table_size">Size×</string>
+    <string name="benchmark_footnote">Speed includes fixed overhead, so low levels are faster in a real backup; remote backups are also limited by network bandwidth. Time× and Size× are relative to OFF (1.000); single-run results vary by about ±15%, and levels whose time falls within that noise are picked by the smallest volume.</string>
+    <string name="benchmark_recommend_basis">vs OFF: %1$s in volume, %2$s× in time</string>
+    <string name="benchmark_recommend_equivalent">Equivalent in this test: %1$s (volume within 1%%, time within 5%%)</string>
+    <string name="benchmark_level_off">OFF</string>
+    <string name="benchmark_level_value">zstd %1$d</string>
+    <string name="benchmark_recommend_title">Recommended: %1$s</string>
+    <string name="benchmark_recommend_none">Compression is not worth it here — recommend OFF</string>
+    <string name="benchmark_recommend_hint">Only takes effect for a newly created repository; an existing repository keeps its stored setting</string>
+    <string name="benchmark_recommend_hint_emphasis">&#32;— it only changes after you re-initialize it.</string>
+    <string name="benchmark_recommend_danger">Re-initializing the repository permanently deletes existing backups. Proceed with caution.</string>
+    <string name="benchmark_current_level">Current setting: %1$s</string>
+    <string name="benchmark_apply">Apply %1$s</string>
+    <string name="benchmark_apply_off">Turn compression off (recommended)</string>
+    <string name="benchmark_applied">Applied %1$s</string>
+    <string name="benchmark_unreliable">Unreliable sample: %1$s</string>
+    <string name="benchmark_warn_device">The device model or SoC changed, so this result no longer applies. Please run the test again.</string>
+    <string name="benchmark_warn_version">The app major version changed. Re-testing is recommended.</string>
+    <string name="benchmark_warn_age">This result is over 90 days old. Re-testing is recommended.</string>
+</resources>

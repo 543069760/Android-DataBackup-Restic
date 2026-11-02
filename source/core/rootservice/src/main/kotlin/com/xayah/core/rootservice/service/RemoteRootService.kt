@@ -378,7 +378,25 @@ class RemoteRootService(private val context: Context) {
         )
     }
 
-    suspend fun readStatFs(path: String): StatFsParcelable = runCatching { getService().readStatFs(path) }.onFailure(::reportFailure).getOrElse { StatFsParcelable() }
+    /**
+     * 识别「AIDL 无异常地返回 null」这种空应答。
+     *
+     * Binder 只有在两种情况下才会返回「null 且不抛异常」：对端 onTransact 返回 false
+     * （transaction 未被识别，典型原因是 root 守护进程还在跑重装前的旧 APK 代码），
+     * 或对端显式写回了 null。此时拿到的对象不能直接用（调用方会 NPE），也不该继续
+     * 往这个 binder 上打，所以顺手让守护进程重启，下一次调用会重新 bind 并加载当前 APK。
+     */
+    private suspend fun <T : Any> T?.orNullReply(what: String, fallback: () -> T): T {
+        if (this != null) return this
+        log { "[NullReply] $what returned null; killing the root daemon to reload the current APK" }
+        runCatching {
+            withMainContext { destroyService(killDaemon = true) }
+        }.onFailure { e -> log { "[NullReply] destroyService threw (ignored): ${e.message}" } }
+        return fallback()
+    }
+
+    suspend fun readStatFs(path: String): StatFsParcelable = runCatching { getService().readStatFs(path) }.onFailure(::reportFailure).getOrNull()
+        .orNullReply("readStatFs($path)") { StatFsParcelable() }
 
     suspend fun mkdirs(path: String): Boolean = runCatching { getService().mkdirs(path) }.onFailure(::reportFailure).getOrElse { false }
 
@@ -419,7 +437,8 @@ class RemoteRootService(private val context: Context) {
     suspend fun deleteRecursively(path: String): Boolean = runCatching { getService().deleteRecursively(path) }.onFailure(::reportFailure).getOrElse { false }
 
     suspend fun listFilePaths(path: String, listFiles: Boolean = true, listDirs: Boolean = true): List<String> =
-        runCatching { getService().listFilePaths(path, listFiles, listDirs) }.onFailure(::reportFailure).getOrElse { listOf() }
+        runCatching { getService().listFilePaths(path, listFiles, listDirs) }.onFailure(::reportFailure).getOrNull()
+            .orNullReply("listFilePaths($path)") { listOf() }
 
     private fun readFromParcel(pfd: ParcelFileDescriptor, block: (Parcel) -> Unit) = run {
         val stream = ParcelFileDescriptor.AutoCloseInputStream(pfd)
@@ -621,7 +640,9 @@ class RemoteRootService(private val context: Context) {
     ): String =
         runCatching {
             getService().backupTarToRustic(repositoryPath, password, filename, argv, tags, options, callback, cancelId)
-        }.onFailure(::reportFailure).getOrThrow()
+        }.onFailure(::reportFailure).getOrNull().orNullReply("backupTarToRustic($filename)") {
+            throw IllegalStateException("root service returned a null reply for backupTarToRustic (daemon restarted, please retry)")
+        }
 
     suspend fun cancelRusticBackup(cancelId: Long) =
         runCatching { getService().cancelRusticBackup(cancelId) }.onFailure(::reportFailure)

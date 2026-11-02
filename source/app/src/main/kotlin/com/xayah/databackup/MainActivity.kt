@@ -77,6 +77,7 @@ import com.xayah.feature.main.settings.blacklist.PageBlackList
 import com.xayah.feature.main.settings.language.PageLanguageSelector
 import com.xayah.feature.main.settings.restore.PageRestoreSettings
 import com.xayah.feature.main.settings.cache.PageCacheManagement
+import com.xayah.feature.main.settings.benchmark.PageCompressionBenchmark
 import com.xayah.feature.main.settings.restic.ResticRepoPathScreen
 import com.xayah.feature.main.settings.restic.ResticPasswordScreen
 import com.xayah.feature.main.settings.restic.ResticInitializationScreen
@@ -333,6 +334,9 @@ class MainActivity : AppCompatActivity() {
                         }
                         composable(MainRoutes.CacheManagement.route) {
                             PageCacheManagement()
+                        }
+                        composable(MainRoutes.CompressionBenchmark.route) {
+                            PageCompressionBenchmark()
                         }
                         composable(MainRoutes.Settings.route) {
                             PageSettings()

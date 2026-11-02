@@ -98,8 +98,11 @@ fun PageOne() {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(SizeTokens.Level24)
         ) {
+            // 顶部留白从 100dp 收到 24dp：这里是整个页面的第一屏，状态栏安全区之外
+            // 再压 100dp 会在图标/标题上方留出明显的大块空白；24dp 与其它页面
+            // （SetupScaffold 内容起点、topBar 底部间距）的节奏一致。
             Column(
-                modifier = Modifier.paddingTop(SizeTokens.Level100),
+                modifier = Modifier.paddingTop(SizeTokens.Level24),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 AppIcon()

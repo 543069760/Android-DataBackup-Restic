@@ -63,6 +63,7 @@ sealed class MainRoutes(val route: String) {
         fun getRoute(name: String, remote: String) = "main_reload/${name}/${remote}"
     }
     data object BackupSettings : MainRoutes(route = "main_backup_settings")
+    data object CompressionBenchmark : MainRoutes(route = "main_compression_benchmark")
     data object RestoreSettings : MainRoutes(route = "main_restore_settings")
     data object LanguageSettings : MainRoutes(route = "main_language_settings")
     data object BlackList : MainRoutes(route = "main_blacklist")

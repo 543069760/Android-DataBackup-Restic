@@ -59,6 +59,7 @@ import com.xayah.core.ui.theme.ThemedColorSchemeKeyTokens
 import com.xayah.core.ui.theme.value
 import com.xayah.core.ui.token.SizeTokens
 import com.xayah.core.datastore.ConstantUtil
+import com.xayah.core.datastore.readResticCompressionLevel
 import com.xayah.core.model.util.formatSize
 import com.xayah.libpickyou.PickYouLauncher
 import com.xayah.libpickyou.ui.model.PickerType
@@ -232,6 +233,10 @@ private fun InitializationView(
     val context = LocalContext.current
     val navController = LocalNavController.current!!
 
+    // 建库实际使用的压缩档位：与 ResticRepository.initRepository 内部读的是同一个 key，
+    // 上面的提示文案要如实反映「点下去会用什么档位」，不能写死 AUTO。
+    val compressionLevel by context.readResticCompressionLevel().collectAsStateWithLifecycle(initialValue = -1)
+
     // 选目录器标题（在 composable 作用域取好，供 OTG 分区卡片点击时构造 launcher 使用）
     val directoryTitle = stringResource(id = R.string.select_directory)
 
@@ -394,6 +399,22 @@ private fun InitializationView(
             }
 
             Spacer(modifier = Modifier.height(32.dp))
+
+            // 压缩档位只在建库时写入仓库 config，事后改设置不会回头生效：
+            // 摆到按钮正上方，避免用户建完库才发现用的是 AUTO 而不是压测推荐值。
+            Text(
+                text = stringResource(
+                    id = R.string.initialize_level_notice,
+                    when {
+                        compressionLevel < 0 -> "AUTO"
+                        compressionLevel == 0 -> "OFF"
+                        else -> "L$compressionLevel"
+                    },
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
 
             // 初始化按钮
             Button(

@@ -11,6 +11,7 @@ android {
 dependencies {
     // Core
     implementation(project(":core:common"))
+    implementation(project(":core:model"))
     implementation(project(":core:ui"))
     implementation(project(":core:util"))
     implementation(project(":core:datastore"))
@@ -18,6 +19,7 @@ dependencies {
     implementation(project(":core:work"))
     implementation(project(":core:restic"))
     implementation(project(":core:rootservice"))
+    implementation(project(":feature:benchmark"))
     implementation(project(":feature:main:directory"))
     implementation(project(":feature:main:configurations"))
 

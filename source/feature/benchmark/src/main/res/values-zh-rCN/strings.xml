@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="benchmark_intro_title">测试说明</string>
+    <string name="benchmark_intro_desc">在应用私有目录生成 128 MiB 固定测试数据，为 5 个档位（OFF / L1 / L3 / L6 / L19）分别建临时仓库并写入快照，走的是与真实备份完全相同的 tar 与 rustic 路径。需要约 320 MiB 可用空间；结束后临时仓库与测试数据会一并删除，不会触碰你的真实仓库。</string>
+    <string name="benchmark_start">开始测试</string>
+    <string name="benchmark_retest">重新测试</string>
+    <string name="benchmark_cancel">取消</string>
+    <string name="benchmark_progress">第 %1$d/%2$d 档 · %3$s</string>
+    <string name="benchmark_phase_corpus">正在生成测试数据…</string>
+    <string name="benchmark_phase_warm">正在预热…</string>
+    <string name="benchmark_phase_init">正在创建临时仓库…</string>
+    <string name="benchmark_phase_write">正在写入快照…</string>
+    <string name="benchmark_error">测试失败：%1$s</string>
+    <string name="benchmark_battery_hint">测试较耗 CPU，建议保持屏幕常亮并让设备散热良好；测试期间请勿备份或浏览文件。边充电边测容易发热降频，结果会偏低。</string>
+    <string name="benchmark_measured_at">测试时间：%1$s</string>
+    <string name="benchmark_soc">芯片：%1$s</string>
+    <string name="benchmark_table_level">档位</string>
+    <string name="benchmark_table_speed">MiB/s</string>
+    <string name="benchmark_table_volume">体积</string>
+    <string name="benchmark_table_ratio">压缩比</string>
+    <string name="benchmark_table_time">耗时比</string>
+    <string name="benchmark_table_size">体积比</string>
+    <string name="benchmark_footnote">吞吐含固定开销，真实备份中低档位更快；远端备份还受网络带宽限制。耗时比与体积比以 OFF 为 1.000；本机实测含 ±15% 波动，耗时差在此范围内的档位按体积择优。</string>
+    <string name="benchmark_recommend_basis">相对 OFF：体积 %1$s，耗时 %2$s×</string>
+    <string name="benchmark_recommend_equivalent">实测等价：%1$s（体积差 ≤1%%，耗时差 ≤5%%）</string>
+    <string name="benchmark_level_off">OFF</string>
+    <string name="benchmark_level_value">zstd %1$d</string>
+    <string name="benchmark_recommend_title">推荐档位：%1$s</string>
+    <string name="benchmark_recommend_none">本机压缩不划算，建议关闭（OFF）</string>
+    <string name="benchmark_recommend_hint">仅对新建的仓库生效；已有仓库会保留原有设置，</string>
+    <string name="benchmark_recommend_hint_emphasis">重新初始化后才会改变。</string>
+    <string name="benchmark_recommend_danger">初始化会导致已有备份永久丢失，请谨慎操作。</string>
+    <string name="benchmark_current_level">当前设置：%1$s</string>
+    <string name="benchmark_apply">应用 %1$s</string>
+    <string name="benchmark_apply_off">按推荐关闭压缩</string>
+    <string name="benchmark_applied">已应用 %1$s</string>
+    <string name="benchmark_unreliable">该档位样本不可靠：%1$s</string>
+    <string name="benchmark_warn_device">检测到机型或芯片已变化，这份结果不再适用，请重新测试。</string>
+    <string name="benchmark_warn_version">应用主版本已变化，建议重新测试。</string>
+    <string name="benchmark_warn_age">结果已超过 90 天，建议重新测试。</string>
+</resources>

@@ -352,6 +352,8 @@ fun Slideable(
                 Slider(
                     value = value,
                     onValueChange = onValueChange,
+                    // 必须透传：只禁用外层 Clickable 时滑轨仍可拖动，会绕过调用方的锁定逻辑
+                    enabled = enabled && !readOnly,
                     steps = steps,
                     valueRange = valueRange
                 )

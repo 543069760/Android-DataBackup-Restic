@@ -22,7 +22,10 @@ dependencies {
     implementation(project(":core:util"))
     implementation(project(":core:rootservice"))
     implementation(project(":feature:setup"))
+    implementation(project(":feature:benchmark"))
     implementation(project(":core:restic"))
+    // 压缩档位基准引擎（tar/rustic 全链路复用生产实现）
+    implementation(project(":core:service"))
 
     // Compose Navigation
     implementation(libs.androidx.navigation.compose)

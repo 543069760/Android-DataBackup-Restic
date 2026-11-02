@@ -9,3 +9,7 @@ AGENTS.md
 CLAUDE.md
 .claude/
 .codebuddy/
+# 本地临时产物与计划草稿，不参与提交
+ocr_tmp.ps1
+docs/plans/
+source/.tmp/
