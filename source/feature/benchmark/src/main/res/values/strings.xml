@@ -20,7 +20,7 @@
     <string name="benchmark_table_ratio">Ratio</string>
     <string name="benchmark_table_time">Time×</string>
     <string name="benchmark_table_size">Size×</string>
-    <string name="benchmark_footnote">Speed includes fixed overhead, so low levels are faster in a real backup; remote backups are also limited by network bandwidth. Time× and Size× are relative to OFF (1.000); single-run results vary by about ±15%, and levels whose time falls within that noise are picked by the smallest volume.</string>
+    <string name="benchmark_footnote" formatted="false">Speed includes fixed overhead, so low levels are faster in a real backup; remote backups are also limited by network bandwidth. Time× and Size× are relative to OFF (1.000); single-run results vary by about ±15%, and levels whose time falls within that noise are picked by the smallest volume.</string>
     <string name="benchmark_recommend_basis">vs OFF: %1$s in volume, %2$s× in time</string>
     <string name="benchmark_recommend_equivalent">Equivalent in this test: %1$s (volume within 1%%, time within 5%%)</string>
     <string name="benchmark_level_off">OFF</string>

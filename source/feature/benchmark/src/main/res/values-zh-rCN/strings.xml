@@ -20,7 +20,7 @@
     <string name="benchmark_table_ratio">压缩比</string>
     <string name="benchmark_table_time">耗时比</string>
     <string name="benchmark_table_size">体积比</string>
-    <string name="benchmark_footnote">吞吐含固定开销，真实备份中低档位更快；远端备份还受网络带宽限制。耗时比与体积比以 OFF 为 1.000；本机实测含 ±15% 波动，耗时差在此范围内的档位按体积择优。</string>
+    <string name="benchmark_footnote" formatted="false">吞吐含固定开销，真实备份中低档位更快；远端备份还受网络带宽限制。耗时比与体积比以 OFF 为 1.000；本机实测含 ±15% 波动，耗时差在此范围内的档位按体积择优。</string>
     <string name="benchmark_recommend_basis">相对 OFF：体积 %1$s，耗时 %2$s×</string>
     <string name="benchmark_recommend_equivalent">实测等价：%1$s（体积差 ≤1%%，耗时差 ≤5%%）</string>
     <string name="benchmark_level_off">OFF</string>
