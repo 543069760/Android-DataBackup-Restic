@@ -152,6 +152,23 @@ private fun stringRes(kind: NativeErrorKind): Int = when (kind) {
     NativeErrorKind.UNKNOWN -> R.string.native_error_unknown
 }
 
+/**
+ * 取本地化文案。
+ *
+ * [NativeErrorKind.ROOT_SERVICE] 单独处理：守护进程崩溃是本项目唯一「崩溃了还会有现场报告」
+ * 的故障，除了告诉用户操作失败，还要把他引到「设置 → 诊断日志」——那是定位死因的唯一入口。
+ * 两句话之间用换行分隔，Snackbar 的 Text 不限制行数，能完整展示。
+ */
+private fun localize(kind: NativeErrorKind, context: Context): String = when (kind) {
+    NativeErrorKind.ROOT_SERVICE -> buildString {
+        append(context.getString(R.string.native_error_root_service))
+        append('\n')
+        append(context.getString(R.string.native_error_root_service_report))
+    }
+
+    else -> context.getString(stringRes(kind))
+}
+
 /** 压缩后的一句话原文，供 Logcat 或无需本地化的场景使用。 */
 fun Throwable.toFriendlyRawMessage(): String = shorten(fullText(this))
 
@@ -164,7 +181,7 @@ fun Throwable.toFriendlyMessage(context: Context): String = runCatching {
     fullText(t).let { full ->
         when (val kind = classify(full)) {
             NativeErrorKind.UNKNOWN -> context.getString(R.string.native_error_unknown, shorten(full).truncate(MAX_RAW_LENGTH))
-            else -> context.getString(stringRes(kind))
+            else -> localize(kind, context)
         }
     }
 }.getOrElse { (message ?: toString()).truncate(MAX_RAW_LENGTH) }
@@ -173,6 +190,6 @@ fun Throwable.toFriendlyMessage(context: Context): String = runCatching {
 fun String.toFriendlyMessage(context: Context): String = runCatching {
     when (val kind = classify(this)) {
         NativeErrorKind.UNKNOWN -> context.getString(R.string.native_error_unknown, shorten(this).truncate(MAX_RAW_LENGTH))
-        else -> context.getString(stringRes(kind))
+        else -> localize(kind, context)
     }
 }.getOrElse { truncate(MAX_RAW_LENGTH) }

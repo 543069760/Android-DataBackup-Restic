@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- RootDeathLogStore 的落盘位置：context.filesDir/root_death -->
+    <files-path
+        name="root_death"
+        path="root_death/" />
+</paths>

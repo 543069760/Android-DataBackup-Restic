@@ -108,5 +108,16 @@
             android:authorities="${applicationId}.androidx-startup"
             tools:node="remove">
         </provider>
+
+        <!-- 诊断日志导出：仅共享 filesDir/root_death 下的死亡报告 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/root_death_paths" />
+        </provider>
     </application>
 </manifest>

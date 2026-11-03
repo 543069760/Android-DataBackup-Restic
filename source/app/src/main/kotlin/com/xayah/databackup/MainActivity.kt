@@ -77,6 +77,7 @@ import com.xayah.feature.main.settings.blacklist.PageBlackList
 import com.xayah.feature.main.settings.language.PageLanguageSelector
 import com.xayah.feature.main.settings.restore.PageRestoreSettings
 import com.xayah.feature.main.settings.cache.PageCacheManagement
+import com.xayah.feature.main.settings.diagnostic.PageDiagnosticLogs
 import com.xayah.feature.main.settings.benchmark.PageCompressionBenchmark
 import com.xayah.feature.main.settings.restic.ResticRepoPathScreen
 import com.xayah.feature.main.settings.restic.ResticPasswordScreen
@@ -331,6 +332,9 @@ class MainActivity : AppCompatActivity() {
                             val mediaName =
                                 backStackEntry.arguments?.getString(MainRoutes.ARG_MEDIA_NAME) ?: ""
                             MediumRestoreProcessingGraph(mediaName = mediaName)
+                        }
+                        composable(MainRoutes.DiagnosticLogs.route) {
+                            PageDiagnosticLogs()
                         }
                         composable(MainRoutes.CacheManagement.route) {
                             PageCacheManagement()

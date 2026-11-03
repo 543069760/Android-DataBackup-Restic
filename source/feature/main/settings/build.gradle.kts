@@ -13,6 +13,7 @@ android {
 
 dependencies {
     // Core
+    implementation(libs.androidx.core.ktx)
     implementation(libs.libsu.core)
     implementation(project(":core:common"))
     implementation(project(":core:ui"))

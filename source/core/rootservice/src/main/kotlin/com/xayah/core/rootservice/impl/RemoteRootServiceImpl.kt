@@ -58,6 +58,7 @@ import java.nio.file.attribute.BasicFileAttributes
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 import kotlin.io.path.pathString
 import org.rclone.gomobile.Gomobile
@@ -867,6 +868,7 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         Log.i("FdBackup", "cancel fds: r=${cancelRead.fd} w=${cancelWrite.fd}")
         fdBackupCancelWriters[cancelId] = cancelWrite
         val tarCodeRef = AtomicInteger(-1)
+        val tarErrorRef = AtomicReference<Throwable?>(null)
         var snapshotId: String? = null
         var fedBytes = -1L
         // FdPerf：采样本进程（root 守护进程）的 CPU 占用，约 1s 一条。
@@ -880,11 +882,14 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
             while (!perfStop.get()) {
                 try {
                     Thread.sleep(200)
+                    perfSampler.maybeLog()?.let {
+                        Log.i("FdPerf", "where=root pid=${android.os.Process.myPid()} $it")
+                    }
                 } catch (_: InterruptedException) {
                     break
-                }
-                perfSampler.maybeLog()?.let {
-                    Log.i("FdPerf", "where=root pid=${android.os.Process.myPid()} $it")
+                } catch (t: Throwable) {
+                    // 采样只是旁路信息，读 /proc 失败等任何异常都不能把守护进程带走。
+                    Log.w("FdPerf", "sampler failed: ${t.javaClass.simpleName}: ${t.message}")
                 }
             }
         }
@@ -892,12 +897,26 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
             // tarOut 已在 try 外由 wfd.dup() 创建、wfd 已关闭——
             // 写端只剩 tarOut 一份引用，tar 退出 close 后内核即向读端发 EOF。
             // 注意：不要再 here 做 fromFd(wfd.fd)——wfd 已关，dup 出来的是坏 fd。
+            //
+            // fd 号必须在启动线程之前一次性取好。tar 线程一旦创建，本函数随时可能因为
+            // rustic 提前抛错/取消而走到 finally 关闭 tarOut，那时线程再去读 tarOut.fd
+            // 会抛 IllegalStateException("Already closed")；而线程里的未捕获异常会
+            // 被 RuntimeInit 的默认处理器处理成「杀掉整个进程」，守护进程一死，
+            // 上层所有进行中的备份/恢复全部变成 binder 死亡（真机 6 次崩溃即此路径）。
+            val tarOutFd = tarOut.fd
+            val cancelReadFd = cancelRead.fd
+            val cancelWriteFd = cancelWrite.fd
             val tarThread = thread(start = true, name = "tar-fd-writer") {
                 try {
-                    // 第 5 个参数 cancelWrite.fd：tar 子进程 fork 时继承了写端副本，
+                    // 第 5 个参数 cancelWriteFd：tar 子进程 fork 时继承了写端副本，
                     // native 侧在 dup2 后将其关闭——否则 Kotlin 侧 close 写端后内核引用
                     // 仍 ≥1，cancelRead 永远收不到 POLLHUP，abort 失效。
-                    tarCodeRef.set(TarWrapper.callCliFd(tarOut.fd, stdErrFile.absolutePath, argv, cancelRead.fd, cancelWrite.fd))
+                    tarCodeRef.set(TarWrapper.callCliFd(tarOutFd, stdErrFile.absolutePath, argv, cancelReadFd, cancelWriteFd))
+                } catch (t: Throwable) {
+                    // 这条线程绝不能让异常逃出去：兜住并交给外层判定携带原因，
+                    // 宁可让本次备份失败一次，也不能让守护进程被一条写线程带走。
+                    Log.e("FdBackup", "tar-fd-writer failed: ${t.javaClass.simpleName}: ${t.message}")
+                    tarErrorRef.set(t)
                 } finally {
                     runCatching { tarOut.close() }      // 写端引用归零 → 读端 EOF
                     runCatching { cancelRead.close() }
@@ -906,7 +925,7 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
             // detachFd 后 rfd 对象立即失效——先存原始号再打日志，
             // 访问 detach 后的 rfd.fd 会抛 IllegalStateException("Already closed")
             val dataFd = rfd.detachFd()
-            Log.i("FdBackup", "createSnapshotFromFd dataFd=$dataFd tarOut=${tarOut.fd} cancelRead=${cancelRead.fd} cancelWrite=${cancelWrite.fd}")
+            Log.i("FdBackup", "createSnapshotFromFd dataFd=$dataFd tarOut=$tarOutFd cancelRead=$cancelReadFd cancelWrite=$cancelWriteFd")
             val json = runCatching {
                 Rustic.createSnapshotFromFd(
                     repositoryPath, password, dataFd, filename,
@@ -972,7 +991,11 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
                         Rustic.forgetSnapshot(repositoryPath, password, snapshotId!!, options.toStringMap())
                     }
                 }
-                throw IllegalStateException("tar/rustic fd backup failed: tarCode=$tarCode totals=$totals fedBytes=$fedBytes stderr=$stderrText")
+                throw IllegalStateException(
+                    "tar/rustic fd backup failed: tarCode=$tarCode totals=$totals fedBytes=$fedBytes " +
+                            "stderr=$stderrText tarError=${tarErrorRef.get()?.message}",
+                    tarErrorRef.get(),
+                )
             }
             obj.put("tarCode", tarCode).put("warnings", warnings)
             obj.toString()

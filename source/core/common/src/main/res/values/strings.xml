@@ -2,7 +2,8 @@
 <resources>
     <!-- Native (rustic / librclone) errors, collapsed into a single friendly line. -->
     <string name="native_error_canceled">Operation canceled</string>
-    <string name="native_error_root_service">The root service was restarted. Please run this operation again.</string>
+    <string name="native_error_root_service">The root service crashed and has restarted. This operation was interrupted. Please try again.</string>
+    <string name="native_error_root_service_report">A crash report has been saved. Open Settings > Diagnostic logs to check it, and send it to the developer for troubleshooting.</string>
     <string name="native_error_auth">Authentication failed. Please check your password or credentials.</string>
     <string name="native_error_repo_not_found">Backup repository not found</string>
     <string name="native_error_network">Network connection failed. Please check the network and the server address.</string>

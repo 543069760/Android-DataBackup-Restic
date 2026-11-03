@@ -126,4 +126,22 @@
     <string name="compression_benchmark_status_unmeasured">Not tested</string>
     <string name="compression_benchmark_status_none">Not worth it</string>
     <string name="compression_benchmark_status_measured">Recommends %1$s</string>
+    <!-- 诊断日志：守护进程死亡报告 -->
+    <string name="diagnostic_logs">Diagnostic Logs</string>
+    <string name="diagnostic_logs_desc">Root daemon death reports, kept on device</string>
+    <string name="diagnostic_logs_hint">A report is captured automatically when the root daemon dies. Everything stays on this device.</string>
+    <string name="diagnostic_logs_empty">No reports yet</string>
+    <string name="diagnostic_capture_now">Capture now</string>
+    <string name="diagnostic_logs_refresh">Refresh list</string>
+    <string name="diagnostic_logs_clear_all">Delete all reports</string>
+    <string name="diagnostic_log_share">Share</string>
+    <string name="diagnostic_log_delete">Delete</string>
+    <string name="diagnostic_log_manual">Self-test</string>
+    <string name="diagnostic_log_verdict_rust_panic">Rust panic</string>
+    <string name="diagnostic_log_verdict_art_oom">ART OOM</string>
+    <string name="diagnostic_log_verdict_sigsegv">SIGSEGV</string>
+    <string name="diagnostic_log_verdict_daemon_java_crash">Uncaught exception</string>
+    <string name="diagnostic_log_verdict_lmk">Low memory kill</string>
+    <string name="diagnostic_log_verdict_self_kill">Self exit</string>
+    <string name="diagnostic_log_verdict_unknown">Unknown</string>
 </resources>

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="native_error_canceled">操作已取消</string>
-    <string name="native_error_root_service">Root 服务已重启，请重新执行本次操作</string>
+    <string name="native_error_root_service">Root 服务异常退出并已自动重启，本次操作已中断，请重试</string>
+    <string name="native_error_root_service_report">崩溃日志已保存，请在设置页面的诊断日志中查看，并提交给开发者用于排查问题</string>
     <string name="native_error_auth">密码或认证失败，请检查凭据</string>
     <string name="native_error_repo_not_found">未找到备份仓库</string>
     <string name="native_error_network">网络连接失败，请检查网络与服务器地址</string>

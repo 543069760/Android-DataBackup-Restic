@@ -24,6 +24,7 @@ import com.xayah.core.rootservice.parcelables.PathParcelable
 import com.xayah.core.rootservice.parcelables.StatFsParcelable
 import com.xayah.core.rootservice.parcelables.StorageStatsParcelable
 import com.xayah.core.rootservice.util.ExceptionUtil.tryOnScope
+import com.xayah.core.rootservice.util.RootDeathCollector
 import com.xayah.core.rootservice.util.withMainContext
 import com.xayah.core.rootservice.ICallback
 import com.xayah.core.util.GsonUtil
@@ -139,7 +140,11 @@ class RemoteRootService(private val context: Context) {
             }
         }
         if (shouldReport) {
-            if (isBinderDeath(t)) log { "[RootDeath] root daemon died, reporting once: $message" }
+            if (isBinderDeath(t)) {
+                log { "[RootDeath] root daemon died, reporting once: $message" }
+                // 同一次死亡只取证一次（与上面的代际去重一致），异步执行，不阻塞失败上报链路。
+                RootDeathCollector.captureAsync(context, message)
+            }
             onFailure(t)
         } else {
             log { "Root failure (deduped): $message" }
@@ -272,6 +277,8 @@ class RemoteRootService(private val context: Context) {
                         val binderProxy = IRemoteRootService.Stub.asInterface(service)
                         mService = binderProxy
                         mBinderGeneration++
+                        // 记下「本次会话里守护进程活过」，供下次启动时补抓「app 与守护进程一起被杀」的现场。
+                        RootDeathCollector.markDaemonAlive(context)
                         if (continuation.context.isActive) continuation.resume(binderProxy)
                     }
 

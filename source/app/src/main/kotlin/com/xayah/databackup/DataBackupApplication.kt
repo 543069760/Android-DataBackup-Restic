@@ -3,6 +3,7 @@ package com.xayah.databackup
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.xayah.core.rootservice.util.RootDeathCollector
 import dagger.hilt.android.HiltAndroidApp
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.security.Security
@@ -21,6 +22,8 @@ class DataBackupApplication : Application(), Configuration.Provider {
         super.onCreate()
         application = this
         setupBouncyCastle()
+        // 上次会话若「app 与 root 守护进程一起被杀」，这里补抓一次现场（内部有后台线程与前置判断，无 root 时不触发）。
+        RootDeathCollector.onAppStart(this)
     }
 
     private fun setupBouncyCastle() {

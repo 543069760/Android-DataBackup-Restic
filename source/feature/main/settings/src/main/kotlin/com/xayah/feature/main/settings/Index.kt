@@ -409,6 +409,12 @@ fun PageSettings() {
                     navController.navigateSingle(MainRoutes.CacheManagement.route)
                 }
                 Clickable(
+                    title = stringResource(id = R.string.diagnostic_logs),
+                    value = stringResource(id = R.string.diagnostic_logs_desc),
+                ) {
+                    navController.navigateSingle(MainRoutes.DiagnosticLogs.route)
+                }
+                Clickable(
                     title = stringResource(id = R.string.configurations),
                     value = stringResource(id = R.string.configurations_desc),
                 ) {

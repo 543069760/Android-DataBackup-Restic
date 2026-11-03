@@ -57,6 +57,7 @@ sealed class MainRoutes(val route: String) {
     }
 
     data object CacheManagement : MainRoutes(route = "main_cache_management")
+    data object DiagnosticLogs : MainRoutes(route = "main_diagnostic_logs")
     data object Settings : MainRoutes(route = "main_settings")
     data object Restore : MainRoutes(route = "main_restore")
     data object Reload : MainRoutes(route = "main_reload/{$ARG_ACCOUNT_NAME}/{$ARG_ACCOUNT_REMOTE}") {

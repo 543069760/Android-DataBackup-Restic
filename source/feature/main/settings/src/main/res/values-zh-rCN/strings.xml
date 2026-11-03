@@ -124,4 +124,22 @@
     <string name="compression_benchmark_status_unmeasured">未测试</string>
     <string name="compression_benchmark_status_none">不建议压缩</string>
     <string name="compression_benchmark_status_measured">推荐 %1$s</string>
+    <!-- 诊断日志：守护进程死亡报告 -->
+    <string name="diagnostic_logs">诊断日志</string>
+    <string name="diagnostic_logs_desc">守护进程死亡报告，仅保存在本机</string>
+    <string name="diagnostic_logs_hint">守护进程异常退出时会自动抓取现场报告，所有内容仅保存在本机，不会上传。</string>
+    <string name="diagnostic_logs_empty">暂无报告</string>
+    <string name="diagnostic_capture_now">立即抓取</string>
+    <string name="diagnostic_logs_refresh">刷新列表</string>
+    <string name="diagnostic_logs_clear_all">删除全部报告</string>
+    <string name="diagnostic_log_share">分享</string>
+    <string name="diagnostic_log_delete">删除</string>
+    <string name="diagnostic_log_manual">自检</string>
+    <string name="diagnostic_log_verdict_rust_panic">Rust panic</string>
+    <string name="diagnostic_log_verdict_art_oom">ART 内存溢出</string>
+    <string name="diagnostic_log_verdict_sigsegv">SIGSEGV</string>
+    <string name="diagnostic_log_verdict_daemon_java_crash">未捕获异常</string>
+    <string name="diagnostic_log_verdict_lmk">内存不足被杀</string>
+    <string name="diagnostic_log_verdict_self_kill">主动退出</string>
+    <string name="diagnostic_log_verdict_unknown">未知</string>
 </resources>
