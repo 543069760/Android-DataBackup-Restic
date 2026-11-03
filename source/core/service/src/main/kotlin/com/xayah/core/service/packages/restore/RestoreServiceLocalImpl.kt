@@ -390,10 +390,24 @@ internal class RestoreServiceLocalImpl @Inject constructor() : AbstractRestoreSe
             )
         }
 
-        val packages = if (mTargetPackageName.isNotEmpty()) {
-            allPackages.filter { it.packageName == mTargetPackageName }
+        // 批量路径兜底：只保留本批队列里的 (pkg,userId)。
+        // 恢复中断（杀进程/服务异常退出）时队列文件与中转 config 可能都来不及清理，
+        // DB 里就会残留上一批的激活行；不过滤的话它们会混进本次恢复列表。
+        // 队列为空（旧单包路径）时行为保持不变。
+        val queuedPackages = if (mRestoreQueueMap.isNotEmpty()) {
+            allPackages.filter { mRestoreQueueMap.containsKey(it.packageName to it.userId) }
         } else {
             allPackages
+        }
+        val droppedCount = allPackages.size - queuedPackages.size
+        if (droppedCount > 0) {
+            Log.w(mTAG, "getPackages: 过滤掉 $droppedCount 个不在本批队列中的残留包（队列 ${mRestoreQueueMap.size} 个）")
+        }
+
+        val packages = if (mTargetPackageName.isNotEmpty()) {
+            queuedPackages.filter { it.packageName == mTargetPackageName }
+        } else {
+            queuedPackages
         }
         Log.d(mTAG, "筛选后查询到 ${packages.size} 个应用")
         return packages

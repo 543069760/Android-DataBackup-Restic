@@ -144,6 +144,29 @@ class ResticRestoreViewModel @Inject constructor(
      */
     suspend fun prepareBatchRestore(groups: List<ResticBackupGroup>): Boolean = withContext(Dispatchers.IO) {
         try {
+            // 进入准备阶段立刻作废上一批的队列文件：下面所有提前 return（空选择、仓库未配置、
+            // 整批 config 解出失败、异常）都不能把中断遗留的旧队列留给服务，
+            // 否则服务启动会按上一批的包恢复（表现为「第二次恢复把第一次选中的包也一起恢复」）。
+            val staleQueueFile = File(context.cacheDir, RESTORE_QUEUE_FILE)
+            runCatching { staleQueueFile.delete() }
+                .onFailure { Log.e(TAG, "prepareBatchRestore: 删除旧队列文件失败 ${staleQueueFile.path}", it) }
+
+            // 清空中转目录必须走 root：restore/apps 下的 config 是服务侧 root 进程写入的，
+            // 应用进程用 File API 在共享存储上删除可能静默失败，残留的 package_restore_config.json
+            // 会被 refreshLocalDatabase → scanAppsDirectory 误扫并重新激活。
+            // 放在 resolveRestoreRepo 之前，避免仓库解析失败提前 return 时旧目录原样保留。
+            val targetBasePath = "${context.localBackupSaveDir()}/restore/"
+            val appsDirPath = "${targetBasePath}apps"
+            // 存在性判断也问一次 root：应用进程可能看不到 root 写下的目录，
+            // 只看 File.exists() 会漏清，等于本次修复失效。
+            if (File(appsDirPath).exists() || rootService.exists(appsDirPath)) {
+                Log.d(TAG, "prepareBatchRestore: 清空旧的中转目录 $appsDirPath")
+                val cleared = rootService.deleteRecursively(appsDirPath)
+                if (!cleared && File(appsDirPath).exists()) {
+                    Log.e(TAG, "prepareBatchRestore: 清空 restore/apps 失败 $appsDirPath")
+                }
+            }
+
             if (groups.isEmpty()) {
                 Log.w(TAG, "prepareBatchRestore: 选中 groups 为空")
                 return@withContext false
@@ -157,15 +180,6 @@ class ResticRestoreViewModel @Inject constructor(
             val (repoPath, password) = repo
 
             val backupBaseDir = context.readBackupDirectory() ?: context.localBackupSaveDir()
-            val targetBasePath = "${context.localBackupSaveDir()}/restore/"
-
-            //新增：本次准备前先清空磁盘上的 restore/apps，避免上次退回列表后残留的 config 被 refreshLocalDatabase 误扫导致累加
-            val appsDirToClear = File("${targetBasePath}apps")
-            if (appsDirToClear.exists()) {
-                Log.d(TAG, "prepareBatchRestore: 清空旧的中转目录 ${appsDirToClear.path}")
-                runCatching { appsDirToClear.deleteRecursively() }
-                    .onFailure { Log.e(TAG, "prepareBatchRestore: 清空 restore/apps 失败", it) }
-            }
 
             val succeededGroups = mutableListOf<ResticBackupGroup>()
             val failedPackages = mutableListOf<String>()
