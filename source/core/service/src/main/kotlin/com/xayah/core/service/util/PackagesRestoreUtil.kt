@@ -303,7 +303,18 @@ class PackagesRestoreUtil @Inject constructor(
         val packageName = p.packageName
         val ct = CompressionType.TAR
         val src = packageRepository.getArchiveDst(dstDir = srcDir, dataType = dataType, ct = ct)
-        val dstDir = packageRepository.getDataSrcDir(dataType, userId)
+        // 解包目标必须与备份端落在同一视图：app mount namespace 下 /data/user/<id>（尤其分身/多用户
+        // 的 999，它是指向 /data/data/999 的符号链接）整体不可见，直接 tar -C 会 "Cannot open"。
+        // 这里换成 root 守护进程可见的等价视图（/proc/1/root/...），后续 tar -C、chown、chcon、
+        // 以及 context 兜底探测全部沿用该视图。
+        val nominalDstDir = packageRepository.getDataSrcDir(dataType, userId)
+        val dstDir = DataDirResolver.resolve(
+            primary = nominalDstDir,
+            dataType = dataType,
+            userId = userId,
+            packageName = packageName,
+            rootService = rootService,
+        )
         val uid = rootService.getPackageUid(packageName = packageName, userId = userId)
         // 名义目录存在→用名义路径（普通设备/user_0 行为不变）；
         // 不存在（随机化设备）→按属主 uid 反查真实数据目录；都没有→兜底名义路径
@@ -317,7 +328,8 @@ class PackagesRestoreUtil @Inject constructor(
             val realCe = realDirs.getOrNull(0) ?: ""
             val realDe = realDirs.getOrNull(1) ?: ""
             log { "[DataDirProbe] pkg=$packageName userId=$userId dataType=${dataType.type}" }
-            log { "[DataDirProbe] 名义 dstDir=$dstDir 名义 dst=$dst" }
+            log { "[DataDirProbe] 名义 nominalDstDir=$nominalDstDir 实际 dstDir=$dstDir 名义 dst=$dst" }
+            if (dstDir != nominalDstDir) log { "[DataDirProbe] 名义目录不可见，已回退到 $dstDir" }
             log { "[DataDirProbe] 真实 CE(dataDir)=$realCe 真实 DE(deviceProtectedDataDir)=$realDe" }
             log { "[DataDirProbe] CE 与名义一致? ${realCe == dst} ; DE 与名义一致? ${realDe == dst}" }
         }
