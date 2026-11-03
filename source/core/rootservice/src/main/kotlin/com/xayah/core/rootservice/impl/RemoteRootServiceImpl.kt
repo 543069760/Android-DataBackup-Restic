@@ -421,6 +421,24 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
     }
 
     /**
+     * 返回 `cmd user list -v` 的原始行，供上层判定用户类型。
+     *
+     * UserInfo.userType 在 SDK 中是 @hide，编译期取不到；而用户类型恰恰是区分
+     * 「应用分身（profile.CLONE）」和「系统分身（full.SECONDARY）」的唯一可靠依据
+     * （userId 在 Android 上并非固定值，不能靠 999 判断），所以走命令行拿 type。
+     * 解析失败/系统不支持时返回空列表，由上层静默跳过相关提示。
+     */
+    override fun getUserListVerbose(): List<String> = synchronized(lock) {
+        runCatching {
+            val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", "cmd user list -v"))
+            val output = process.inputStream.bufferedReader().readText()
+            process.errorStream.bufferedReader().readText()
+            process.waitFor()
+            output.lines().filter { it.contains("id=") }
+        }.getOrElse { listOf() }
+    }
+
+    /**
      * 通过 pm create-user 创建应用分身类型的 profile（图标显示在主用户启动器）。
      * 仅尝试 CLONE 类型——普通 secondary user 的图标不出现在主启动器，
      * MANAGED 会带工作资料角标，都不符合"分身"语义；ROM 不支持时直接返回 -1，

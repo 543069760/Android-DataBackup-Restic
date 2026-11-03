@@ -22,6 +22,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -77,6 +78,7 @@ class DialogState {
         confirmText: String? = null,
         dismissText: String? = null,
         contentHorizontalPadding: Boolean = true,
+        destructiveConfirm: Boolean = false,
         block: @Composable (MutableState<T>) -> Unit,
     ): Pair<DismissState, T> {
         return suspendCancellableCoroutine { continuation ->
@@ -89,10 +91,15 @@ class DialogState {
                         continuation.resume(Pair(DismissState.DISMISS, initialState))
                     },
                     confirmButton = {
-                        TextButton(text = confirmText ?: stringResource(id = R.string.confirm), onClick = {
-                            dismiss()
-                            continuation.resume(Pair(DismissState.CONFIRM, uiState.value))
-                        })
+                        // 破坏性操作用 M3E 的错误色，颜色仍旧跟随动态取色
+                        com.xayah.core.ui.component.TextButton(
+                            text = confirmText ?: stringResource(id = R.string.confirm),
+                            color = if (destructiveConfirm) ThemedColorSchemeKeyTokens.Error.value else Color.Unspecified,
+                            onClick = {
+                                dismiss()
+                                continuation.resume(Pair(DismissState.CONFIRM, uiState.value))
+                            }
+                        )
                     },
                     dismissButton = {
                         TextButton(text = dismissText ?: stringResource(id = R.string.cancel), onClick = {

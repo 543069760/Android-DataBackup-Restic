@@ -23,4 +23,18 @@
     <string name="restore_target_user_create_failed_message">当前设备不支持自动创建分身用户，请先在系统设置中手动开启应用分身，然后返回并点击「继续」。</string>
     <string name="restore_clone_manual_title">需要手动开启应用分身</string>
     <string name="restore_clone_manual_message">备份包含应用分身数据（用户 ID：%1$s），当前系统不支持自动创建。请先在系统设置中为对应应用开启应用分身，返回后点「继续」，并在恢复用户下拉中选择新建的分身。</string>
+    <string name="restore_app_clone_not_enabled_title">应用分身可能未开启</string>
+    <string name="restore_app_clone_not_enabled_message">检测到以下应用属于应用分身，但分身空间里还没有它们：\n%1$s\n\n分身图标由主用户桌面维护，请依次完成下面两步，两步都通过后再重新恢复一次分身，图标才会出现：</string>
+    <string name="restore_app_clone_not_enabled_user_line">用户 %1$s：%2$s</string>
+    <string name="restore_app_clone_not_enabled_continue">仍然继续</string>
+    <string name="restore_app_clone_not_enabled_go_enable">我去开启</string>
+    <string name="restore_app_clone_existing_title">恢复到应用分身</string>
+    <string name="restore_app_clone_existing_message">%1$s\n\n如果主桌面没有这些应用的分身图标，说明系统设置里的「应用分身」开关没有开启。请先开启再返回，否则数据能写进分身空间但不会有图标；只想恢复数据可直接点「继续」。</string>
+    <string name="restore_app_clone_existing_continue">继续</string>
+    <string name="restore_app_clone_host_missing_title">主用户未安装该应用</string>
+    <string name="restore_app_clone_host_missing_message">%1$s\n\n分身图标由主用户桌面维护，请依次完成下面两步，两步都通过后再重新恢复一次分身，图标才会出现：</string>
+    <string name="restore_app_clone_host_missing_continue">仍然继续</string>
+    <string name="restore_app_clone_host_step_main">步骤一：安装应用到主用户</string>
+    <string name="restore_app_clone_host_step_clone">步骤二：在系统设置中开启该应用的分身</string>
+    <string name="restore_app_clone_host_irreversible">顺序不可逆：先恢复分身、事后再去装主用户，分身图标也不会补出来，必须两步都通过后重新恢复一次分身。</string>
 </resources>

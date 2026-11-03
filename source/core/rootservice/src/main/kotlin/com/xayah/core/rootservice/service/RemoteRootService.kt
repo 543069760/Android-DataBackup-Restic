@@ -555,6 +555,9 @@ class RemoteRootService(private val context: Context) {
 
     suspend fun getUsers(): List<UserInfo> = runCatching { getService().users }.onFailure(::reportFailure).getOrElse { listOf() }
 
+    /** `cmd user list -v` 的原始行；用于按 userType 区分应用分身/系统分身 */
+    suspend fun getUserListVerbose(): List<String> = runCatching { getService().getUserListVerbose() }.onFailure(::reportFailure).getOrElse { listOf() }
+
     suspend fun createUser(name: String): Int =
         runCatching { getService().createUser(name) }.onFailure(::reportFailure).getOrElse { -1 }
 

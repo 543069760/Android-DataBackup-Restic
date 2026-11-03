@@ -39,6 +39,7 @@ interface IRemoteRootService {
     UserHandle getUserHandle(int userId);
     StorageStatsParcelable queryStatsForPackage(in PackageInfo packageInfo, in UserHandle user);
     List<UserInfo> getUsers();
+    List<String> getUserListVerbose();
     int createUser(String name);
     boolean removeUser(int userId);
     boolean startUser(int userId);

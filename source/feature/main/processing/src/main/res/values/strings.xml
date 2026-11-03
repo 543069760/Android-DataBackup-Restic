@@ -25,5 +25,19 @@
     <string name="restore_target_user_create_failed_message">This device does not support creating clone users automatically. Please create the app clone manually in system settings, then return here and tap Continue.</string>
     <string name="restore_clone_manual_title">Clone user required</string>
     <string name="restore_clone_manual_message">This backup contains app-clone data for a user that cannot be created automatically on this device (user ID: %1$s). Enable the app clone in system settings first, return here, then tap Continue and select the new clone user.</string>
+    <string name="restore_app_clone_not_enabled_title">App clone may not be enabled</string>
+    <string name="restore_app_clone_not_enabled_message">These apps belong to an app clone that is not present in the clone space yet:\n%1$s\n\nThe clone icon lives on the main user\'s home screen. Complete both steps below, then restore the clone once more for the icon to appear:</string>
+    <string name="restore_app_clone_not_enabled_user_line">User %1$s: %2$s</string>
+    <string name="restore_app_clone_not_enabled_continue">Continue anyway</string>
+    <string name="restore_app_clone_not_enabled_go_enable">Open settings</string>
+    <string name="restore_app_clone_existing_title">Restoring into an app clone</string>
+    <string name="restore_app_clone_existing_message">%1$s\n\nIf the home screen shows no clone icon for these apps, the App clone switch in system settings is off. Turn it on first, otherwise the data is written into the clone space but no icon appears. Pick &quot;Continue&quot; to restore anyway.</string>
+    <string name="restore_app_clone_existing_continue">Continue</string>
+    <string name="restore_app_clone_host_missing_title">App not installed in main user</string>
+    <string name="restore_app_clone_host_missing_message">%1$s\n\nThe clone icon lives on the main user\'s home screen. Complete both steps below, then restore the clone once more for the icon to appear:</string>
+    <string name="restore_app_clone_host_missing_continue">Continue anyway</string>
+    <string name="restore_app_clone_host_step_main">Step 1: install the app in the main user</string>
+    <string name="restore_app_clone_host_step_clone">Step 2: enable the app\'s clone in system settings</string>
+    <string name="restore_app_clone_host_irreversible">The order cannot be reversed: restoring the clone first and installing the main user afterwards will not bring the clone icon back. Both steps must pass, then restore the clone once more.</string>
 
 </resources>

@@ -24,6 +24,7 @@ import com.xayah.core.ui.viewmodel.IndexUiEffect
 import com.xayah.core.util.LogUtil
 import com.xayah.core.util.decodeURL
 import com.xayah.core.util.localBackupSaveDir
+import com.xayah.core.util.UserTypeUtil
 import com.xayah.core.datastore.saveResticActiveIsOtg
 import com.xayah.core.util.navigateSingle
 import com.xayah.core.util.toFriendlyMessage
@@ -264,6 +265,115 @@ class RestoreViewModelImpl @Inject constructor(
     suspend fun getUsers(): Set<Int> = runCatching {
         mRootService.getUsers().map { it.id }.toSet()
     }.getOrElse { emptySet() }
+
+    /**
+     * 目标用户中属于「应用分身」（userType = profile.CLONE）的 id。
+     *
+     * 按 userType 判定而不是 userId：分身 id 由系统分配，999 只是常见值。
+     * 系统分身是 full.SECONDARY，不会落到这里，二者的提示逻辑保持独立。
+     */
+    suspend fun getAppCloneUserIds(userIds: Set<Int>): Set<Int> = runCatching {
+        val lines = mRootService.getUserListVerbose()
+        val cloneIds = UserTypeUtil.appCloneUserIds(lines)
+        Log.d("AppCloneProbe", "verboseLines=${lines.size} $lines → cloneIds=$cloneIds, targets=$userIds")
+        userIds.filter { it in cloneIds }.toSet()
+    }.onFailure {
+        Log.d("AppCloneProbe", "getAppCloneUserIds failed: $it")
+    }.getOrElse { emptySet() }
+
+    /**
+     * 某个应用分身用户下本次恢复的包分布。
+     *
+     * - [missing]：分身里还没有 → 系统「应用分身」开关必定没开（开关开着时 ColorOS 早已把包装进分身）。
+     * - [existing]：分身里已有 → 可能开关是开的，也可能是上一次恢复时被 `pm install --user` 塞进去的，
+     *   两者用现有 API 无法区分（dumpsys / /data/system/oplus-vapp / com.oplus.multiapp 均读不到开关）。
+     *   这种情况仍要提示，否则用户会陷入「提示永远不出现」的死角。
+     */
+    data class AppCloneTarget(
+        val userId: Int,
+        val missing: List<String>,
+        val existing: List<String>,
+        /**
+         * 主用户（user 0）里尚未安装的包。
+         *
+         * 实测：分身图标由主用户桌面维护，主用户没有安装同一个应用时，即使把 APK 与数据
+         * 写进分身用户（甚至先分身、后主用户补装），桌面也不会出现分身图标。
+         * 所以恢复分身之前必须先确认主用户已安装。
+         */
+        val hostMissing: List<String> = emptyList(),
+    )
+
+    /**
+     * 列出本次恢复中落到应用分身用户上的包，并区分「分身里未安装」与「已存在」。
+     *
+     * 系统「应用分身」开关打开时，ColorOS 必定已把该包装进对应分身用户；反过来包不存在，
+     * 就说明这个应用的分身还没开——此时直接恢复只会把 APK 与数据写进 /data/user/<id>，
+     * 主桌面不会出现分身图标（实测确认）。
+     *
+     * 返回空列表表示本次恢复不涉及应用分身用户。
+     */
+    suspend fun findAppCloneTargets(
+        packages: List<PackageEntity>,
+        cloneUserIds: Set<Int>,
+        explicitTargetUser: Int = -1,
+    ): List<AppCloneTarget> = runCatching {
+        // 目标用户口径必须与 AbstractRestoreService.onPreprocessing 完全一致：
+        // restoreUser != -1（用户在设置里显式选了「恢复用户」）时，所有包都投到该用户，
+        // 与包自身的备份源 userId 无关；否则才用 p.userId。
+        // 只按备份源 userId 过滤会在「显式选 999」时全部落空——这正是提示不出现的根因。
+        val byUser: Map<Int, List<String>> = if (explicitTargetUser > 0) {
+            mapOf(explicitTargetUser to packages.map { it.packageName }.distinct())
+        } else {
+            packages.groupBy({ it.userId }, { it.packageName }).mapValues { it.value.distinct() }
+        }
+        val targets = byUser.filterKeys { it in cloneUserIds }
+            .map { (userId, names) ->
+                val (existing, missing) = names.partition { mRootService.queryInstalled(it, userId) }
+                // 主用户（USER_SYSTEM = 0）未安装的包：分身图标依赖主用户里的同名应用，
+                // 缺了它即使分身体内数据完整，桌面也不会出现分身图标（实测，且顺序不可逆）。
+                val hostMissing = names.filter { !mRootService.queryInstalled(it, 0) }
+                AppCloneTarget(
+                    userId = userId,
+                    missing = missing,
+                    existing = existing,
+                    hostMissing = hostMissing,
+                )
+            }
+            .sortedBy { it.userId }
+        Log.d(
+            "AppCloneProbe",
+            "byUser=${byUser.mapValues { it.value.size }}, cloneUserIds=$cloneUserIds, targets=$targets"
+        )
+        targets
+    }.onFailure {
+        Log.d("AppCloneProbe", "findAppCloneTargets failed: $it")
+    }.getOrElse { emptyList() }
+
+    /** 恢复分身前的两步自检结果 */
+    data class AppCloneStepState(
+        /** 步骤一：主用户（user 0）已安装 */
+        val mainInstalled: Boolean,
+        /** 步骤二：分身用户里已存在该包（包名维度） */
+        val cloneEnabled: Boolean,
+    )
+
+    /**
+     * 实时自检「主用户已安装」与「分身用户里已有该包」。
+     *
+     * 步骤二只按包名维度判定：分身用户下存在该包即视为「分身已开启」。
+     * 不用 enabledSetting 之类的状态位——各 ROM 写法不一（DEFAULT(0) 同样代表启用，
+     * 只有被显式 disable 才是 2/3/4），拿它当门槛会在部分 ROM 上误报未开启。
+     */
+    suspend fun checkAppCloneSteps(packages: List<String>, cloneUserId: Int): AppCloneStepState = runCatching {
+        val names = packages.distinct()
+        if (names.isEmpty()) AppCloneStepState(mainInstalled = false, cloneEnabled = false)
+        else AppCloneStepState(
+            mainInstalled = names.all { mRootService.queryInstalled(it, 0) },
+            cloneEnabled = names.all { mRootService.queryInstalled(it, cloneUserId) },
+        )
+    }.onFailure {
+        Log.d("AppCloneProbe", "checkAppCloneSteps failed: $it")
+    }.getOrElse { AppCloneStepState(mainInstalled = false, cloneEnabled = false) }
 
     /** root 创建用户，返回真实分配的新 userId，失败返回 -1 */
     suspend fun createUser(name: String): Int = mRootService.createUser(name)
