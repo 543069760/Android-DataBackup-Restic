@@ -437,7 +437,15 @@ class RemoteRootService(private val context: Context) {
         isSuccess
     }.onFailure(::reportFailure).getOrElse { false }
 
-    suspend fun exists(path: String): Boolean = runCatching { getService().exists(path) }.onFailure(::reportFailure).getOrElse { false }
+    // 判否必须留痕：以前这里异常/ false 都折叠成 false，PACKAGE_USER 整类失败时日志里只有
+    // 调用方的 "Not exist"，看不出是 binder 死了还是 root 侧真的 stat 不到。
+    suspend fun exists(path: String): Boolean = runCatching { getService().exists(path) }
+        .onFailure {
+            log { "exists($path) failed: ${it.javaClass.simpleName}(${it.message})" }
+            reportFailure(it)
+        }
+        .getOrElse { false }
+        .also { if (!it) log { "exists($path)=false" } }
 
     suspend fun createNewFile(path: String): Boolean = runCatching { getService().createNewFile(path) }.onFailure(::reportFailure).getOrElse { false }
 

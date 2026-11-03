@@ -70,6 +70,15 @@ object BaseUtil {
 
         // Set up LogUtil.
         LogUtil.initialize(context, context.logDir())
+
+        // 诊断：FLAG_MOUNT_MASTER 是否真的让 shell 进入了 init 的 mount namespace。
+        // root 守护进程由这个 shell 拉起（libsu RootService → app_process），两者 ns 必然相同，
+        // 因此这里的结果直接决定守护进程能否看到真实的 /data/user/0。
+        runCatching {
+            val shellNs = readLink("self")
+            val initNs = readLink("1")
+            android.util.Log.w("BaseUtil", "shellNs=$shellNs initNs=$initNs same=${shellNs == initNs}")
+        }
     }
 
     suspend fun execute(vararg args: String, shell: Shell? = null, log: Boolean = true): ShellResult = withIOContext {

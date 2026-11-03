@@ -37,6 +37,9 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import java.io.File
 
+/** `/proc/1/root` 是 init 的根视图，可绕开 app mount namespace 的目录项隔离。 */
+private const val INIT_ROOT_PREFIX = "/proc/1/root"
+
 class PackagesBackupUtil @Inject constructor(
     @ApplicationContext val context: Context,
     private val rootService: RemoteRootService,
@@ -257,7 +260,7 @@ class PackagesBackupUtil @Inject constructor(
             return ArgvResult.Skip
         }
 
-        val srcDir = packageRepository.getDataSrcDir(dataType, userId)
+        val srcDir = resolveDataSrcDir(dataType, userId, packageName)
         val src = packageRepository.getDataSrc(srcDir, packageName)
         if (rootService.exists(src).not()) {
             return if (dataType == DataType.PACKAGE_USER) {
@@ -301,6 +304,48 @@ class PackagesBackupUtil @Inject constructor(
             sizeBytes = sizeBytes,
             stdinFilename = "${dataType.type}.tar",
         )
+    }
+
+    /**
+     * PACKAGE_USER / PACKAGE_USER_DE 的源目录有几个等价视图：
+     * `/data/user/<userId>`（与 `/data/data` 同源）、`/data/user_de/<userId>`、`/proc/1/root` 下的同名路径。
+     *
+     * 实测（ColorOS / Android 15）：root 守护进程（libsu RootService 的独立 app_process 进程）
+     * 继承的是 app 的 mount namespace（日志里 `same=false`），该 namespace 下 `/data`、`/data/user`、
+     * `/data/user/0`、`/data/data`、`/data/user_de`、`/storage/emulated/0` 目录本身都可见，但**目录项
+     * 被 ROM 隔离成只含本应用的视图** —— `Os.stat("/data/user/0/<other pkg>")` 与
+     * `/data/data/<other pkg>` 都是 ENOENT（不是 EACCES），而 `/data/app`、`/data/media/0` 的子项正常。
+     *
+     * 因此这里按「父目录 + 包名」探测，探测不到时依次回退：
+     *   1. `/proc/1/root<原路径>` —— init 的根视图，不在 app 的隔离 namespace 内；
+     *   2. `/data/data` —— PACKAGE_USER 的等价挂载（仅主用户）。
+     * 回退结果同时用于 `tar -C`，保证「探测」和「打包」落在同一个可见视图上。
+     */
+    private suspend fun resolveDataSrcDir(dataType: DataType, userId: Int, packageName: String): String {
+        val primary = packageRepository.getDataSrcDir(dataType, userId)
+        if (dataType != DataType.PACKAGE_USER && dataType != DataType.PACKAGE_USER_DE) return primary
+        if (rootService.exists("$primary/$packageName")) return primary
+
+        for (dir in namespaceFallbackDirs(dataType, userId)) {
+            if (dir == primary) continue
+            if (rootService.exists("$dir/$packageName")) {
+                log { "Src dir $primary/$packageName invisible to root service, fallback to $dir." }
+                return dir
+            }
+        }
+        return primary
+    }
+
+    private fun namespaceFallbackDirs(dataType: DataType, userId: Int): List<String> = buildList {
+        when (dataType) {
+            DataType.PACKAGE_USER -> {
+                add("$INIT_ROOT_PREFIX${PathUtil.getPackageUserDir(userId)}")
+                if (userId == 0) add(PathUtil.getDataDataDir())
+            }
+
+            DataType.PACKAGE_USER_DE -> add("$INIT_ROOT_PREFIX${PathUtil.getPackageUserDeDir(userId)}")
+            else -> {}
+        }
     }
 
     /**

@@ -62,6 +62,9 @@ class PathUtil @Inject constructor(
         // Paths for processing.
         @SuppressLint("SdCardPath")
         fun getPackageUserDir(userId: Int): String = "/data/user/${userId}"
+        // /data/user/0 与 /data/data 是同一份 app 私有数据的两个挂载视图；
+        // 个别设备上 root 守护进程的挂载视图里没有 /data/user（stat 直接 ENOENT），此时用它与 /data/data 互通。
+        fun getDataDataDir(): String = "/data/data"
         fun getPackageUserDeDir(userId: Int): String = "/data/user_de/${userId}"
         fun getDataMediaDir(): String = "/data/media"
         fun getPackageDataDir(userId: Int): String = "${getDataMediaDir()}/${userId}/Android/data"

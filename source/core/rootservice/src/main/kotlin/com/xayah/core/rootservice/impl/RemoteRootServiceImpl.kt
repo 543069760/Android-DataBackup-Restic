@@ -134,6 +134,38 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
 
     override fun exists(path: String): Boolean = synchronized(lock) {
         tryOn(block = { File(path).exists() }, onException = { false })
+            .also { if (!it) Log.w("RemoteRootService", "impl.exists($path)=false | ${statFailureReason(path)}") }
+    }
+
+    /**
+     * `File.exists()` 把 ENOENT 和 EACCES 都折叠成 false，调用方无从判断是「路径真不存在」
+     * 还是「root 侧看不到/没权限」。这里用 Os.stat 取回真实 errno：
+     * - errno=2(ENOENT)：路径在该进程的挂载视图里确实不存在（mount namespace 问题）
+     * - errno=13(EACCES)：路径在，但 SELinux/DAC 拒绝（权限问题）
+     * 只在 exists 判否时打，正常路径零开销。
+     */
+    private fun statFailureReason(path: String): String {
+        val ns = runCatching { android.system.Os.readlink("/proc/self/ns/mnt") }.getOrNull().orEmpty()
+        val initNs = runCatching { android.system.Os.readlink("/proc/1/ns/mnt") }.getOrNull().orEmpty()
+        val label = runCatching { android.system.Os.readlink("/proc/self/attr/current") }.getOrNull().orEmpty()
+        // 逐级打印同一进程视角下的关键挂载点，用来区分「整体不可见」还是「只有 /data/user 缺子项」。
+        val views = listOf("/data", "/data/user", "/data/user/0", "/data/data", "/data/user_de", "/storage/emulated/0", path)
+            .joinToString(", ") { "$it=${statState(it)}" }
+        // 目录项隔离的直接证据：/data/user/0 下当前还能看到哪些包（全量 = 未隔离，仅本应用 = 被隔离）。
+        val userZero = runCatching { java.io.File("/data/user/0").list()?.take(3)?.joinToString("/") }.getOrNull()
+        // 旁路候选 1：init 的根视图（跨 namespace 解析，需 ptrace 权限）。
+        val initRoot = statState("/proc/1/root$path")
+        // 旁路候选 2：su --mount-master 在 init ns 里执行（若 /proc/1/root 被 SELinux 拒，只能走这条）。
+        return "ns=$ns initNs=$initNs same=${ns == initNs} label=$label | $views | user0=[$userZero] | /proc/1/root$path=$initRoot"
+    }
+
+    private fun statState(path: String): String = try {
+        android.system.Os.stat(path)
+        "ok"
+    } catch (e: android.system.ErrnoException) {
+        "errno=${e.errno}"
+    } catch (e: Exception) {
+        e.javaClass.simpleName
     }
 
     override fun createNewFile(path: String): Boolean = synchronized(lock) {
