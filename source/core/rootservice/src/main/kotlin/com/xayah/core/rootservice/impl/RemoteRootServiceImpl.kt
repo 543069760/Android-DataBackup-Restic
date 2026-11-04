@@ -596,11 +596,18 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
      * 处理中的「自动息屏」请求会被阻塞到备份结束才真正执行，且守护进程一旦在备份期间死亡，
      * 这些「在途」的 binder 调用会抛 DeadObjectException 并被 UI 当成任务出错。
      * 这里改为只在本组设置命令之间串行（ShellUtils 共用同一个 root shell，不能再并发）。
+     *
+     * 顺序按「是否会触发 android_servers 的 native 加载」排列：前三路都不碰 [DisplayControl]，
+     * 只有它们全部失败才走最后一路。这一点很关键——息屏是备份/恢复进行中触发的，一旦在这里
+     * abort，被切断的是正在流式读写的 tar/native 调用，代价是整个任务失败，而不只是「息屏没生效」。
      */
     override fun setDisplayPowerMode(mode: Int) {
-        var via: String? = setPowerModeOnPhysicalDisplays(mode)
+        // 前三路都不触发 DisplayControl 的静态初始化（即 loadLibrary0("android_servers")）。
+        var via: String? = setPowerModeOnSurfaceControlDisplays(mode)
         if (via == null && setPowerModeOnBuiltInDisplay(mode)) via = "built-in-display"
         if (via == null && requestDisplayPower(mode)) via = "requestDisplayPower"
+        // 兜底：唯一可能让守护进程 abort 的一路，放到最后，命中概率最低。
+        if (via == null) via = setPowerModeOnDisplayControlDisplays(mode)
         // 这一行只在息屏/亮屏时打一次，用于确认设备实际走的是哪条路径、哪些能力探测为真。
         Log.i(
             "RemoteRootService",
@@ -639,45 +646,52 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
     }
 
     /**
-     * 物理屏路径：Android 10+ 逐个物理屏设置电源模式。
+     * 物理屏路径（首选）：Android 10+ 用 SurfaceControl 自身的
+     * getPhysicalDisplayIds()/getPhysicalDisplayToken() 逐个物理屏设置电源模式。
      *
-     * 关键点是 **用能力探测而不是版本号** 决定 token 来源：只有 SurfaceControl 上已不存在
-     * getPhysicalDisplayIds()（旧方法确实被移走）时才触碰 [DisplayControl]。后者的静态初始化会执行
-     * loadLibrary0("android_servers")，个别 ROM（荣耀 Android 14）在该 native 注册阶段
-     * 直接 abort 整个进程，Java 层 catch 不住。参见 scrcpy issue #4823 与 PR #5109。
+     * 关键点是 **用能力探测而不是版本号**：只要这两个方法还在就绝不触碰 [DisplayControl]，
+     * 后者的静态初始化会执行 loadLibrary0("android_servers")，个别 ROM（荣耀 Android 14）
+     * 在该 native 注册阶段直接 abort 整个进程，Java 层 catch 不住。
+     * 参见 scrcpy issue #4823 与 PR #5109。
      *
-     * @return 成功时返回实际使用的数据源标记，无法使用时返回 null 交由下一级兜底。
+     * @return 成功时返回数据源标记，旧方法不存在或未完全成功时返回 null 交由下一级兜底。
      */
-    private fun setPowerModeOnPhysicalDisplays(mode: Int): String? {
+    private fun setPowerModeOnSurfaceControlDisplays(mode: Int): String? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
-
         // ids 与 token 是配套 API，任一缺失都视为旧路径不可用（否则会在取 token 时抛 NoSuchMethodError）。
-        val hasSurfaceControlIds = hasSurfaceControlDisplayIds && hasSurfaceControlDisplayToken
-        val ids: LongArray? = when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-                !hasSurfaceControlIds && DisplayControl.isAvailable() -> DisplayControl.getPhysicalDisplayIds()
+        if (!hasSurfaceControlDisplayIds || !hasSurfaceControlDisplayToken) return null
 
-            hasSurfaceControlIds -> SurfaceControlHidden.getPhysicalDisplayIds()
-            else -> null
-        }
-        if (ids == null || ids.isEmpty()) return null
+        val ids = SurfaceControlHidden.getPhysicalDisplayIds() ?: return null
+        if (ids.isEmpty()) return null
 
-        val useDisplayControl = !hasSurfaceControlIds
         var allOk = true
         for (id in ids) {
-            val token = if (useDisplayControl) DisplayControl.getPhysicalDisplayToken(id) else SurfaceControlHidden.getPhysicalDisplayToken(id)
             // token 为 null 说明该 display 拿不到句柄，跳过它但整体视为未完全成功，以便继续兜底。
-            if (token == null) {
-                allOk = false
-                continue
-            }
-            if (!SurfaceControlHidden.setDisplayPowerMode(token, mode)) allOk = false
+            val token = SurfaceControlHidden.getPhysicalDisplayToken(id)
+            if (token == null || !SurfaceControlHidden.setDisplayPowerMode(token, mode)) allOk = false
         }
-        return if (allOk) {
-            "physical-displays/${if (useDisplayControl) "DisplayControl" else "SurfaceControl"}"
-        } else {
-            null
+        return if (allOk) "physical-displays/SurfaceControl" else null
+    }
+
+    /**
+     * 物理屏路径（末级兜底）：Android 14+ 的 [DisplayControl]。
+     *
+     * 这是整条息屏链路里唯一可能让守护进程 abort 的调用，所以排在最后：走到这里意味着
+     * 前三路都没成功，此时「冒险一试」的收益才大于「保住正在流式读写的备份」。
+     */
+    private fun setPowerModeOnDisplayControlDisplays(mode: Int): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return null
+        if (!DisplayControl.isAvailable()) return null
+
+        val ids = DisplayControl.getPhysicalDisplayIds() ?: return null
+        if (ids.isEmpty()) return null
+
+        var allOk = true
+        for (id in ids) {
+            val token = DisplayControl.getPhysicalDisplayToken(id)
+            if (token == null || !SurfaceControlHidden.setDisplayPowerMode(token, mode)) allOk = false
         }
+        return if (allOk) "physical-displays/DisplayControl" else null
     }
 
     /**
@@ -691,14 +705,15 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
     }
 
     /**
-     * 最后的备选：Android 15+ 的 DisplayManagerGlobal.requestDisplayPower。
+     * 第三路：Android 15+ 的 DisplayManagerGlobal.requestDisplayPower。
      *
-     * 不经过 DisplayControl，因此绕开了 android_servers 的 native 加载；但真机上存在两种签名 ——
+     * 不经过 DisplayControl，因此绕开了 android_servers 的 native 加载；真机上存在两种签名 ——
      * AOSP 的 (int, boolean) 与部分厂商的 (int, int)（后者参数为 Display.STATE_*），
      * 所以两种都探测、取存在的那个，不做假设。
      *
-     * 只作为最后手段：scrcpy 曾因该 API 在部分 Android 15 机型上不可靠（#5530）而整体回滚
-     * （#5418 引入、3d1f036 回滚）。
+     * 放在 [DisplayControl] 之前：Android 15 起改用这条路径，绝大多数新机因此完全不必冒险加载
+     * android_servers。代价是该 API 在部分机型上可能返回 true 却实际不生效（scrcpy #5530，
+     * 上游 #5418 引入后由 3d1f036 回滚）——但「息屏不灵」的影响面远小于「守护进程 abort 打断备份」。
      */
     private fun requestDisplayPower(mode: Int): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) return false
