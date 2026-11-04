@@ -271,10 +271,18 @@ abstract class AbstractProcessingViewModel(
                     // 验证 DisplayControl 时 abort，被切断的是正在流式读写的往返，任务会直接失败。
                     val turnedOff = mRootService.setDisplayPowerMode(SurfaceControlHidden.POWER_MODE_OFF)
                     if (!turnedOff) {
-                        // 息屏没生效（能力缺失 / 被门禁挡下 / 守护进程在验证时死亡）：把系统超时
-                        // 恢复成原值，让屏幕按用户设置自然熄灭，避免备份期间因 MAX 而一直亮着。
+                        // 息屏没生效（按键注入被拦 / 充电时被系统保持唤醒 / 守护进程在验证时死亡）：
+                        // 把系统超时恢复成原值，让屏幕按用户设置自然熄灭，避免备份期间因 MAX 而一直亮着。
                         val original = mContext.readScreenOffTimeout().first()
                         if (original > 0) mRootService.setScreenOffTimeout(original)
+                        // 息屏已经不再退化为「面板级点灭」，这里必须让用户知道是息屏没做成，
+                        // 而不是以为开关失效；任务本身继续跑，屏幕上还是原来的进度页。
+                        emitEffectOnIO(
+                            IndexUiEffect.ShowSnackbar(
+                                message = mContext.getString(R.string.auto_screen_off_failed),
+                                type = SnackbarType.Warning,
+                            )
+                        )
                     }
                 }
             }

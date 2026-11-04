@@ -598,10 +598,14 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
      * 这些「在途」的 binder 调用会抛 DeadObjectException 并被 UI 当成任务出错。
      * 这里改用独立的小锁，只串行「触碰 [DisplayControl]」这一段，不会被备份阻塞。
      *
-     * 顺序：先走 [setPowerModeBySleepKey]（真实睡眠，PWS 与面板状态一致，唯一能「保持熄灭」的路径）；
-     * 之后按「是否会触发 android_servers 的 native 加载」排列，前三路都不碰 [DisplayControl]，
-     * 只有它们全部失败才走最后一路。这一点很关键——息屏是备份/恢复进行中触发的，一旦在这里
-     * abort，被切断的是正在流式读写的 tar/native 调用，代价是整个任务失败，而不只是「息屏没生效」。
+     * 顺序：先走 [setPowerModeBySleepKey]（真实睡眠，PWS 与面板状态一致，唯一能「保持熄灭」的路径）。
+     * 息屏若走不通就**不再降级**，直接如实返回失败（原因见函数内注释），否则会退回「面板点亮后
+     * 被电源状态重算拉回」的老 bug。
+     *
+     * 亮屏保留了降级链，按「是否会触发 android_servers 的 native 加载」排列，前三路都不碰
+     * [DisplayControl]，只有它们全部失败才走最后一路。这一点很关键——亮屏同样发生在备份/恢复
+     * 收尾时，一旦在这里 abort，被切断的是正在流式读写的 tar/native 调用，代价是整个任务失败，
+     * 而不只是「亮屏没生效」。
      */
     override fun setDisplayPowerMode(mode: Int, allowRiskyPath: Boolean): Boolean {
         // 首选：让 PowerManagerService 自己进入 / 退出睡眠，而不是只把面板点灭。
@@ -613,13 +617,25 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         // MAX，亮起来之后就再也不熄：这就是「倒计时息屏几秒后又亮，并从此常亮」的完整成因。
         // 走 KEYCODE_SLEEP / KEYCODE_WAKEUP 之后 PWS 与面板状态一致，不会再被拉回；处理服务在任务
         // 期间持有 PARTIAL_WAKE_LOCK，CPU 不挂起，tar / rustic 照常跑完。
+        val wantOff = mode != SurfaceControlHidden.POWER_MODE_NORMAL
         var via: String? = setPowerModeBySleepKey(mode)
+        if (via == null && wantOff) {
+            // 息屏绝不能退到「面板级点灭」兜底：注入被拦时（个别 ROM 限制 input，或开发者选项
+            // 「充电时屏幕不休眠」让 PWS 立刻把设备唤醒）面板点亮之后必定被电源状态重算拉回，
+            // 而调用方此刻已经把 screen_off_timeout 写成 MAX，于是又变成「亮起来后常亮」。
+            // 宁可如实失败：上层会回滚超时并提示用户，退化为「屏幕不熄」，而不是「常亮且无法自愈」。
+            Log.w("RemoteRootService", "setDisplayPowerMode(OFF): injection unavailable, refuse panel-only fallback")
+            return false
+        }
         // 前三路都不触发 DisplayControl 的静态初始化（即 loadLibrary0("android_servers")）。
         if (via == null) via = setPowerModeOnSurfaceControlDisplays(mode)
         if (via == null && setPowerModeOnBuiltInDisplay(mode)) via = "built-in-display"
         if (via == null && requestDisplayPower(mode)) via = "requestDisplayPower"
         // 兜底：唯一可能让守护进程 abort 的一路，再叠一层「已验证 / 调用方允许」门禁。
         if (via == null) via = setPowerModeOnDisplayControlDisplays(mode, allowRiskyPath)
+        // 亮屏的最后一道保险：面板级点亮唤醒不了已经睡下的设备，前面全部失败时再赌一次注入，
+        // 免得用户被留在黑屏里只能按电源键。
+        if (via == null && !wantOff) via = setPowerModeBySleepKey(mode)
         // 这一行只在息屏/亮屏时打一次，用于确认设备实际走的是哪条路径、哪些能力探测为真。
         Log.i(
             "RemoteRootService",

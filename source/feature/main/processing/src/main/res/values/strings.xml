@@ -3,6 +3,7 @@
     <string name="canceling">Canceling…</string>
     <string name="cancel_backup_confirmation">Are you sure you want to cancel? Only the currently processing items will be deleted. Completed backups will be kept.</string>
     <string name="deleting_incomplete_backups">Deleting incomplete backups to prevent data corruption. Please do not close this page.</string>
+    <string name="auto_screen_off_failed">Auto screen off did not take effect on this device (screen key injection was blocked, or the system keeps the device awake while charging). The task continues and the screen will stay on until your own screen timeout.</string>
     <string name="cancel_backup">Cancel backup</string>
     <string name="cancel_restore">Cancel restore</string>
     <string name="cleaning_up_incomplete_backups">Cleaning up canceled backups ..</string>
