@@ -15,6 +15,7 @@ import com.xayah.core.model.database.TaskEntity
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.toFriendlyMessage
 import com.xayah.core.service.AbstractProcessingServiceProxy
+import com.xayah.core.service.util.restoreScreenState
 import com.xayah.core.ui.model.ProcessingCardItem
 import com.xayah.core.ui.model.ProcessingDataCardItem
 import com.xayah.core.ui.util.addInfo
@@ -207,6 +208,11 @@ abstract class AbstractProcessingViewModel(
                     log { "[CancelFallback] cooperative cancel finished in time, no force stop needed" }
                 }
 
+                // 3.5 还原自动息屏的副作用：取消路径不会走 postProcessing，而息屏现在是真正睡眠，
+                //     不还原会把用户留在黑屏里。放在提示之前，让下面的进度/结果提示可见。
+                runCatching { mRootService.restoreScreenState(mContext) }
+                    .onFailure { log { "[$CANCEL_LOG] restoreScreenState error: ${it.message}" } }
+
                 // 4. 显示"删除中"提示
                 emitEffectOnIO(
                     IndexUiEffect.ShowSnackbar(
@@ -248,6 +254,9 @@ abstract class AbstractProcessingViewModel(
             }
 
             is ProcessingUiIntent.DestroyService -> {
+                // 与取消路径同理：这条路径同样跳过 postProcessing（例如备份中 OTG 断线），
+                // 息屏的副作用必须在这里还原，否则屏幕会一直黑着。
+                runCatching { mRootService.restoreScreenState(mContext) }.onFailure { log { "restoreScreenState error: ${it.message}" } }
                 if (state.storageType == StorageMode.Cloud) {
                     mCloudService.destroyService(true)
                 } else {

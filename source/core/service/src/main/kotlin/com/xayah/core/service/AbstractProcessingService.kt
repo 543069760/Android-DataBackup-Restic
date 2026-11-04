@@ -12,12 +12,9 @@ import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.os.IBinder
 import android.os.PowerManager
-import android.view.SurfaceControlHidden
 import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.database.dao.TaskDao
-import com.xayah.core.datastore.ConstantUtil.DEFAULT_IDLE_TIMEOUT
 import com.xayah.core.datastore.readAutoScreenOff
-import com.xayah.core.datastore.readScreenOffTimeout
 import com.xayah.core.datastore.saveScreenOffCountDown
 import com.xayah.core.datastore.saveScreenOffTimeout
 import com.xayah.core.model.OperationState
@@ -29,6 +26,7 @@ import com.xayah.core.model.util.set
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.rootservice.util.withIOContext
 import com.xayah.core.service.util.CommonBackupUtil
+import com.xayah.core.service.util.restoreScreenState
 import com.xayah.core.util.DateUtil
 import com.xayah.core.util.LogUtil
 import com.xayah.core.util.NotificationUtil
@@ -391,11 +389,10 @@ internal abstract class AbstractProcessingService : Service() {
                 mTaskEntity.update(postProcessingIndex = mTaskEntity.postProcessingIndex + 1)
             }
 
-            mRootService.setScreenOffTimeout(mContext.readScreenOffTimeout().first())
-            mContext.saveScreenOffTimeout(DEFAULT_IDLE_TIMEOUT)
             // 收尾时机（长任务已全部结束）是本机首次验证 DisplayControl 的唯一安全窗口：
             // 即使它在 native 加载阶段 abort，被切断的也只是这次亮屏，不会波及已完成的备份数据。
-            mRootService.setDisplayPowerMode(SurfaceControlHidden.POWER_MODE_NORMAL, allowRiskyPath = true)
+            // 超时回写与亮屏统一走 restoreScreenState()，取消 / 断线路径复用同一份实现。
+            mRootService.restoreScreenState(mContext)
 
             mEndTimestamp = DateUtil.getTimestamp()
             afterPostProcessing()

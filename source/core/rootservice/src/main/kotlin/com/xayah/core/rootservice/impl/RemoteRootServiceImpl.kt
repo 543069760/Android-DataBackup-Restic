@@ -25,6 +25,7 @@ import android.os.UserHandle
 import android.os.UserHandleHidden
 import android.os.UserManagerHidden
 import android.view.Display
+import android.view.KeyEvent
 import android.view.SurfaceControlHidden
 import androidx.core.content.pm.PermissionInfoCompat
 import com.android.server.display.DisplayControl
@@ -597,13 +598,24 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
      * 这些「在途」的 binder 调用会抛 DeadObjectException 并被 UI 当成任务出错。
      * 这里改用独立的小锁，只串行「触碰 [DisplayControl]」这一段，不会被备份阻塞。
      *
-     * 顺序按「是否会触发 android_servers 的 native 加载」排列：前三路都不碰 [DisplayControl]，
+     * 顺序：先走 [setPowerModeBySleepKey]（真实睡眠，PWS 与面板状态一致，唯一能「保持熄灭」的路径）；
+     * 之后按「是否会触发 android_servers 的 native 加载」排列，前三路都不碰 [DisplayControl]，
      * 只有它们全部失败才走最后一路。这一点很关键——息屏是备份/恢复进行中触发的，一旦在这里
      * abort，被切断的是正在流式读写的 tar/native 调用，代价是整个任务失败，而不只是「息屏没生效」。
      */
     override fun setDisplayPowerMode(mode: Int, allowRiskyPath: Boolean): Boolean {
+        // 首选：让 PowerManagerService 自己进入 / 退出睡眠，而不是只把面板点灭。
+        //
+        // 下面几路（SurfaceControl / DisplayControl / requestDisplayPower）改的只是「面板电源状态」，
+        // PWS 的期望状态没变（wakefulness 仍是 Awake；调用方为了防任务期间自动休眠还会把
+        // screen_off_timeout 设成 MAX）。于是任何一次电源状态重算 —— 写入 settings 触发的
+        // DIRTY_SETTINGS、亮度/接近传感器更新、唤醒锁增减 —— 都会把面板重新点亮，而且因为超时是
+        // MAX，亮起来之后就再也不熄：这就是「倒计时息屏几秒后又亮，并从此常亮」的完整成因。
+        // 走 KEYCODE_SLEEP / KEYCODE_WAKEUP 之后 PWS 与面板状态一致，不会再被拉回；处理服务在任务
+        // 期间持有 PARTIAL_WAKE_LOCK，CPU 不挂起，tar / rustic 照常跑完。
+        var via: String? = setPowerModeBySleepKey(mode)
         // 前三路都不触发 DisplayControl 的静态初始化（即 loadLibrary0("android_servers")）。
-        var via: String? = setPowerModeOnSurfaceControlDisplays(mode)
+        if (via == null) via = setPowerModeOnSurfaceControlDisplays(mode)
         if (via == null && setPowerModeOnBuiltInDisplay(mode)) via = "built-in-display"
         if (via == null && requestDisplayPower(mode)) via = "requestDisplayPower"
         // 兜底：唯一可能让守护进程 abort 的一路，再叠一层「已验证 / 调用方允许」门禁。
@@ -620,6 +632,36 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
                 ", via=${via ?: "failed"})"
         )
         return via != null
+    }
+
+    /**
+     * 用 root shell 注入 KEYCODE_SLEEP / KEYCODE_WAKEUP，让 PowerManagerService 真正进入 / 退出睡眠。
+     *
+     * 这是唯一能让「屏幕保持熄灭」的路径：面板级点灭之后 PWS 仍认为屏幕该亮，任何一次电源状态
+     * 重算都会把面板重新点亮（详见 [setDisplayPowerMode] 的说明）。睡眠态下 PWS 的期望状态本身就是
+     * OFF，不会再被拉回。
+     *
+     * 状态切换不是瞬时的，这里做有限轮询确认；一旦读不到 wakefulness（例如个别精简 ROM 裁掉了
+     * dumpsys power），退化为「命令本身没有报错即视为成功」，避免误判失败导致调用方回滚超时。
+     */
+    private fun setPowerModeBySleepKey(mode: Int): String? {
+        val wantOff = mode != SurfaceControlHidden.POWER_MODE_NORMAL
+        val keyCode = if (wantOff) KeyEvent.KEYCODE_SLEEP else KeyEvent.KEYCODE_WAKEUP
+        // 2>&1：input 的报错走 stderr，libsu 的 fastCmd 只收 stdout，这里直接把两者合并取回。
+        val output = runCatching { ShellUtils.fastCmd("input keyevent $keyCode 2>&1") }.getOrNull() ?: return null
+        if (output.contains("Exception", true) || output.contains("Permission", true) || output.contains("Unknown", true)) {
+            Log.w("RemoteRootService", "inject keyevent $keyCode failed: ${output.take(200)}")
+            return null
+        }
+        repeat(3) { attempt ->
+            if (attempt > 0) Thread.sleep(200)
+            val wakefulness = runCatching { ShellUtils.fastCmd("dumpsys power | grep -m1 mWakefulness=") }
+                .getOrNull()?.trim().orEmpty()
+            if (wakefulness.isEmpty()) return "keyevent/$keyCode"
+            if (wakefulness.contains("Asleep") == wantOff) return "keyevent/$keyCode"
+        }
+        Log.w("RemoteRootService", "inject keyevent $keyCode did not take effect")
+        return null
     }
 
     /** 只串行「触碰 [DisplayControl]」这一段；与全局 [lock] 无关，不会被备份长任务阻塞。 */
