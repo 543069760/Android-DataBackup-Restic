@@ -584,9 +584,15 @@ class RemoteRootService(private val context: Context) {
     suspend fun setPackageSsaidAsUser(packageName: String, uid: Int, userId: Int, ssaid: String) =
         runCatching { getService().setPackageSsaidAsUser(packageName, uid, userId, ssaid) }.onFailure(::reportFailure)
 
-    // 息屏属于尽力而为的体验功能：失败只影响「自动息屏」，不值得给整个任务弹一次错误
-    suspend fun setDisplayPowerMode(mode: Int) =
-        runCatching { getService().setDisplayPowerMode(mode) }.onFailure { log { "setDisplayPowerMode failed (ignored): ${it.message}" } }
+    // 息屏属于尽力而为的体验功能：失败只影响「自动息屏」，不值得给整个任务弹一次错误。
+    // allowRiskyPath：调用方确认「此刻没有长任务（备份/恢复流）在途」时才传 true ——
+    // 守护进程仅在此情况下才允许首次验证 DisplayControl 这条可能 abort 的路径，
+    // 否则宁可这次不息屏，也不能把正在流式读写的往返连同守护进程一起带走。
+    // 返回 false 时调用方应回滚 screen_off_timeout，避免屏幕在任务期间常亮。
+    suspend fun setDisplayPowerMode(mode: Int, allowRiskyPath: Boolean = false): Boolean =
+        runCatching { getService().setDisplayPowerMode(mode, allowRiskyPath) }
+            .onFailure { log { "setDisplayPowerMode failed (ignored): ${it.message}" } }
+            .getOrDefault(false)
 
     suspend fun getScreenOffTimeout() =
         runCatching { getService().getScreenOffTimeout() }

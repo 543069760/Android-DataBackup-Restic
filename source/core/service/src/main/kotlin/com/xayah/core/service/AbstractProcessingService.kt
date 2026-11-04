@@ -393,7 +393,9 @@ internal abstract class AbstractProcessingService : Service() {
 
             mRootService.setScreenOffTimeout(mContext.readScreenOffTimeout().first())
             mContext.saveScreenOffTimeout(DEFAULT_IDLE_TIMEOUT)
-            mRootService.setDisplayPowerMode(SurfaceControlHidden.POWER_MODE_NORMAL)
+            // 收尾时机（长任务已全部结束）是本机首次验证 DisplayControl 的唯一安全窗口：
+            // 即使它在 native 加载阶段 abort，被切断的也只是这次亮屏，不会波及已完成的备份数据。
+            mRootService.setDisplayPowerMode(SurfaceControlHidden.POWER_MODE_NORMAL, allowRiskyPath = true)
 
             mEndTimestamp = DateUtil.getTimestamp()
             afterPostProcessing()

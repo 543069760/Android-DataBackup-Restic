@@ -595,19 +595,19 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
      * 备份/恢复（[backupTarToRustic]、[createRusticSnapshot] 等）会整段持有 [lock]，
      * 处理中的「自动息屏」请求会被阻塞到备份结束才真正执行，且守护进程一旦在备份期间死亡，
      * 这些「在途」的 binder 调用会抛 DeadObjectException 并被 UI 当成任务出错。
-     * 这里改为只在本组设置命令之间串行（ShellUtils 共用同一个 root shell，不能再并发）。
+     * 这里改用独立的小锁，只串行「触碰 [DisplayControl]」这一段，不会被备份阻塞。
      *
      * 顺序按「是否会触发 android_servers 的 native 加载」排列：前三路都不碰 [DisplayControl]，
      * 只有它们全部失败才走最后一路。这一点很关键——息屏是备份/恢复进行中触发的，一旦在这里
      * abort，被切断的是正在流式读写的 tar/native 调用，代价是整个任务失败，而不只是「息屏没生效」。
      */
-    override fun setDisplayPowerMode(mode: Int) {
+    override fun setDisplayPowerMode(mode: Int, allowRiskyPath: Boolean): Boolean {
         // 前三路都不触发 DisplayControl 的静态初始化（即 loadLibrary0("android_servers")）。
         var via: String? = setPowerModeOnSurfaceControlDisplays(mode)
         if (via == null && setPowerModeOnBuiltInDisplay(mode)) via = "built-in-display"
         if (via == null && requestDisplayPower(mode)) via = "requestDisplayPower"
-        // 兜底：唯一可能让守护进程 abort 的一路，放到最后，命中概率最低。
-        if (via == null) via = setPowerModeOnDisplayControlDisplays(mode)
+        // 兜底：唯一可能让守护进程 abort 的一路，再叠一层「已验证 / 调用方允许」门禁。
+        if (via == null) via = setPowerModeOnDisplayControlDisplays(mode, allowRiskyPath)
         // 这一行只在息屏/亮屏时打一次，用于确认设备实际走的是哪条路径、哪些能力探测为真。
         Log.i(
             "RemoteRootService",
@@ -615,8 +615,64 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
                 ", sc.ids=$hasSurfaceControlDisplayIds" +
                 ", sc.token=$hasSurfaceControlDisplayToken" +
                 ", sc.builtIn=$hasSurfaceControlBuiltInDisplay" +
+                ", allowRisky=$allowRiskyPath" +
+                ", dc=${displayControlState()}" +
                 ", via=${via ?: "failed"})"
         )
+        return via != null
+    }
+
+    /** 只串行「触碰 [DisplayControl]」这一段；与全局 [lock] 无关，不会被备份长任务阻塞。 */
+    private val displayPowerLock = Any()
+
+    /**
+     * 本机对 [DisplayControl] 的判定结果，持久化在 filesDir，跨守护进程重启有效：
+     *
+     * - [UNKNOWN]：从未成功触碰过。此时只有调用方明确声明「无长任务在途」才允许尝试；
+     * - [SAFE]：曾完整走过一次静态初始化且进程存活，此后可以放心使用；
+     * - [DANGEROUS]：上次正是在触碰它的那几行里进程死亡（abort），永远不再尝试。
+     *
+     * 之所以必须落盘：abort 时 Java 层一行代码都执行不到，进程内状态无从留存，
+     * 唯一能留下的证据就是「调用前写下、正常返回后删除」的 marker 文件。
+     */
+    private enum class DisplayControlState { UNKNOWN, SAFE, DANGEROUS }
+
+    @Volatile
+    private var mDisplayControlState: DisplayControlState? = null
+    private val displayControlStateLock = Any()
+
+    private fun guardFile(name: String): File? = runCatching { File(context.filesDir, name) }.getOrNull()
+
+    private fun readStateFile(): String? =
+        runCatching { guardFile(STATE_FILE)?.takeIf { it.exists() }?.readText()?.trim() }.getOrNull()
+
+    private fun displayControlState(): DisplayControlState = synchronized(displayControlStateLock) {
+        mDisplayControlState?.let { return it }
+        val markerFile = guardFile(MARKER_FILE)
+        val persisted = readStateFile()
+        val state = when {
+            // marker 残留 = 上一次在 isAvailable()/getPhysicalDisplayIds() 里进程就死了。
+            // （LMK 恰好在这个微秒级窗口内杀进程也会命中，误判的代价只是「息屏少一条路径」。）
+            markerFile?.exists() == true -> DisplayControlState.DANGEROUS
+            persisted == STATE_SAFE -> DisplayControlState.SAFE
+            persisted == STATE_DANGER -> DisplayControlState.DANGEROUS
+            else -> DisplayControlState.UNKNOWN
+        }
+        if ((state == DisplayControlState.SAFE && persisted != STATE_SAFE) ||
+            (state == DisplayControlState.DANGEROUS && persisted != STATE_DANGER)
+        ) {
+            runCatching { guardFile(STATE_FILE)?.writeText(if (state == DisplayControlState.SAFE) STATE_SAFE else STATE_DANGER) }
+        }
+        runCatching { markerFile?.delete() }
+        mDisplayControlState = state
+        state
+    }
+
+    private fun markDisplayControlSafe() {
+        synchronized(displayControlStateLock) {
+            mDisplayControlState = DisplayControlState.SAFE
+            runCatching { guardFile(STATE_FILE)?.writeText(STATE_SAFE) }
+        }
     }
 
     /**
@@ -676,22 +732,48 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
     /**
      * 物理屏路径（末级兜底）：Android 14+ 的 [DisplayControl]。
      *
-     * 这是整条息屏链路里唯一可能让守护进程 abort 的调用，所以排在最后：走到这里意味着
-     * 前三路都没成功，此时「冒险一试」的收益才大于「保住正在流式读写的备份」。
+     * 这是整条息屏链路里唯一可能让守护进程 abort 的调用，所以排在最后，并额外叠两道门禁：
+     *
+     * 1. [DisplayControlState.DANGEROUS] 直接放弃，[DisplayControlState.UNKNOWN] 则要求调用方
+     *    明确声明「此刻没有长任务在途」（[allowRiskyPath]）。备份/恢复进行中的息屏一律走这条，
+     *    宁可这次不自动息屏，也不能把正在流式读写的 tar/native 调用连同守护进程一起带走；
+     * 2. 触碰前落 marker、正常返回才删：进程若在这几行里 abort，marker 会活下来，
+     *    下次启动据此判为 DANGEROUS，绝不重复踩同一个坑。
      */
-    private fun setPowerModeOnDisplayControlDisplays(mode: Int): String? {
+    private fun setPowerModeOnDisplayControlDisplays(mode: Int, allowRiskyPath: Boolean): String? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return null
-        if (!DisplayControl.isAvailable()) return null
+        return synchronized(displayPowerLock) {
+            when (displayControlState()) {
+                DisplayControlState.DANGEROUS -> return@synchronized null
+                DisplayControlState.UNKNOWN -> if (!allowRiskyPath) {
+                    Log.i("RemoteRootService", "skip DisplayControl: 本机未验证，且调用方声明有长任务在途")
+                    return@synchronized null
+                }
+                DisplayControlState.SAFE -> Unit
+            }
 
-        val ids = DisplayControl.getPhysicalDisplayIds() ?: return null
-        if (ids.isEmpty()) return null
+            val marker = guardFile(MARKER_FILE)
+            runCatching { marker?.writeText(STATE_INFLIGHT) }
+            var loaded = false
+            try {
+                loaded = DisplayControl.isAvailable()
+                if (!loaded) return@synchronized null
 
-        var allOk = true
-        for (id in ids) {
-            val token = DisplayControl.getPhysicalDisplayToken(id)
-            if (token == null || !SurfaceControlHidden.setDisplayPowerMode(token, mode)) allOk = false
+                val ids = DisplayControl.getPhysicalDisplayIds() ?: return@synchronized null
+                if (ids.isEmpty()) return@synchronized null
+
+                var allOk = true
+                for (id in ids) {
+                    val token = DisplayControl.getPhysicalDisplayToken(id)
+                    if (token == null || !SurfaceControlHidden.setDisplayPowerMode(token, mode)) allOk = false
+                }
+                if (allOk) "physical-displays/DisplayControl" else null
+            } finally {
+                // 能走到 finally 就说明 native 加载没有 abort，本机可以安全使用这条路径。
+                runCatching { marker?.delete() }
+                if (loaded) markDisplayControlSafe()
+            }
         }
-        return if (allOk) "physical-displays/DisplayControl" else null
     }
 
     /**
@@ -1189,5 +1271,16 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
             runCatching { rfd.close() }
             stdErrFile.delete()
         }
+    }
+
+    private companion object {
+        /** 持久化的判定结果文件名。 */
+        const val STATE_FILE = "display_control_state"
+
+        /** 触碰 DisplayControl 前写入、正常返回后删除的留痕文件；残留即代表进程死在调用里。 */
+        const val MARKER_FILE = "display_control_inflight"
+        const val STATE_SAFE = "safe"
+        const val STATE_DANGER = "danger"
+        const val STATE_INFLIGHT = "inflight"
     }
 }

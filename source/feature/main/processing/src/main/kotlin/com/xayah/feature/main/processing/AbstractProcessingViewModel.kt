@@ -5,6 +5,7 @@ import android.view.SurfaceControlHidden
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.xayah.core.data.repository.TaskRepository
 import com.xayah.core.datastore.readScreenOffCountDown
+import com.xayah.core.datastore.readScreenOffTimeout
 import com.xayah.core.model.OperationState
 import com.xayah.core.model.ProcessingType
 import com.xayah.core.model.ProgressStat
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.delay
@@ -256,7 +258,15 @@ abstract class AbstractProcessingViewModel(
             is ProcessingUiIntent.TurnOffScreen -> {
                 if (uiState.value.state == OperationState.PROCESSING) {
                     mRootService.setScreenOffTimeout(Int.MAX_VALUE)
-                    mRootService.setDisplayPowerMode(SurfaceControlHidden.POWER_MODE_OFF)
+                    // 备份/恢复进行中一律保守（allowRiskyPath 默认 false）：守护进程若在本机首次
+                    // 验证 DisplayControl 时 abort，被切断的是正在流式读写的往返，任务会直接失败。
+                    val turnedOff = mRootService.setDisplayPowerMode(SurfaceControlHidden.POWER_MODE_OFF)
+                    if (!turnedOff) {
+                        // 息屏没生效（能力缺失 / 被门禁挡下 / 守护进程在验证时死亡）：把系统超时
+                        // 恢复成原值，让屏幕按用户设置自然熄灭，避免备份期间因 MAX 而一直亮着。
+                        val original = mContext.readScreenOffTimeout().first()
+                        if (original > 0) mRootService.setScreenOffTimeout(original)
+                    }
                 }
             }
 

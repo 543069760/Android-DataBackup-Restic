@@ -47,7 +47,12 @@ interface IRemoteRootService {
     PackageInfo getPackageArchiveInfo(String path);
     String getPackageSsaidAsUser(String packageName, int uid, int userId);
     void setPackageSsaidAsUser(String packageName, int uid, int userId, String ssaid);
-    void setDisplayPowerMode(int mode);
+    /**
+     * 返回是否真的设置了电源模式。
+     * allowRiskyPath 由调用方声明「此刻没有长任务（备份/恢复流）在途」，只有为 true 时
+     * 守护进程才允许首次验证 DisplayControl 那条可能 abort 的路径。
+     */
+    boolean setDisplayPowerMode(int mode, boolean allowRiskyPath);
     int getScreenOffTimeout();
     void setScreenOffTimeout(int timeout);
     void forceStopPackageAsUser(String packageName, int userId);
