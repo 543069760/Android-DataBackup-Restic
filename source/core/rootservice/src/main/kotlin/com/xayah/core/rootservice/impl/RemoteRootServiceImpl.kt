@@ -24,6 +24,7 @@ import android.os.StatFs
 import android.os.UserHandle
 import android.os.UserHandleHidden
 import android.os.UserManagerHidden
+import android.view.Display
 import android.view.SurfaceControlHidden
 import androidx.core.content.pm.PermissionInfoCompat
 import com.android.server.display.DisplayControl
@@ -597,23 +598,136 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
      * 这里改为只在本组设置命令之间串行（ShellUtils 共用同一个 root shell，不能再并发）。
      */
     override fun setDisplayPowerMode(mode: Int) {
-        val physicalDisplayIds: LongArray = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            DisplayControl.getPhysicalDisplayIds()
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            SurfaceControlHidden.getPhysicalDisplayIds()
-        } else {
-            LongArray(1) { 0L }
+        var via: String? = setPowerModeOnPhysicalDisplays(mode)
+        if (via == null && setPowerModeOnBuiltInDisplay(mode)) via = "built-in-display"
+        if (via == null && requestDisplayPower(mode)) via = "requestDisplayPower"
+        // 这一行只在息屏/亮屏时打一次，用于确认设备实际走的是哪条路径、哪些能力探测为真。
+        Log.i(
+            "RemoteRootService",
+            "setDisplayPowerMode(mode=$mode, sdk=${Build.VERSION.SDK_INT}" +
+                ", sc.ids=$hasSurfaceControlDisplayIds" +
+                ", sc.token=$hasSurfaceControlDisplayToken" +
+                ", sc.builtIn=$hasSurfaceControlBuiltInDisplay" +
+                ", via=${via ?: "failed"})"
+        )
+    }
+
+    /**
+     * 反射探测 android.view.SurfaceControl 上某个隐藏静态方法是否存在。
+     *
+     * 必须走纯反射，不能放进 [SurfaceControlHidden]：Refine 的字节码改写只替换
+     * 「真实类上存在同名同签名」的调用，自定义探测方法不会被改写，运行时会因为
+     * stub 类只存在于编译期而 NoClassDefFoundError。
+     *
+     * 为什么不按版本号判断：Android 14 起 getPhysicalDisplayIds()/getPhysicalDisplayToken()
+     * 被迁到 com.android.server.display.DisplayControl，但各 ROM 删除时机不一致（荣耀只删了
+     * Android 14 的），只有探测才是唯一可靠依据。参见 scrcpy #4823 / #5109。
+     */
+    private fun hasSurfaceControlMethod(name: String, vararg parameterTypes: Class<*>): Boolean =
+        runCatching {
+            Class.forName("android.view.SurfaceControl").getDeclaredMethod(name, *parameterTypes)
+            true
+        }.getOrDefault(false)
+
+    // 同一进程内类结构不会变化，探测一次即可；lazy 保证最多反射一次。
+    private val hasSurfaceControlDisplayIds: Boolean by lazy { hasSurfaceControlMethod("getPhysicalDisplayIds") }
+    private val hasSurfaceControlDisplayToken: Boolean by lazy {
+        hasSurfaceControlMethod("getPhysicalDisplayToken", Long::class.javaPrimitiveType!!)
+    }
+    private val hasSurfaceControlBuiltInDisplay: Boolean by lazy {
+        hasSurfaceControlMethod("getBuiltInDisplay", Int::class.javaPrimitiveType!!)
+    }
+
+    /**
+     * 物理屏路径：Android 10+ 逐个物理屏设置电源模式。
+     *
+     * 关键点是 **用能力探测而不是版本号** 决定 token 来源：只有 SurfaceControl 上已不存在
+     * getPhysicalDisplayIds()（旧方法确实被移走）时才触碰 [DisplayControl]。后者的静态初始化会执行
+     * loadLibrary0("android_servers")，个别 ROM（荣耀 Android 14）在该 native 注册阶段
+     * 直接 abort 整个进程，Java 层 catch 不住。参见 scrcpy issue #4823 与 PR #5109。
+     *
+     * @return 成功时返回实际使用的数据源标记，无法使用时返回 null 交由下一级兜底。
+     */
+    private fun setPowerModeOnPhysicalDisplays(mode: Int): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+
+        // ids 与 token 是配套 API，任一缺失都视为旧路径不可用（否则会在取 token 时抛 NoSuchMethodError）。
+        val hasSurfaceControlIds = hasSurfaceControlDisplayIds && hasSurfaceControlDisplayToken
+        val ids: LongArray? = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                !hasSurfaceControlIds && DisplayControl.isAvailable() -> DisplayControl.getPhysicalDisplayIds()
+
+            hasSurfaceControlIds -> SurfaceControlHidden.getPhysicalDisplayIds()
+            else -> null
         }
-        physicalDisplayIds.forEach { id ->
-            val token = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                DisplayControl.getPhysicalDisplayToken(id)
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                SurfaceControlHidden.getPhysicalDisplayToken(id)
-            } else {
-                SurfaceControlHidden.getBuiltInDisplay(id.toInt())
+        if (ids == null || ids.isEmpty()) return null
+
+        val useDisplayControl = !hasSurfaceControlIds
+        var allOk = true
+        for (id in ids) {
+            val token = if (useDisplayControl) DisplayControl.getPhysicalDisplayToken(id) else SurfaceControlHidden.getPhysicalDisplayToken(id)
+            // token 为 null 说明该 display 拿不到句柄，跳过它但整体视为未完全成功，以便继续兜底。
+            if (token == null) {
+                allOk = false
+                continue
             }
-            SurfaceControlHidden.setDisplayPowerMode(token, mode)
+            if (!SurfaceControlHidden.setDisplayPowerMode(token, mode)) allOk = false
         }
+        return if (allOk) {
+            "physical-displays/${if (useDisplayControl) "DisplayControl" else "SurfaceControl"}"
+        } else {
+            null
+        }
+    }
+
+    /**
+     * 内置屏兜底：所有 Android 版本都存在的 getBuiltInDisplay(0)。
+     * 只覆盖主屏、不涉及副屏，且不会触发 android_servers 的 native 加载。
+     */
+    private fun setPowerModeOnBuiltInDisplay(mode: Int): Boolean {
+        if (!hasSurfaceControlBuiltInDisplay) return false
+        val token = SurfaceControlHidden.getBuiltInDisplay(Display.DEFAULT_DISPLAY) ?: return false
+        return SurfaceControlHidden.setDisplayPowerMode(token, mode)
+    }
+
+    /**
+     * 最后的备选：Android 15+ 的 DisplayManagerGlobal.requestDisplayPower。
+     *
+     * 不经过 DisplayControl，因此绕开了 android_servers 的 native 加载；但真机上存在两种签名 ——
+     * AOSP 的 (int, boolean) 与部分厂商的 (int, int)（后者参数为 Display.STATE_*），
+     * 所以两种都探测、取存在的那个，不做假设。
+     *
+     * 只作为最后手段：scrcpy 曾因该 API 在部分 Android 15 机型上不可靠（#5530）而整体回滚
+     * （#5418 引入、3d1f036 回滚）。
+     */
+    private fun requestDisplayPower(mode: Int): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) return false
+        return runCatching {
+            val globalClass = Class.forName("android.hardware.display.DisplayManagerGlobal")
+            val instance = globalClass.getDeclaredMethod("getInstance").apply { isAccessible = true }.invoke(null)
+                ?: return@runCatching false
+
+            val on = mode == SurfaceControlHidden.POWER_MODE_NORMAL
+            val booleanMethod = runCatching {
+                globalClass.getDeclaredMethod(
+                    "requestDisplayPower",
+                    Int::class.javaPrimitiveType,
+                    Boolean::class.javaPrimitiveType
+                )
+            }.getOrNull()
+            val stateMethod = runCatching {
+                globalClass.getDeclaredMethod(
+                    "requestDisplayPower",
+                    Int::class.javaPrimitiveType,
+                    Int::class.javaPrimitiveType
+                )
+            }.getOrNull()
+            val method = booleanMethod ?: stateMethod ?: return@runCatching false
+
+            val argument: Any = if (method === booleanMethod) on else if (on) Display.STATE_ON else Display.STATE_OFF
+            method.isAccessible = true
+            method.invoke(instance, Display.DEFAULT_DISPLAY, argument) as? Boolean ?: false
+        }.getOrDefault(false)
     }
 
     override fun getScreenOffTimeout(): Int = synchronized(settingsLock) {

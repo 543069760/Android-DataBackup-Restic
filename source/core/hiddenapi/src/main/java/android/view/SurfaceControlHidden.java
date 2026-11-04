@@ -35,7 +35,11 @@ public class SurfaceControlHidden {
         throw new RuntimeException("Stub!");
     }
 
-    public static void setDisplayPowerMode(IBinder displayToken, int mode) {
+    /**
+     * 真实签名为 {@code public static boolean setDisplayPowerMode(IBinder, int)}，
+     * 返回值表示是否设置成功，调用方据此决定是否降级到下一级路径。
+     */
+    public static boolean setDisplayPowerMode(IBinder displayToken, int mode) {
         throw new RuntimeException("Stub!");
     }
 }

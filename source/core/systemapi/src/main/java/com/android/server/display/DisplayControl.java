@@ -49,6 +49,17 @@ public final class DisplayControl {
         // only static methods
     }
 
+    /**
+     * 本类是否可用（静态初始化是否成功拿到了目标 Class）。
+     * <p>
+     * 注意：调用本方法本身就会触发上面的静态块，进而执行 loadLibrary0("android_servers")。
+     * 个别 ROM（荣耀 Android 14）在该 native 注册阶段会直接 abort 进程，Java 层 catch 不住，
+     * 因此调用方必须先用能力探测确认「旧路径确实不存在」再触碰本类，而不是无条件调用。
+     */
+    public static boolean isAvailable() {
+        return CLASS != null;
+    }
+
     private static Method getGetPhysicalDisplayTokenMethod() throws NoSuchMethodException {
         if (getPhysicalDisplayTokenMethod == null) {
             getPhysicalDisplayTokenMethod = CLASS.getMethod("getPhysicalDisplayToken", long.class);
