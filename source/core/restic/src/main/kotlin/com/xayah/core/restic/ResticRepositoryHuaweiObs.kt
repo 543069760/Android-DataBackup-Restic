@@ -42,7 +42,7 @@ class ResticRepositoryHuaweiObs @Inject constructor(
     }
 
     override suspend fun checkRepository(
-        cloudEntity: CloudEntity, password: String
+        cloudEntity: CloudEntity, password: String, fullCheck: Boolean
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val extra = ResticShared.json.decodeFromString<HuaweiObsExtra>(cloudEntity.extra)
@@ -54,8 +54,11 @@ class ResticRepositoryHuaweiObs @Inject constructor(
             val validate = shared.rootService.validateRusticRepository("opendal:obs", password, options)
             if (validate.isFailure) return@withContext Result.failure(validate.exceptionOrNull() ?: Exception("仓库密码错误或无法打开"))
 
-            val check = shared.rootService.checkRusticRepository("opendal:obs", password, options)
-            if (check.isFailure) return@withContext Result.failure(check.exceptionOrNull() ?: Exception("仓库损坏"))
+            // 全库 check 仅在手动维护 / 账户校验时执行；备份前置检查传 fullCheck=false 跳过
+            if (fullCheck) {
+                val check = shared.rootService.checkRusticRepository("opendal:obs", password, options)
+                if (check.isFailure) return@withContext Result.failure(check.exceptionOrNull() ?: Exception("仓库损坏"))
+            }
 
             Result.success(Unit)
         } catch (e: Exception) {

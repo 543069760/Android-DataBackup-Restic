@@ -55,8 +55,8 @@ class ResticRepositorySftp @Inject constructor(
     }
 
     override suspend fun checkRepository(
-        cloudEntity: CloudEntity, password: String
-    ): Result<Unit> = checkSftpRepository(cloudEntity, password)
+        cloudEntity: CloudEntity, password: String, fullCheck: Boolean
+    ): Result<Unit> = checkSftpRepository(cloudEntity, password, fullCheck)
 
     override suspend fun backupFile(
         cloudEntity: CloudEntity, remotePath: String, filePath: String,
@@ -146,7 +146,7 @@ class ResticRepositorySftp @Inject constructor(
     }
 
     suspend fun checkSftpRepository(
-        cloudEntity: CloudEntity, password: String
+        cloudEntity: CloudEntity, password: String, fullCheck: Boolean = true
     ): Result<Unit> = withContext(Dispatchers.IO) {
         val session = startServe(cloudEntity, cloudEntity.remote)
         try {
@@ -156,8 +156,11 @@ class ResticRepositorySftp @Inject constructor(
             val validate = shared.rootService.validateRusticRepository(session.restUrl, password, emptyMap())
             if (validate.isFailure) return@withContext Result.failure(validate.exceptionOrNull() ?: Exception("仓库密码错误或无法打开"))
 
-            val check = shared.rootService.checkRusticRepository(session.restUrl, password, emptyMap())
-            if (check.isFailure) return@withContext Result.failure(check.exceptionOrNull() ?: Exception("仓库损坏"))
+            // 全库 check 仅在手动维护 / 账户校验时执行；备份前置检查传 fullCheck=false 跳过
+            if (fullCheck) {
+                val check = shared.rootService.checkRusticRepository(session.restUrl, password, emptyMap())
+                if (check.isFailure) return@withContext Result.failure(check.exceptionOrNull() ?: Exception("仓库损坏"))
+            }
 
             Result.success(Unit)
         } catch (e: Exception) {

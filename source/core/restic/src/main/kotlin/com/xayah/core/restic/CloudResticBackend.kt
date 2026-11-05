@@ -13,8 +13,17 @@ interface CloudResticBackend {
         cloudEntity: CloudEntity, remotePath: String, password: String
     ): Result<String>
 
+    /**
+     * 仓库可用性检查。
+     *
+     * [fullCheck] = true（默认）：exists + validate + 全库完整性 check，用于账户校验 / 手动维护；
+     * [fullCheck] = false：只做 exists + validate，用于**每次备份的前置检查**。
+     *
+     * 全库 check 会遍历全部快照树与 index，在对象存储上意味着成百上千次远程 IO，
+     * 仓库越大越慢（实测几十秒～几分钟），绝不能放在备份启动路径上。
+     */
     suspend fun checkRepository(
-        cloudEntity: CloudEntity, password: String
+        cloudEntity: CloudEntity, password: String, fullCheck: Boolean = true
     ): Result<Unit>
 
     suspend fun backupFile(

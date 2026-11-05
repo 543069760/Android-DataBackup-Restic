@@ -120,23 +120,8 @@ class BackupViewModelImpl @Inject constructor(
                         val (client, _) = mCloudRepo.getClient(entity.name)
                         client.testConnection()
 
-                        // 备份前仓库可用性前置检查（fail-fast）：
-                        // 解析 restic 密码（优先 extra，回退 datastore），检查仓库是否可达/可打开
-                        val backend = backend(entity)
-                        val password = backend.resolveResticPassword(entity)
-                        val ok = backend.checkRepository(entity, password).isSuccess
-                        if (!ok) {
-                            emitEffect(IndexUiEffect.DismissSnackbar)
-                            emitEffectOnIO(
-                                IndexUiEffect.ShowSnackbar(
-                                    type = SnackbarType.Error,
-                                    message = mCloudRepo.getString(com.xayah.core.data.R.string.pre_backup_repository_check_failed),
-                                    duration = SnackbarDuration.Long,
-                                )
-                            )
-                            return@runCatching
-                        }
-
+                        // 仓库可用性（exists + validate）由处理服务的 onTargetDirsCreated() 统一做一次，
+                        // 此处只验证网络/凭据可达：云端每次检查都要走远程 IO，重复检查会把启动时间成倍拉长。
                         emitEffect(IndexUiEffect.DismissSnackbar)
                         withMainContext {
                             intent.navController.popBackStack()
@@ -170,7 +155,7 @@ class BackupViewModelImpl @Inject constructor(
                             mContext.readResticPassword() ?: "databackup_default"
                         }
 
-                        val ok = resticRepo.verifyRepository(repoPath, password)
+                        val ok = resticRepo.verifyRepository(repoPath, password, fullCheck = false)
                         if (!ok) {
                             // 前置检查失败：复位任务级标记，避免污染下次本地备份
                             mContext.saveResticActiveIsOtg(false)
@@ -219,7 +204,7 @@ class BackupViewModelImpl @Inject constructor(
         val registeredPath = mContext.readResticOtgRepoPath()
         if (!registeredPath.isNullOrEmpty()) {
             val otgPwd = mContext.readResticOtgPassword() ?: "databackup_default"
-            val ok = runCatching { resticRepo.verifyRepository(registeredPath, otgPwd) }.getOrDefault(false)
+            val ok = runCatching { resticRepo.verifyRepository(registeredPath, otgPwd, fullCheck = false) }.getOrDefault(false)
             Log.d("BackupOtg", "bootstrapOtg(medium): registeredPath=$registeredPath checkOk=$ok")
             if (ok) return@launchOnIO
             // 已登记但当前不可用（未插盘/仓库被删/密码错）→ 引导去设置页处理
@@ -310,7 +295,7 @@ class BackupViewModelImpl @Inject constructor(
                     return@mapLatest false
                 }
                 val otgPwd = mContext.readResticOtgPassword() ?: "databackup_default"
-                val ok = runCatching { resticRepo.verifyRepository(otgPath, otgPwd) }.getOrDefault(false)
+                val ok = runCatching { resticRepo.verifyRepository(otgPath, otgPwd, fullCheck = false) }.getOrDefault(false)
                 Log.d("BackupOtg", "hasOtg(medium): otgPath=$otgPath checkOk=$ok hasDisk=$hasDisk → $ok")
                 ok
             }

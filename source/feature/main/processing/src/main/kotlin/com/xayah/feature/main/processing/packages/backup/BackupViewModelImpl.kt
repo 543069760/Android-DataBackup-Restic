@@ -121,24 +121,8 @@ class BackupViewModelImpl @Inject constructor(
                         val (client, _) = mCloudRepo.getClient(state.cloudEntity!!.name)
                         client.testConnection()
 
-                        // ===== 备份前仓库可用性前置检查（fail-fast） =====
-                        // 通过注册表按 CloudType 取对应后端，密码解析与仓库检查统一走 CloudResticBackend 多态调用。
-                        val entity = state.cloudEntity!!
-                        val backend = backend(entity)
-                        val password = backend.resolveResticPassword(entity)
-                        val repoOk = backend.checkRepository(entity, password).isSuccess
-                        if (!repoOk) {
-                            emitEffect(IndexUiEffect.DismissSnackbar)
-                            emitEffectOnIO(
-                                IndexUiEffect.ShowSnackbar(
-                                    type = SnackbarType.Error,
-                                    message = mCloudRepo.getString(com.xayah.core.data.R.string.pre_backup_repository_check_failed),
-                                    duration = SnackbarDuration.Long,
-                                )
-                            )
-                            return@runCatching
-                        }
-                        // ===== 检查通过，进入处理页 =====
+                        // 仓库可用性（exists + validate）由处理服务的 onTargetDirsCreated() 统一做一次，
+                        // 此处只验证网络/凭据可达：云端每次检查都要走远程 IO，重复检查会把启动时间成倍拉长。
                         emitEffect(IndexUiEffect.DismissSnackbar)
                         withMainContext {
                             intent.navController.popBackStack()
@@ -173,7 +157,7 @@ class BackupViewModelImpl @Inject constructor(
                             return@runCatching
                         }
                         val otgPwd = mContext.readResticOtgPassword() ?: "databackup_default"
-                        val ok = resticRepo.verifyRepository(otgPath, otgPwd)
+                        val ok = resticRepo.verifyRepository(otgPath, otgPwd, fullCheck = false)
                         if (!ok) {
                             // 校验失败（盘不在场/仓库损坏/密码错）：复位标记并提示
                             mContext.saveResticActiveIsOtg(false)
@@ -215,7 +199,7 @@ class BackupViewModelImpl @Inject constructor(
                             ?: File(mContext.filesDir, "restic_repo").absolutePath
                         val password = mContext.readResticPassword() ?: "databackup_default"
 
-                        val ok = resticRepo.verifyRepository(repoPath, password)
+                        val ok = resticRepo.verifyRepository(repoPath, password, fullCheck = false)
                         if (!ok) {
                             emitEffect(IndexUiEffect.DismissSnackbar)
                             emitEffectOnIO(
@@ -255,7 +239,7 @@ class BackupViewModelImpl @Inject constructor(
         val registeredPath = mContext.readResticOtgRepoPath()
         if (!registeredPath.isNullOrEmpty()) {
             val otgPwd = mContext.readResticOtgPassword() ?: "databackup_default"
-            val ok = runCatching { resticRepo.verifyRepository(registeredPath, otgPwd) }.getOrDefault(false)
+            val ok = runCatching { resticRepo.verifyRepository(registeredPath, otgPwd, fullCheck = false) }.getOrDefault(false)
             Log.d("BackupOtg", "bootstrapOtg(packages): registeredPath=$registeredPath checkOk=$ok")
             if (ok) {
                 // 已登记且校验通过 → 零交互静默成功，不弹任何提示
@@ -355,7 +339,7 @@ class BackupViewModelImpl @Inject constructor(
                     return@mapLatest false
                 }
                 val otgPwd = mContext.readResticOtgPassword() ?: "databackup_default"
-                val ok = runCatching { resticRepo.verifyRepository(otgPath, otgPwd) }.getOrDefault(false)
+                val ok = runCatching { resticRepo.verifyRepository(otgPath, otgPwd, fullCheck = false) }.getOrDefault(false)
                 val result = ok
                 Log.d("BackupOtg", "hasOtg: otgPath=$otgPath hasDisk=$hasDisk checkOk=$ok → $result")
                 result

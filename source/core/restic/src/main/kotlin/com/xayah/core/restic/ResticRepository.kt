@@ -458,7 +458,7 @@ class ResticRepository @Inject constructor(
      * - check：validate 通过后再做完整性检查，覆盖"仓库损坏"。
      * 任一不通过即返回 false。
      */
-    suspend fun verifyRepository(repoPath: String, password: String): Boolean {
+    suspend fun verifyRepository(repoPath: String, password: String, fullCheck: Boolean = true): Boolean {
         val exists = rootService.rusticRepositoryExists(repoPath)
         if (!exists) {
             Log.w(TAG, "verifyRepository: repository 不存在（未初始化/config 缺失）: $repoPath")
@@ -468,6 +468,12 @@ class ResticRepository @Inject constructor(
         if (!valid) {
             Log.w(TAG, "verifyRepository: validate 未通过（config 缺失/密码错）: $repoPath")
             return false
+        }
+        // 备份前置检查传 fullCheck=false：validate 已证明 key 正确、仓库可打开，
+        // 全库 check 属于维护工具，不该卡在每次备份的启动路径上。
+        if (!fullCheck) {
+            Log.i(TAG, "verifyRepository: validate passed, full check skipped (pre-backup fast path): $repoPath")
+            return true
         }
         val ok = checkRepository(repoPath, password)
         if (!ok) {

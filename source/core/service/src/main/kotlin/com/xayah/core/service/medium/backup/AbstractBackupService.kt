@@ -481,7 +481,7 @@ internal abstract class AbstractBackupService : AbstractMediumService() {
             return false
         }
         val otgPwd = mContext.readResticOtgPassword() ?: "databackup_default"
-        val ok = runCatching { resticRepo.verifyRepository(otgPath, otgPwd) }.getOrDefault(false)
+        val ok = runCatching { resticRepo.verifyRepository(otgPath, otgPwd, fullCheck = false) }.getOrDefault(false)
         if (!ok) {
             Log.e(mTAG, "备份前置对齐失败(otg):仓库校验失败(未插盘/仓库被删/密码错): $otgPath,中止备份")
             return false

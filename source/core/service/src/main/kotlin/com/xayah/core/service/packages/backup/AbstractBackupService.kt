@@ -113,12 +113,15 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
 
     @SuppressLint("StringFormatInvalid")
     override suspend fun onInitializing() {
+        val initStart = System.currentTimeMillis()
         // 生成本次备份的统一时间戳
         mBackupTimestamp = DateUtil.getTimestamp()
 
         val packages = mPackageRepo.queryActivated(OpType.BACKUP)
+        log { "onInitializing: start, packages=${packages.size}." }
 
         packages.forEach { pkg ->
+            val pkgStart = System.currentTimeMillis()
             pkg.indexInfo.backupTimestamp = mBackupTimestamp
 
             val info = mRootService.getPackageInfoAsUser(
@@ -162,7 +165,9 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
                     id = mTaskDao.upsert(this)
                 }
             )
+            log { "onInitializing: ${pkg.packageName} took=${System.currentTimeMillis() - pkgStart}ms." }
         }
+        log { "onInitializing: done, ${packages.size} packages took=${System.currentTimeMillis() - initStart}ms." }
     }
 
     /**
@@ -316,7 +321,7 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
             return false
         }
         val otgPwd = mContext.readResticOtgPassword() ?: "databackup_default"
-        val ok = runCatching { resticRepo.verifyRepository(otgPath, otgPwd) }.getOrDefault(false)
+        val ok = runCatching { resticRepo.verifyRepository(otgPath, otgPwd, fullCheck = false) }.getOrDefault(false)
         if (!ok) {
             log { "resolveAndAlignResticRepo(otg): 仓库校验失败（未插盘/仓库被删/密码错）: $otgPath，中止备份" }
             return false
@@ -331,12 +336,8 @@ internal abstract class AbstractBackupService : AbstractPackagesService() {
     protected open suspend fun onPreBackupRepositoryCheck(): Boolean = true
 
     override suspend fun onProcessing() {
-        // === 新增：备份前仓库前置检查（OTG 路径对齐 / 不可用即中止）===
-        if (!onPreBackupRepositoryCheck()) {
-            log { "Pre-backup repository check failed, aborting backup." }
-            mTaskEntity.update(isProcessing = false)
-            return
-        }
+        // 仓库前置检查已由 onTargetDirsCreated() 在预处理阶段做过一次（轻量 exists + validate），
+        // 此处不再重复：云端每次检查都要走远程 IO，重复检查会把启动时间成倍拉长。
         // 仓库可用后再确认后台存活加固（电池白名单 / 待机桶 / 后台 appop）。
         // 放在仓库校验之后：仓库不可用会立刻中止，没必要先花几条 root 命令。
         // 失败只会降级为 Unsupported，不会中断备份。

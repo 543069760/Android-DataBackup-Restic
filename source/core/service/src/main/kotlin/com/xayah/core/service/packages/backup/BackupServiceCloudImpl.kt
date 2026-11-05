@@ -110,7 +110,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
         val entity = mCloudEntity
         val backend = backend(entity)
         val password = backend.resolveResticPassword(entity)
-        val ok = backend.checkRepository(entity, password).isSuccess
+        val ok = backend.checkRepository(entity, password, fullCheck = false).isSuccess
         if (!ok) {
             Log.e(
                 mTAG,

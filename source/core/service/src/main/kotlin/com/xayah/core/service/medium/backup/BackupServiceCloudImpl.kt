@@ -105,7 +105,7 @@ internal class BackupServiceCloudImpl @Inject constructor() : AbstractBackupServ
         val entity = mCloudEntity
         val backend = backend(entity)
         val password = backend.resolveResticPassword(entity)
-        val ok = backend.checkRepository(entity, password).isSuccess
+        val ok = backend.checkRepository(entity, password, fullCheck = false).isSuccess
         if (!ok) {
             Log.e(mTAG, "备份前云端仓库检查失败: type=${entity.type} remote=${entity.remote}（仓库不存在/损坏/密码错/不可访问）")
         }

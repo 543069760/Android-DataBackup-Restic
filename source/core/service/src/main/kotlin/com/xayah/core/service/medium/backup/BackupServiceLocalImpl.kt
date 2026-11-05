@@ -71,7 +71,7 @@ internal class BackupServiceLocalImpl @Inject constructor() : AbstractBackupServ
         // 对齐后再读路径(可能已被更新为当前 OTG 挂载点),做仓库可用性/密码校验
         val repoPath = getResticRepoPath()
         val password = getResticPassword()
-        val ok = resticRepo.verifyRepository(repoPath, password)
+        val ok = resticRepo.verifyRepository(repoPath, password, fullCheck = false)
         if (!ok) {
             Log.e(mTAG, "备份前本地仓库检查失败: repoPath=$repoPath（仓库不存在/损坏/密码错/config 不可读）")
         }

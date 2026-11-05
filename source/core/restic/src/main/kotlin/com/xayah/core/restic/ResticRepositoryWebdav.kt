@@ -40,8 +40,8 @@ class ResticRepositoryWebdav @Inject constructor(
     }
 
     override suspend fun checkRepository(
-        cloudEntity: CloudEntity, password: String
-    ): Result<Unit> = checkWebdavRepository(cloudEntity, password)
+        cloudEntity: CloudEntity, password: String, fullCheck: Boolean
+    ): Result<Unit> = checkWebdavRepository(cloudEntity, password, fullCheck)
 
     override suspend fun backupFile(
         cloudEntity: CloudEntity, remotePath: String, filePath: String,
@@ -124,7 +124,7 @@ class ResticRepositoryWebdav @Inject constructor(
     }
 
     suspend fun checkWebdavRepository(
-        cloudEntity: CloudEntity, password: String
+        cloudEntity: CloudEntity, password: String, fullCheck: Boolean = true
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val options = buildWebdavBackendOptions(cloudEntity, cloudEntity.remote)
@@ -136,8 +136,11 @@ class ResticRepositoryWebdav @Inject constructor(
             val validate = shared.rootService.validateRusticRepository("opendal:webdav", password, options)
             if (validate.isFailure) return@withContext Result.failure(validate.exceptionOrNull() ?: Exception("仓库密码错误或无法打开"))
 
-            val check = shared.rootService.checkRusticRepository("opendal:webdav", password, options)
-            if (check.isFailure) return@withContext Result.failure(check.exceptionOrNull() ?: Exception("仓库损坏"))
+            // 全库 check 仅在手动维护 / 账户校验时执行；备份前置检查传 fullCheck=false 跳过
+            if (fullCheck) {
+                val check = shared.rootService.checkRusticRepository("opendal:webdav", password, options)
+                if (check.isFailure) return@withContext Result.failure(check.exceptionOrNull() ?: Exception("仓库损坏"))
+            }
 
             Result.success(Unit)
         } catch (e: Exception) { Log.e(ResticShared.TAG, "checkWebdavRepository 异常", e); Result.failure(e) }

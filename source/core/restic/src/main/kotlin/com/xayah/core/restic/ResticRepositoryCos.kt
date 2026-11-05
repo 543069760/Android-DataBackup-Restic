@@ -60,8 +60,8 @@ class ResticRepositoryCos @Inject constructor(
     }
 
     override suspend fun checkRepository(
-        cloudEntity: CloudEntity, password: String
-    ): Result<Unit> = checkCosRepository(cloudEntity, password)
+        cloudEntity: CloudEntity, password: String, fullCheck: Boolean
+    ): Result<Unit> = checkCosRepository(cloudEntity, password, fullCheck)
 
     // backupFileToCos —— 对应 backupFileToS3，返回 Pair<Int,String>（保持上层契约）
     override suspend fun backupFile(
@@ -170,23 +170,37 @@ class ResticRepositoryCos @Inject constructor(
     // ==================== COS 专用实现（保留原方法名，供既有调用点使用） ====================
 
     suspend fun checkCosRepository(
-        cloudEntity: CloudEntity, password: String
+        cloudEntity: CloudEntity, password: String, fullCheck: Boolean = true
     ): Result<Unit> = withContext(Dispatchers.IO) {
+        // 备份前置检查曾卡在第 3 步全库 check（数十秒～数分钟且成功路径无日志），逐段计时留痕
+        var mark = System.currentTimeMillis()
+        fun elapsed(step: String) {
+            val now = System.currentTimeMillis()
+            Log.i(ResticShared.TAG, "checkCosRepository step=$step elapsed=${now - mark}ms fullCheck=$fullCheck")
+            mark = now
+        }
         try {
             val extra = ResticShared.json.decodeFromString<S3Extra>(cloudEntity.extra)
             val options = buildS3BackendOptions(extra, cloudEntity.remote)
 
             // 1) 存在性门槛（返回真实 bool，不依赖异常）
             val exists = shared.rootService.rusticRepositoryExists("opendal:cos", options)
+            elapsed("exists")
             if (!exists) return@withContext Result.failure(Exception("仓库不存在或不可访问"))
 
             // 2) validate（密码/可打开）
             val validate = shared.rootService.validateRusticRepository("opendal:cos", password, options)
+            elapsed("validate")
             if (validate.isFailure) return@withContext Result.failure(validate.exceptionOrNull() ?: Exception("仓库密码错误或无法打开"))
 
-            // 3) check（完整性/损坏）
-            val check = shared.rootService.checkRusticRepository("opendal:cos", password, options)
-            if (check.isFailure) return@withContext Result.failure(check.exceptionOrNull() ?: Exception("仓库损坏"))
+            // 3) check（完整性/损坏）：仅手动维护 / 账户校验才跑，备份前置检查跳过
+            if (fullCheck) {
+                val check = shared.rootService.checkRusticRepository("opendal:cos", password, options)
+                elapsed("fullCheck")
+                if (check.isFailure) return@withContext Result.failure(check.exceptionOrNull() ?: Exception("仓库损坏"))
+            } else {
+                elapsed("fullCheck(skipped)")
+            }
 
             Result.success(Unit)
         } catch (e: Exception) {
