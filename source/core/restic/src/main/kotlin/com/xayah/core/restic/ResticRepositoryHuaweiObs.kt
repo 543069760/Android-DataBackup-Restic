@@ -24,6 +24,7 @@ class ResticRepositoryHuaweiObs @Inject constructor(
     override suspend fun initRepository(
         cloudEntity: CloudEntity, remotePath: String, password: String
     ): Result<String> = withContext(Dispatchers.IO) {
+        ResticPreflight.checkInit(shared.context, cloudEntity, remotePath)?.let { return@withContext it }
         try {
             val extra = ResticShared.json.decodeFromString<HuaweiObsExtra>(cloudEntity.extra)
             val options = buildHuaweiObsBackendOptions(extra, remotePath) + shared.context.resticCompressionOptions() + resticExtraVerifyOptions()

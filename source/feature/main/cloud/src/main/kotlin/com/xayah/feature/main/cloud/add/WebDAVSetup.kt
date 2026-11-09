@@ -106,21 +106,6 @@ fun PageWebDAVSetup() {
     var name by rememberSaveable { mutableStateOf(uiState.currentName) }
     var remote by rememberSaveable(uiState.cloudEntity) { mutableStateOf(uiState.cloudEntity?.remote ?: "") }
 
-    // ===== 第 3 项：url 回显剥离 scheme，只保留纯主机 =====
-    var url by rememberSaveable(uiState.cloudEntity) {
-        mutableStateOf(
-            uiState.cloudEntity?.host
-                ?.removePrefix("https://")
-                ?.removePrefix("http://")
-                ?.removeSuffix("/")
-                ?: ""
-        )
-    }
-    var username by rememberSaveable(uiState.cloudEntity) { mutableStateOf(uiState.cloudEntity?.user ?: "") }
-    var password by rememberSaveable(uiState.cloudEntity) { mutableStateOf(uiState.cloudEntity?.pass ?: "") }
-    var passwordVisible by rememberSaveable { mutableStateOf(false) }
-    var insecure by rememberSaveable(uiState.cloudEntity) { mutableStateOf(uiState.cloudEntity?.getExtraEntity<WebDAVExtra>()?.insecure ?: false) }
-
     // ===== 第 4 项：协议选择状态（HTTPS=0 / HTTP=1），优先按已存 host 的 scheme 回显 =====
     val protocolOptions = listOf("HTTPS", "HTTP")
     var protocolIndex by rememberSaveable(uiState.cloudEntity) {
@@ -135,13 +120,26 @@ fun PageWebDAVSetup() {
     }
     // ===== 第 4 项结束 =====
 
+    // ===== 第 3 项：地址与端口分别回显（旧配置把端口写在 host 里也能拆开） =====
+    val savedEndpoint = viewModel.splitWebdavEndpoint(uiState.cloudEntity?.host ?: "")
+    var url by rememberSaveable(uiState.cloudEntity) { mutableStateOf(savedEndpoint.first) }
+    var port by rememberSaveable(uiState.cloudEntity) {
+        mutableStateOf(savedEndpoint.second ?: if (protocolIndex == 0) "443" else "80")
+    }
+    // ===== 第 3 项结束 =====
+    var username by rememberSaveable(uiState.cloudEntity) { mutableStateOf(uiState.cloudEntity?.user ?: "") }
+    var password by rememberSaveable(uiState.cloudEntity) { mutableStateOf(uiState.cloudEntity?.pass ?: "") }
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
+    var insecure by rememberSaveable(uiState.cloudEntity) { mutableStateOf(uiState.cloudEntity?.getExtraEntity<WebDAVExtra>()?.insecure ?: false) }
+
     val allFilled by rememberSaveable(
         name,
         url,
+        port,
         username,
         password,
         insecure
-    ) { mutableStateOf(name.isNotEmpty() && url.isNotEmpty() && username.isNotEmpty() && password.isNotEmpty()) }
+    ) { mutableStateOf(name.isNotEmpty() && url.isNotEmpty() && port.isNotEmpty() && username.isNotEmpty() && password.isNotEmpty()) }
 
     LaunchedEffect(null) {
         viewModel.emitIntentOnIO(IndexUiIntent.Initialize)
@@ -163,14 +161,11 @@ fun PageWebDAVSetup() {
                 enabled = allFilled && uiState.isProcessing.not(),
                 onClick = {
                     viewModel.launchOnIO {
-                        // ===== 第 6 项：HTTPS 公共 CA 预校验 =====
-                        val cleanHost = url.trim()
-                            .removePrefix("https://")
-                            .removePrefix("http://")
-                            .removeSuffix("/")
+                        // ===== 第 6 项：HTTPS 公共 CA 预校验（按独立端口栏握手，避免非标准端口仍去连 443） =====
+                        val cleanHost = viewModel.splitWebdavEndpoint(url).first
                         if (protocolIndex == 0) {
-                            // 依赖步骤 6 的 WebDAVCertUtil（同包）
-                            val caResult = WebDAVCertUtil.verifyPublicCa(cleanHost)
+                            val portValue = port.toIntOrNull()?.takeIf { it in 1..65535 } ?: 443
+                            val caResult = WebDAVCertUtil.verifyPublicCa(cleanHost, portValue)
                             if (caResult.isFailure) {
                                 viewModel.emitEffect(
                                     IndexUiEffect.ShowSnackbar(
@@ -183,9 +178,9 @@ fun PageWebDAVSetup() {
                         }
                         // ===== 第 6 项结束 =====
 
-                        // ===== 第 7 项：测试连接调用补传 protocol / resticPassword =====
+                        // ===== 第 7 项：测试连接调用补传 port / protocol / resticPassword =====
                         viewModel.updateWebDAVEntity(
-                            name = name, remote = remote, url = url,
+                            name = name, remote = remote, url = url, port = port,
                             username = username, password = password, insecure = false,
                             protocol = if (protocolIndex == 0) WebDAVProtocol.HTTPS else WebDAVProtocol.HTTP,
                             resticPassword = webdavPassword,
@@ -204,7 +199,7 @@ fun PageWebDAVSetup() {
                         && webdavInitState is WebdavResticViewModel.WebdavInitializationState.Success,
                 onUpdateEntity = {
                     viewModel.updateWebDAVEntity(
-                        name = name, remote = remote, url = url,
+                        name = name, remote = remote, url = url, port = port,
                         username = username, password = password, insecure = false,
                         protocol = if (protocolIndex == 0) WebDAVProtocol.HTTPS else WebDAVProtocol.HTTP,
                         resticPassword = webdavPassword,
@@ -247,6 +242,10 @@ fun PageWebDAVSetup() {
                                 count = protocolOptions.size
                             ),
                             onClick = {
+                                // 端口仍是当前协议默认值时才跟随协议切换，避免覆盖用户自定义端口。
+                                val oldDefault = if (protocolIndex == 0) "443" else "80"
+                                val newDefault = if (index == 0) "443" else "80"
+                                if (port == oldDefault) port = newDefault
                                 protocolIndex = index
                             },
                             selected = index == protocolIndex
@@ -283,6 +282,19 @@ fun PageWebDAVSetup() {
                     prefix = if (protocolIndex == 0) "https://" else "http://",
                     onValueChange = { url = it },
                     label = stringResource(id = R.string.url)
+                )
+
+                // ===== 第 9 项：端口独立输入（对齐 SMB / FTP 配置页） =====
+                SetupTextField(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .paddingHorizontal(SizeTokens.Level24),
+                    enabled = uiState.isProcessing.not(),
+                    value = port,
+                    leadingIcon = ImageVector.vectorResource(id = R.drawable.ic_rounded_lan),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    onValueChange = { port = it },
+                    label = stringResource(id = R.string.port)
                 )
                 // ===== 第 9 项结束 =====
             }
@@ -322,18 +334,21 @@ fun PageWebDAVSetup() {
                     enabled = allFilled && uiState.isProcessing.not(),
                     title = stringResource(id = R.string.remote_path),
                     value = remote.ifEmpty { notSelectedText },
-                    desc = stringResource(id = R.string.remote_path_desc),
+                    desc = if (remote.isEmpty())
+                        stringResource(id = com.xayah.core.common.R.string.restic_remote_path_required)
+                    else
+                        stringResource(id = R.string.remote_path_desc),
                 ) {
                     viewModel.launchOnIO {
-                        // ===== 第 10 项：SetRemotePath 调用补传 protocol / resticPassword =====
+                        // ===== 第 10 项：SetRemotePath 调用补传 port / protocol / resticPassword =====
                         viewModel.updateWebDAVEntity(
-                            name = name, remote = remote, url = url,
+                            name = name, remote = remote, url = url, port = port,
                             username = username, password = password, insecure = false,
                             protocol = if (protocolIndex == 0) WebDAVProtocol.HTTPS else WebDAVProtocol.HTTP,
                             resticPassword = webdavPassword,
                         )
                         viewModel.emitIntent(IndexUiIntent.SetRemotePath(context = context))
-                        remote = uiState.cloudEntity!!.remote
+                        remote = viewModel.uiState.value.cloudEntity?.remote ?: remote
                     }
                 }
 
@@ -403,18 +418,17 @@ fun PageWebDAVSetup() {
                 }
 
                 Clickable(
-                    enabled = uiState.isProcessing.not(),
+                    enabled = uiState.isProcessing.not() && remote.isNotEmpty(),
                     title = stringResource(id = R.string.s3_restic_init_status),
                     value = initStatus,
                     onClick = {
                         if (webdavInitState is WebdavResticViewModel.WebdavInitializationState.Idle && webdavPassword.isNotEmpty()) {
                             scope.launch {
-                                val cleanHost = url.trim()
-                                    .removePrefix("https://")
-                                    .removePrefix("http://")
-                                    .removeSuffix("/")
-                                val scheme = if (protocolIndex == 0) "https" else "http"
-                                val fullUrl = "$scheme://$cleanHost"
+                                val fullUrl = viewModel.buildWebdavEndpoint(
+                                    url = url,
+                                    port = port,
+                                    protocol = if (protocolIndex == 0) WebDAVProtocol.HTTPS else WebDAVProtocol.HTTP,
+                                )
                                 webdavViewModel.initializeWebdavRepository(
                                     name = name,
                                     host = fullUrl,
@@ -436,16 +450,16 @@ fun PageWebDAVSetup() {
                         .fillMaxWidth()
                         .paddingHorizontal(SizeTokens.Level24),
                     enabled = uiState.isProcessing.not() &&
+                            remote.isNotEmpty() &&
                             webdavPassword.isNotEmpty() &&
                             webdavInitState !is WebdavResticViewModel.WebdavInitializationState.Initializing,
                     onClick = {
                         scope.launch {
-                            val cleanHost = url.trim()
-                                .removePrefix("https://")
-                                .removePrefix("http://")
-                                .removeSuffix("/")
-                            val scheme = if (protocolIndex == 0) "https" else "http"
-                            val fullUrl = "$scheme://$cleanHost"
+                            val fullUrl = viewModel.buildWebdavEndpoint(
+                                url = url,
+                                port = port,
+                                protocol = if (protocolIndex == 0) WebDAVProtocol.HTTPS else WebDAVProtocol.HTTP,
+                            )
                             webdavViewModel.initializeWebdavRepository(
                                 name = name,
                                 host = fullUrl,

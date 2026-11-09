@@ -311,7 +311,10 @@ fun PageHuaweiObsSetup() {
                     enabled = allFilled && uiState.isProcessing.not(),
                     title = stringResource(id = R.string.remote_path),
                     value = remote.ifEmpty { notSelectedText },
-                    desc = stringResource(id = R.string.remote_path_desc),
+                    desc = if (remote.isEmpty())
+                        stringResource(id = com.xayah.core.common.R.string.restic_remote_path_required)
+                    else
+                        stringResource(id = R.string.remote_path_desc),
                 ) {
                     viewModel.launchOnIO {
                         viewModel.updateHuaweiObsEntity(
@@ -322,7 +325,7 @@ fun PageHuaweiObsSetup() {
                             resticPassword = obsPassword,
                         )
                         viewModel.emitIntent(IndexUiIntent.SetRemotePath(context = context))
-                        remote = uiState.cloudEntity!!.remote
+                        remote = viewModel.uiState.value.cloudEntity?.remote ?: remote
                     }
                 }
 
@@ -377,7 +380,7 @@ fun PageHuaweiObsSetup() {
                     }
 
                     Clickable(
-                        enabled = uiState.isProcessing.not(),
+                        enabled = uiState.isProcessing.not() && remote.isNotEmpty(),
                         title = stringResource(id = R.string.s3_restic_init_status),
                         value = initStatus,
                         onClick = {
@@ -398,7 +401,7 @@ fun PageHuaweiObsSetup() {
 
                     Button(
                         modifier = Modifier.fillMaxWidth().paddingHorizontal(SizeTokens.Level24),
-                        enabled = uiState.isProcessing.not() && obsPassword.isNotEmpty() &&
+                        enabled = uiState.isProcessing.not() && remote.isNotEmpty() && obsPassword.isNotEmpty() &&
                                 obsInitState !is HuaweiObsResticViewModel.ObsInitializationState.Initializing,
                         onClick = {
                             scope.launch {

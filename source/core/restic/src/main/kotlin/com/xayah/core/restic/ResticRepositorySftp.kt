@@ -114,6 +114,7 @@ class ResticRepositorySftp @Inject constructor(
     suspend fun initSftpRepository(
         cloudEntity: CloudEntity, remotePath: String, password: String
     ): Result<String> = withContext(Dispatchers.IO) {
+        ResticPreflight.checkInit(shared.context, cloudEntity, remotePath)?.let { return@withContext it }
         val session = startServe(cloudEntity, remotePath)
         try {
             Log.i("ResticSftpRoot", "initSftp restUrl=${session.restUrl} remotePath=$remotePath")
@@ -131,7 +132,7 @@ class ResticRepositorySftp @Inject constructor(
             if (!exists) {
                 Log.e(ResticShared.TAG, "SFTP init 报成功但 repositoryExists=false")
                 return@withContext Result.failure(
-                    Exception("init 报成功但仓库 config 未写入 SFTP（疑似 rclone serve/认证失败）")
+                    Exception(ResticPreflight.configMissingMessage(shared.context))
                 )
             }
 

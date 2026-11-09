@@ -94,6 +94,7 @@ class ResticRepositoryWebdav @Inject constructor(
     suspend fun initWebdavRepository(
         cloudEntity: CloudEntity, remotePath: String, password: String
     ): Result<String> = withContext(Dispatchers.IO) {
+        ResticPreflight.checkInit(shared.context, cloudEntity, remotePath)?.let { return@withContext it }
         try {
             val options = buildWebdavBackendOptions(cloudEntity, remotePath) + resticExtraVerifyOptions()
             Log.i("ResticWebdavRoot", "initWebdav options=$options root=${options["root"]} endpoint=${options["endpoint"]}")
@@ -111,7 +112,7 @@ class ResticRepositoryWebdav @Inject constructor(
             if (!exists) {
                 Log.e(ResticShared.TAG, "WebDAV init 报成功但 repositoryExists=false")
                 return@withContext Result.failure(
-                    Exception("init 报成功但仓库 config 未写入 WebDAV")
+                    Exception(ResticPreflight.configMissingMessage(shared.context))
                 )
             }
 

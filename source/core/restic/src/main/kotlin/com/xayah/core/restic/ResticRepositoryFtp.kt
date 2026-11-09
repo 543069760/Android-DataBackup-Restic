@@ -115,6 +115,7 @@ class ResticRepositoryFtp @Inject constructor(
     suspend fun initFtpRepository(
         cloudEntity: CloudEntity, remotePath: String, password: String
     ): Result<String> = withContext(Dispatchers.IO) {
+        ResticPreflight.checkInit(shared.context, cloudEntity, remotePath)?.let { return@withContext it }
         val session = startServe(cloudEntity, remotePath)
         try {
             Log.i("ResticFtpRoot", "initFtp restUrl=${session.restUrl} remotePath=$remotePath")
@@ -132,7 +133,7 @@ class ResticRepositoryFtp @Inject constructor(
             if (!exists) {
                 Log.e(ResticShared.TAG, "FTP init 报成功但 repositoryExists=false")
                 return@withContext Result.failure(
-                    Exception("init 报成功但仓库 config 未写入 FTP（疑似 rclone serve/认证失败）")
+                    Exception(ResticPreflight.configMissingMessage(shared.context))
                 )
             }
 

@@ -43,6 +43,7 @@ class ResticRepositoryCos @Inject constructor(
     override suspend fun initRepository(
         cloudEntity: CloudEntity, remotePath: String, password: String
     ): Result<String> = withContext(Dispatchers.IO) {
+        ResticPreflight.checkInit(shared.context, cloudEntity, remotePath)?.let { return@withContext it }
         try {
             val extra = ResticShared.json.decodeFromString<S3Extra>(cloudEntity.extra)
             // 仅在 init 这一处合并压缩 key；buildS3BackendOptions 本身不改（被 backup/restore/prune/list 共用）

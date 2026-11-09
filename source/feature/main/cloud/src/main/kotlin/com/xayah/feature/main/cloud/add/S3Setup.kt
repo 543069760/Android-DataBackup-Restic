@@ -349,7 +349,10 @@ fun PageS3Setup() {
                     enabled = allFilled && uiState.isProcessing.not(),
                     title = stringResource(id = R.string.remote_path),
                     value = remote.ifEmpty { notSelectedText },
-                    desc = stringResource(id = R.string.remote_path_desc),
+                    desc = if (remote.isEmpty())
+                        stringResource(id = com.xayah.core.common.R.string.restic_remote_path_required)
+                    else
+                        stringResource(id = R.string.remote_path_desc),
                 ) {
                     viewModel.launchOnIO {
                         viewModel.updateS3Entity(
@@ -364,7 +367,7 @@ fun PageS3Setup() {
                             resticPassword = s3Password,
                         )
                         viewModel.emitIntent(IndexUiIntent.SetRemotePath(context = context))
-                        remote = uiState.cloudEntity!!.remote
+                        remote = viewModel.uiState.value.cloudEntity?.remote ?: remote
                     }
                 }
 
@@ -433,7 +436,7 @@ fun PageS3Setup() {
                     }
 
                     Clickable(
-                        enabled = uiState.isProcessing.not(),
+                        enabled = uiState.isProcessing.not() && remote.isNotEmpty(),
                         title = stringResource(id = R.string.s3_restic_init_status),
                         value = initStatus,
                         onClick = {
@@ -463,6 +466,7 @@ fun PageS3Setup() {
                             .fillMaxWidth()
                             .paddingHorizontal(SizeTokens.Level24),
                         enabled = uiState.isProcessing.not() &&
+                                remote.isNotEmpty() &&
                                 s3Password.isNotEmpty() &&
                                 s3InitState !is S3ResticViewModel.S3InitializationState.Initializing,
                         onClick = {

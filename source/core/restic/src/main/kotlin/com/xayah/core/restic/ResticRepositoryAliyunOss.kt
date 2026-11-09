@@ -25,6 +25,7 @@ class ResticRepositoryAliyunOss @Inject constructor(
     override suspend fun initRepository(
         cloudEntity: CloudEntity, remotePath: String, password: String
     ): Result<String> = withContext(Dispatchers.IO) {
+        ResticPreflight.checkInit(shared.context, cloudEntity, remotePath)?.let { return@withContext it }
         try {
             val extra = ResticShared.json.decodeFromString<AliyunOssExtra>(cloudEntity.extra)
             val options = buildAliyunOssBackendOptions(extra, remotePath) + shared.context.resticCompressionOptions() + resticExtraVerifyOptions()

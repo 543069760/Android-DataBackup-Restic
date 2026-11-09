@@ -13,4 +13,10 @@
     <string name="native_error_smb_share">The SMB share name is invalid or unreachable</string>
     <string name="native_error_obscure">Failed to decode the password</string>
     <string name="native_error_unknown">Operation failed: %1$s</string>
+
+    <!-- Cloud repository preflight (host / remote path / config verification). -->
+    <string name="restic_remote_path_required">No remote path selected. Open Advanced > Remote path and choose a share folder or repository directory before initializing.</string>
+    <string name="restic_host_only">Server address must be a host only (no scheme or path). Put the directory in Advanced > Remote path.</string>
+    <string name="restic_config_missing_hint">Repository config was not found. Check that the remote path points to a writable directory and that rclone serve / cloud credentials are valid.</string>
+    <string name="connection_established_no_remote">Connection OK (listing only). Select a remote path before initializing the repository.</string>
 </resources>

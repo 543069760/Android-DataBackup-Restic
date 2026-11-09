@@ -12,4 +12,10 @@
     <string name="native_error_smb_share">SMB 共享名无效或不可访问</string>
     <string name="native_error_obscure">密码解码失败</string>
     <string name="native_error_unknown">操作失败：%1$s</string>
+
+    <!-- 云端仓库建库前置校验（主机 / 远程路径 / config 复核）。 -->
+    <string name="restic_remote_path_required">未选择远程路径：请先在「高级 → 远程路径」中选择共享文件夹或仓库目录，再初始化仓库。</string>
+    <string name="restic_host_only">服务器地址只能填主机地址（不要带协议前缀或路径），目录请在「高级 → 远程路径」中选择。</string>
+    <string name="restic_config_missing_hint">未检测到仓库 config：请确认「远程路径」指向的目录可写，且 rclone serve / 云端认证正常。</string>
+    <string name="connection_established_no_remote">连接成功（仅验证列目录）。初始化仓库前请先选择远程路径。</string>
 </resources>

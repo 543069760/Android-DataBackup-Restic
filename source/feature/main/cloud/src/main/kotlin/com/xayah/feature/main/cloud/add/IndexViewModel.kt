@@ -22,6 +22,7 @@ import com.xayah.core.model.database.HuaweiObsExtra
 import com.xayah.core.model.database.HuaweiObsProtocol
 import com.xayah.core.model.database.SMBExtra
 import com.xayah.core.network.client.getCloud
+import com.xayah.core.restic.ResticPreflight
 import com.xayah.core.ui.material3.SnackbarDuration
 import com.xayah.core.ui.material3.SnackbarType
 import com.xayah.core.ui.route.MainRoutes
@@ -155,10 +156,45 @@ class IndexViewModel @Inject constructor(
         )
     }
 
+    private val webdavPortSuffix = Regex("""^(.*):(\d+)$""")
+
+    /**
+     * 把 WebDAV 完整 endpoint 拆成「主机（可带路径，不含端口）」与「端口」。
+     * 用于编辑已有账户时回填 UI，也避免端口被重复拼进 URL 栏。
+     */
+    fun splitWebdavEndpoint(raw: String): Pair<String, String?> {
+        val clean = raw.trim()
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .trimEnd('/')
+        val slash = clean.indexOf('/')
+        val authority = if (slash >= 0) clean.substring(0, slash) else clean
+        val path = if (slash >= 0) clean.substring(slash) else ""
+        val portMatch = webdavPortSuffix.find(authority)
+        val host = portMatch?.groupValues?.get(1) ?: authority
+        return (host + path) to portMatch?.groupValues?.get(2)
+    }
+
+    /**
+     * 按协议把 UI 的「地址 + 端口」拼成 opendal:webdav 需要的完整 endpoint。
+     * 端口必须插在 authority 之后、路径之前（URL 栏允许写 nas.example.com/dav）。
+     */
+    fun buildWebdavEndpoint(url: String, port: String, protocol: WebDAVProtocol): String {
+        val (hostAndPath, _) = splitWebdavEndpoint(url)
+        val slash = hostAndPath.indexOf('/')
+        val host = if (slash >= 0) hostAndPath.substring(0, slash) else hostAndPath
+        val path = if (slash >= 0) hostAndPath.substring(slash) else ""
+        val scheme = if (protocol == WebDAVProtocol.HTTPS) "https" else "http"
+        val defaultPort = if (protocol == WebDAVProtocol.HTTPS) 443 else 80
+        val portValue = port.toIntOrNull()?.takeIf { it in 1..65535 } ?: defaultPort
+        return "$scheme://$host:$portValue$path"
+    }
+
     suspend fun updateWebDAVEntity(
         name: String,
         remote: String,
         url: String,
+        port: String = "",
         username: String,
         password: String,
         insecure: Boolean,
@@ -172,13 +208,8 @@ class IndexViewModel @Inject constructor(
                 resticPassword = resticPassword,
             )
         )
-        // 入参 url 是"纯主机地址"。先剥离用户可能残留的 scheme，再按协议拼完整 URL 落库。
-        val cleanHost = url.trim()
-            .removePrefix("https://")
-            .removePrefix("http://")
-            .removeSuffix("/")
-        val scheme = if (protocol == WebDAVProtocol.HTTPS) "https" else "http"
-        val fullUrl = "$scheme://$cleanHost"
+        // URL 栏只填地址（可带路径），端口由独立字段给出；落库的 host 仍是完整 endpoint。
+        val fullUrl = buildWebdavEndpoint(url, port, protocol)
         emitIntent(
             IndexUiIntent.UpdateEntity(
                 name = name,
@@ -464,11 +495,19 @@ class IndexViewModel @Inject constructor(
                 )
                 runCatching {
                     // 明确指定 skipRemoteCheck = true,测试连接不需要远程路径
-                    cloudRepo.withClient(state.cloudEntity!!, skipRemoteCheck = true) { client, _ ->
+                    val entity = state.cloudEntity!!
+                    // 只验连通，但主机字段仍必须是纯主机（不能把路径写进 URL 栏）。
+                    ResticPreflight.hostError(cloudRepo.context, entity)?.let { throw IllegalArgumentException(it) }
+                    cloudRepo.withClient(entity, skipRemoteCheck = true) { client, _ ->
                         client.testConnection()
                     }
                     emitEffect(IndexUiEffect.DismissSnackbar)
-                    emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Success, message = cloudRepo.getString(R.string.connection_established)))
+                    val message = if (entity.remote.isEmpty()) {
+                        cloudRepo.getString(com.xayah.core.common.R.string.connection_established_no_remote)
+                    } else {
+                        cloudRepo.getString(R.string.connection_established)
+                    }
+                    emitEffectOnIO(IndexUiEffect.ShowSnackbar(type = SnackbarType.Success, message = message))
                 }.onFailure {
                     emitEffect(IndexUiEffect.DismissSnackbar)
                     if (it.localizedMessage != null)
