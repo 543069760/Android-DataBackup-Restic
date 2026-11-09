@@ -10,6 +10,7 @@ import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkerParameters
 import com.xayah.core.data.repository.AppsRepo
 import com.xayah.core.datastore.di.DbDispatchers.Default
+import com.xayah.core.work.ProgressThrottle
 import com.xayah.core.datastore.di.Dispatcher
 import com.xayah.core.util.NotificationUtil
 import com.xayah.core.work.R
@@ -44,19 +45,24 @@ internal class AppsFastInitWorker @AssistedInject constructor(
     override suspend fun doWork(): Result = withContext(defaultDispatcher) {
         Log.d("LoadDiag", "[Worker] AppsFastInitWorker start")
         try {
-            appsRepo.fastInitialize { cur, max, content ->
+            val throttle = ProgressThrottle()
+            val onProgress: suspend (Int, Int, String) -> Unit = { cur, max, content ->
                 Log.d("LoadDiag", "[Worker] AppsFastInitWorker progress $cur/$max: $content")
-                mNotificationInfo = NotificationUtil.createForegroundInfo(
-                    appContext,
-                    mNotificationBuilder,
-                    appContext.getString(R.string.initializing_app_list),
-                    content,
-                    max,
-                    cur
-                )
-                setForeground(
-                    mNotificationInfo!!
-                )
+                if (throttle.shouldEmit(cur, max)) {
+                    mNotificationInfo = NotificationUtil.createForegroundInfo(
+                        appContext,
+                        mNotificationBuilder,
+                        appContext.getString(R.string.initializing_app_list),
+                        content,
+                        max,
+                        cur
+                    )
+                    setForeground(mNotificationInfo!!)
+                }
+            }
+            // 无变化时 syncInstalledApps 直接返回 true 且不产生任何进度回调。
+            if (!appsRepo.syncInstalledApps(forceFull = false, onInit = onProgress)) {
+                appsRepo.fastInitialize(onProgress)
             }
             Log.d("LoadDiag", "[Worker] AppsFastInitWorker done")
             Result.success()

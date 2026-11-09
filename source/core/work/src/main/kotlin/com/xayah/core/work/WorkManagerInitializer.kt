@@ -23,7 +23,7 @@ object WorkManagerInitializer {
      */
     fun fullInitialize(context: Context, regular: Boolean = true) {
         WorkManager.getInstance(context)
-            .beginUniqueWork(FULL_INIT_WORK_NAME, ExistingWorkPolicy.KEEP, AppsInitWorker.buildRequest())
+            .beginUniqueWork(FULL_INIT_WORK_NAME, ExistingWorkPolicy.KEEP, AppsInitWorker.buildRequest(forceFull = false))
             .then(AppsUpdateWorker.buildRequest(regular))
             .then(FilesUpdateWorker.buildRequest())
             .then(AppsLoadWorker.buildRequest(null))
@@ -36,7 +36,8 @@ object WorkManagerInitializer {
      */
     fun fullInitializeAndUpdateApps(context: Context, regular: Boolean = false) {
         WorkManager.getInstance(context)
-            .beginUniqueWork(FULL_INIT_AND_UPDATE_APPS_WORK_NAME, ExistingWorkPolicy.KEEP, AppsInitWorker.buildRequest())
+            // 手动刷新必须绕过 digest 判定，否则「刷新」会被 UNCHANGED 吞掉。
+            .beginUniqueWork(FULL_INIT_AND_UPDATE_APPS_WORK_NAME, ExistingWorkPolicy.KEEP, AppsInitWorker.buildRequest(forceFull = true))
             .then(AppsUpdateWorker.buildRequest(regular))
             .enqueue()
     }

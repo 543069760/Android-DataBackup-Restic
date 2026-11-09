@@ -10,6 +10,7 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.LayerDrawable
 import android.os.Build
 import android.os.UserHandle
+import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.content.res.AppCompatResources
 import com.xayah.core.data.R
@@ -17,6 +18,7 @@ import com.xayah.core.data.util.srcDir
 import com.xayah.core.database.dao.PackageDao
 import com.xayah.core.datastore.di.DbDispatchers.Default
 import com.xayah.core.datastore.di.Dispatcher
+import com.xayah.core.datastore.InstalledAppsSnapshotStore
 import com.xayah.core.datastore.readCustomSUFile
 import com.xayah.core.datastore.readLoadSystemApps
 import com.xayah.core.datastore.readLoadedIconMD5
@@ -41,6 +43,10 @@ import com.xayah.core.model.database.PackageInfo
 import com.xayah.core.model.database.PackageStorageStats
 import com.xayah.core.model.database.PackageUpdateEntity
 import com.xayah.core.model.database.asExternalModel
+import com.xayah.core.rootservice.parcelables.InstalledAppEntry
+import com.xayah.core.rootservice.parcelables.InstalledAppsMode
+import com.xayah.core.rootservice.parcelables.InstalledAppsSnapshot
+import com.xayah.core.rootservice.parcelables.InstalledAppsSnapshotCodec
 import com.xayah.core.rootservice.parcelables.PathParcelable
 import com.xayah.core.rootservice.service.RemoteRootService
 import com.xayah.core.util.ConfigsPackageRestoreName
@@ -222,6 +228,213 @@ class AppsRepo @Inject constructor(
 
     suspend fun setDataItems(ids: List<Long>, selections: PackageDataStates) {
         appsDao.updatePackageDataStates(ids.map { PackageDataStatesEntity(it, selections) })
+    }
+
+    /**
+     * A+B 主入口：一次 AIDL 往返取回所有用户的精简快照，按 FULL / DELTA / UNCHANGED 落库。
+     *
+     * 返回 false 表示新链路不可用（binder 异常、老版本 root 进程、采集结果为空），
+     * 调用方必须回退到 [fullInitialize] / [fastInitialize]，保证列表不会停在旧数据。
+     */
+    suspend fun syncInstalledApps(
+        forceFull: Boolean,
+        onInit: suspend (cur: Int, max: Int, content: String) -> Unit,
+    ): Boolean {
+        val store = InstalledAppsSnapshotStore(context)
+        val loadSystemApps = context.readLoadSystemApps().first()
+        // 「显示系统应用」偏好变化不会改 packages.xml，必须显式让基线失效；
+        // 上次是部分可见组合同理，两种情况都强制走 FULL 重算过滤结果。
+        val preferenceChanged = store.lastLoadSystemApps() != loadSystemApps
+        val knownDigest = if (store.isPartial() || preferenceChanged) "" else store.digest()
+        val snapshot = try {
+            rootService.getInstalledAppsSnapshot(knownDigest, forceFull, InstalledAppsSnapshotCodec.SCHEMA)
+        } catch (t: Throwable) {
+            LogUtil.log { "AppsRepo" to "Installed apps snapshot unavailable: ${t.message}" }
+            Log.d("InstalledApps", "[app] unavailable, fallback to legacy: ${t.message}")
+            null
+        }
+        if (snapshot == null) {
+            Log.d("InstalledApps", "[app] snapshot=null, fallback to legacy")
+            return false
+        }
+
+        Log.d(
+            "InstalledApps",
+            "[app] mode=${snapshot.mode} known=${knownDigest.take(8)} " +
+                    "server=${snapshot.serverDigest.take(8)} partial=${snapshot.partial} " +
+                    "force=$forceFull prefChanged=$preferenceChanged " +
+                    "added=${snapshot.added.size} changed=${snapshot.changed.size} removed=${snapshot.removed.size}"
+        )
+
+        when (snapshot.mode) {
+            InstalledAppsMode.UNCHANGED -> {
+                saveSnapshotState(store, snapshot, loadSystemApps)
+                return true
+            }
+
+            InstalledAppsMode.FULL -> {
+                // 空 FULL 视为 PM 采集失败：绝不能据此清空 Room。
+                if (snapshot.added.isEmpty()) {
+                    Log.w("InstalledApps", "[app] empty FULL, fallback to legacy (Room untouched)")
+                    return false
+                }
+                applyFullSnapshot(snapshot, onInit)
+            }
+
+            InstalledAppsMode.DELTA -> applyDeltaSnapshot(snapshot, onInit)
+        }
+        saveSnapshotState(store, snapshot, loadSystemApps)
+        return true
+    }
+
+    private fun saveSnapshotState(
+        store: InstalledAppsSnapshotStore,
+        snapshot: InstalledAppsSnapshot,
+        loadSystemApps: Boolean,
+    ) {
+        val unlockedCsv = snapshot.users.joinToString(",") { "${it.id}:${it.unlocked}" }
+        // partial 不落基线：下次启动必然走 FULL 重算（FBE 自愈）。
+        store.save(
+            digest = if (snapshot.partial) "" else snapshot.serverDigest,
+            partial = snapshot.partial,
+            unlockedCsv = unlockedCsv,
+            loadSystemApps = loadSystemApps,
+        )
+    }
+
+    private suspend fun applyFullSnapshot(
+        snapshot: InstalledAppsSnapshot,
+        onInit: suspend (cur: Int, max: Int, content: String) -> Unit,
+    ) {
+        val loadSystemApps = context.readLoadSystemApps().first()
+        val entries = snapshot.added.filter {
+            loadSystemApps || (it.flags and ApplicationInfo.FLAG_SYSTEM) == 0
+        }
+        val byUser = entries.groupBy { it.userId }
+
+        // partial（有用户未解锁 / /data/system 不可读）时可见集合不完整，
+        // 此时禁止删除任何存量记录，只做 upsert，否则 CE 应用会被误判为「已卸载」。
+        if (!snapshot.partial) {
+            // 只清理「本次确实采集到包」的用户；未出现在快照里的用户保持原样，
+            // 避免把 PM 未覆盖到的用户误判为整个用户的应用都被卸载。
+            for (userId in byUser.keys) {
+                val installed = byUser[userId].orEmpty().map { it.packageName }
+                // 「不显示系统应用」只是过滤展示，不能把它们当成已卸载删掉。
+                val filteredSystemApps = if (loadSystemApps) emptyList() else snapshot.added
+                    .filter { it.userId == userId && (it.flags and ApplicationInfo.FLAG_SYSTEM) != 0 }
+                    .map { it.packageName }
+                val candidates = (installed + filteredSystemApps).toSet()
+                val outdated = appsDao.queryPkgSetByUserId(OpType.BACKUP, userId).toSet().subtract(candidates)
+                if (outdated.isNotEmpty()) appsDao.deleteByPkgNames(OpType.BACKUP, userId, outdated)
+            }
+        }
+
+        applyEntries(entries, onInit)
+    }
+
+    private suspend fun applyDeltaSnapshot(
+        snapshot: InstalledAppsSnapshot,
+        onInit: suspend (cur: Int, max: Int, content: String) -> Unit,
+    ) {
+        val loadSystemApps = context.readLoadSystemApps().first()
+        snapshot.removed.groupBy { it.userId }.forEach { (userId, keys) ->
+            appsDao.deleteByPkgNames(OpType.BACKUP, userId, keys.map { it.packageName }.toSet())
+        }
+        val entries = (snapshot.added + snapshot.changed).filter {
+            loadSystemApps || (it.flags and ApplicationInfo.FLAG_SYSTEM) == 0
+        }
+        if (entries.isNotEmpty()) applyEntries(entries, onInit)
+    }
+
+    private suspend fun applyEntries(
+        entries: List<InstalledAppEntry>,
+        onInit: suspend (cur: Int, max: Int, content: String) -> Unit,
+    ) {
+        val pm = context.packageManager
+        val existing = mutableMapOf<String, PackageEntity>()
+        for (userId in entries.map { it.userId }.distinct()) {
+            appsDao.queryPkgEntitiesByUserId(OpType.BACKUP, userId).forEach {
+                existing["$userId/${it.packageName}"] = it
+            }
+        }
+        val toInsert = mutableListOf<PackageEntity>()
+        val toUpdate = mutableListOf<PackageEntity>()
+        entries.forEachIndexed { index, entry ->
+            onInit(index, entries.size, entry.packageName)
+            val old = existing["${entry.userId}/${entry.packageName}"]
+            if (old == null) {
+                toInsert.add(newAppEntity(entry, pm))
+            } else if (applyEntryToEntity(old, entry, pm)) {
+                toUpdate.add(old)
+            }
+        }
+        if (toInsert.isNotEmpty()) appsDao.upsert(toInsert)
+        // 只有真正变化的包才置 firstUpdated=false，避免 FULL 让 fastUpdate 退化为全量采集。
+        toUpdate.forEach { appsDao.update(it) }
+    }
+
+    private fun newAppEntity(e: InstalledAppEntry, pm: PackageManager): PackageEntity = PackageEntity(
+        id = 0,
+        indexInfo = PackageIndexInfo(
+            opType = OpType.BACKUP,
+            packageName = e.packageName,
+            userId = e.userId,
+            compressionType = CompressionType.TAR,
+            preserveId = DefaultPreserveId,
+            cloud = "",
+            backupDir = "",
+            backupTimestamp = 0L,
+        ),
+        packageInfo = PackageInfo(
+            label = resolveLabel(e.packageName, pm),
+            versionName = e.versionName,
+            versionCode = e.versionCode,
+            flags = e.flags,
+            firstInstallTime = e.firstInstallTime,
+            lastUpdateTime = e.lastUpdateTime,
+        ),
+        extraInfo = PackageExtraInfo(
+            uid = e.uid,
+            hasKeystore = false,
+            permissions = listOf(),
+            ssaid = "",
+            lastBackupTime = 0L,
+            blocked = false,
+            activated = false,
+            firstUpdated = false,
+            enabled = e.enabled,
+        ),
+        dataStates = PackageDataStates(),
+        storageStats = PackageStorageStats(),
+        dataStats = PackageDataStats(),
+        displayStats = PackageDataStats(),
+    )
+
+    /** @return 是否确有字段变化；false 表示既不写库、也不触发 fastUpdate 重采富字段。 */
+    private fun applyEntryToEntity(entity: PackageEntity, e: InstalledAppEntry, pm: PackageManager): Boolean {
+        val info = entity.packageInfo
+        val extra = entity.extraInfo
+        val changed = info.versionName != e.versionName || info.versionCode != e.versionCode ||
+                info.flags != e.flags || info.firstInstallTime != e.firstInstallTime ||
+                info.lastUpdateTime != e.lastUpdateTime || extra.uid != e.uid || extra.enabled != e.enabled
+        if (!changed) return false
+        info.label = resolveLabel(e.packageName, pm)
+        info.versionName = e.versionName
+        info.versionCode = e.versionCode
+        info.flags = e.flags
+        info.firstInstallTime = e.firstInstallTime
+        info.lastUpdateTime = e.lastUpdateTime
+        extra.uid = e.uid
+        extra.enabled = e.enabled
+        extra.firstUpdated = false
+        return true
+    }
+
+    /** label 在 app 侧解析，避免 root 的 systemContext 与 app 的语言/区域配置不一致。 */
+    private fun resolveLabel(packageName: String, pm: PackageManager): String = try {
+        pm.getApplicationInfo(packageName, 0).loadLabel(pm).toString()
+    } catch (t: Throwable) {
+        packageName
     }
 
     /**

@@ -23,6 +23,11 @@ interface IRemoteRootService {
     int[] getUidGid(String path);
 
     ParcelFileDescriptor getInstalledPackagesAsUser(int flags, int userId);
+    /**
+     * 一次性采集所有用户的已安装应用，返回精简快照（InstalledAppsSnapshotCodec 字节协议）。
+     * knownDigest 为 app 侧上轮基线；forceFull 跳过变更检测强制全量；schema 用于让 root 侧缓存失效。
+     */
+    ParcelFileDescriptor getInstalledAppsSnapshot(String knownDigest, boolean forceFull, int schema);
     PackageInfo getPackageInfoAsUser(String packageName, int flags, int userId);
     void grantRuntimePermission(String packageName, String permName, in UserHandle user);
     void revokeRuntimePermission(String packageName, String permName, in UserHandle user);

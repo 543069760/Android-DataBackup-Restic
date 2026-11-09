@@ -20,6 +20,8 @@ import com.xayah.core.datastore.ConstantUtil.DEFAULT_TIMEOUT
 import com.xayah.core.model.database.PackagePermission
 import com.xayah.core.rootservice.IRemoteRootService
 import com.xayah.core.rootservice.impl.RemoteRootServiceImpl
+import com.xayah.core.rootservice.parcelables.InstalledAppsSnapshot
+import com.xayah.core.rootservice.parcelables.InstalledAppsSnapshotCodec
 import com.xayah.core.rootservice.parcelables.PathParcelable
 import com.xayah.core.rootservice.parcelables.StatFsParcelable
 import com.xayah.core.rootservice.parcelables.StorageStatsParcelable
@@ -517,6 +519,15 @@ class RemoteRootService(private val context: Context) {
         }
         packages
     }.onFailure(::reportFailure).getOrElse { listOf() }
+
+    /** 一次往返拿到所有用户的已安装应用快照；返回 null 表示调用方需回退到旧的逐包初始化。 */
+    suspend fun getInstalledAppsSnapshot(knownDigest: String, forceFull: Boolean, schema: Int): InstalledAppsSnapshot? =
+        runCatching {
+            val pfd = getService().getInstalledAppsSnapshot(knownDigest, forceFull, schema)
+            var snapshot: InstalledAppsSnapshot? = null
+            readFromParcel(pfd) { snapshot = InstalledAppsSnapshotCodec.read(it) }
+            snapshot
+        }.onFailure(::reportFailure).getOrNull()
 
     suspend fun getPackageInfoAsUser(packageName: String, flags: Int, userId: Int) =
         runCatching { getService().getPackageInfoAsUser(packageName, flags, userId) }.onFailure(::reportFailure).getOrNull()

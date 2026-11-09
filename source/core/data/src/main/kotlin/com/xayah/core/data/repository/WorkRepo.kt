@@ -67,3 +67,4 @@ const val LOAD_FILE_BACKUPS_WORK_NAME = "DbLoadFileBackupsWork"
 
 const val INPUT_DATA_KEY_REGULAR = "InputDataKeyRegular"
 const val INPUT_DATA_KEY_CLOUD_NAME = "InputDataKeyCloudName"
+const val INPUT_DATA_KEY_FORCE_FULL = "InputDataKeyForceFull"

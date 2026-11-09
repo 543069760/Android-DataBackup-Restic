@@ -34,6 +34,12 @@ import com.xayah.core.datastore.ConstantUtil.DEFAULT_IDLE_TIMEOUT
 import com.xayah.core.hiddenapi.castTo
 import com.xayah.core.model.database.PackagePermission
 import com.xayah.core.rootservice.IRemoteRootService
+import com.xayah.core.rootservice.parcelables.InstalledAppEntry
+import com.xayah.core.rootservice.parcelables.InstalledAppKey
+import com.xayah.core.rootservice.parcelables.InstalledAppUser
+import com.xayah.core.rootservice.parcelables.InstalledAppsMode
+import com.xayah.core.rootservice.parcelables.InstalledAppsSnapshot
+import com.xayah.core.rootservice.parcelables.InstalledAppsSnapshotCodec
 import com.xayah.core.rootservice.parcelables.PathParcelable
 import com.xayah.core.rootservice.parcelables.StatFsParcelable
 import com.xayah.core.rootservice.parcelables.StorageStatsParcelable
@@ -50,7 +56,9 @@ import com.xayah.libnative.NativeLib
 import com.xayah.libnative.Rustic
 import com.xayah.libnative.TarWrapper
 import java.io.File
+import java.io.FileInputStream
 import java.io.IOException
+import java.security.MessageDigest
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.Path
@@ -72,6 +80,9 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
     // 长耗时只读遍历持公共锁会把服务里其它 Binder 调用一并拖死（参见下文 rcloneRpcNoLock 的注释）。
     // 这里用一把独立锁，仅用于避免多个 calculateSize 同时跑、把 CPU 与 fd 吃满。
     private val calculateSizeLock = Any()
+    // 批量快照要在一次调用里遍历所有用户与包，持公共 lock 会把其它 Binder 调用全部拖住；
+    // 它只读写自己的缓存文件与 PackageManager，用独立锁即可。
+    private val snapshotLock = Any()
     // settings 命令共用同一个 root shell（ShellUtils.fastCmd），只能彼此串行；
     // 但它们不应该排队等备份/恢复释放公共 lock，故用独立锁。
     private val settingsLock = Any()
@@ -288,6 +299,245 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         writeToParcel { parcel ->
             val packages = packageManagerHidden.getInstalledPackagesAsUser(flags, userId)
             parcel.writeTypedList(packages)
+        }
+    }
+
+    /**
+     * 一次性采集所有用户的已安装应用。
+     *
+     * 门禁顺序（FBE / Direct Boot 风险）：
+     *  1. **主用户 (id=0)** `isUserUnlocked` —— 它锁定才是真正的「CE 未解密」。
+     *     分身 / 工作资料常被系统保持 stopped 状态，isUserUnlocked 返回 false，
+     *     但 getInstalledPackagesAsUser 仍能拿到完整包列表（包信息来自 /data/system，
+     *     不依赖 CE 解密）。若要求「所有用户解锁」，这类设备会永远 partial、加速永久失效。
+     *  2. `/data/system/packages.xml` 可读 —— Direct Boot 下 /data 为 CE，读不到；
+     *     `packages.list` 仅为可选补充（部分 ROM 不提供）。
+     *  3. 全部通过才允许用 digest 短路；摘要里包含「全部用户 + 各自解锁态」，
+     *     因此分身被启动/解锁时 digest 必变，会走 DELTA/FULL 自动补齐，不会固化部分集合。
+     *
+     * 任一失败：仍走 PM 全量采集，但标记 partial=true、serverDigest 为空、且不写缓存，
+     * 因此 app 侧不会落基线，绝不会把「部分可见集合」当成完整集合持久化。
+     */
+    override fun getInstalledAppsSnapshot(knownDigest: String?, forceFull: Boolean, schema: Int): ParcelFileDescriptor =
+        synchronized(snapshotLock) {
+            val startMs = System.currentTimeMillis()
+            val snapshot = buildInstalledAppsSnapshot(knownDigest.orEmpty(), forceFull, schema)
+            val usersDetail = snapshot.users.joinToString(",") { "${it.id}:${it.unlocked}" }
+            // 统一 tag「InstalledApps」：adb logcat -s InstalledApps:V 即可观测 A+B 是否真正生效。
+            Log.d(
+                "InstalledApps",
+                "[root] mode=${snapshot.mode} digest=${snapshot.serverDigest.take(8)} " +
+                        "partial=${snapshot.partial} users=$usersDetail " +
+                        "added=${snapshot.added.size} changed=${snapshot.changed.size} removed=${snapshot.removed.size} " +
+                        "payload=${snapshot.added.size + snapshot.changed.size} " +
+                        "force=$forceFull known=${knownDigest?.take(8)} elapsed=${System.currentTimeMillis() - startMs}ms"
+            )
+            writeToParcel { parcel -> InstalledAppsSnapshotCodec.write(parcel, snapshot) }
+        }
+
+    private data class CachedApp(
+        val userId: Int,
+        val packageName: String,
+        val versionCode: Long,
+        val lastUpdateTime: Long,
+        val flags: Int,
+        val uid: Int,
+        val enabled: Boolean,
+        val sourceDir: String,
+    )
+
+    private data class SnapshotCache(val schema: Int, val digest: String, val entries: List<CachedApp>)
+
+    private fun snapshotCacheFile(): File =
+        File(context.createDeviceProtectedStorageContext().filesDir, "installed_apps_snapshot.cache")
+
+    private fun CachedApp.key() = "$userId/$packageName"
+    private fun InstalledAppEntry.key() = "$userId/$packageName"
+
+    private fun buildInstalledAppsSnapshot(knownDigest: String, forceFull: Boolean, schema: Int): InstalledAppsSnapshot {
+        val users = try {
+            userManager.users.map { InstalledAppUser(it.id, userManager.isUserUnlocked(it.id)) }
+        } catch (t: Throwable) {
+            Log.w("RemoteRootService", "Failed to resolve users", t)
+            emptyList()
+        }
+        // 只有主用户锁定才是真 FBE；未启动的分身/工作资料不阻塞判变。
+        val primaryUnlocked = users.any { it.id == 0 && it.unlocked }
+        val digest = if (primaryUnlocked) computePackagesDigest(users) else null
+        val cache = readSnapshotCache()
+        val gateOk = primaryUnlocked && digest != null && schema == InstalledAppsSnapshotCodec.SCHEMA
+
+        // 唯一允许 O(1) 返回的分支：门禁全过 + 服务端基线未变 + app 侧基线一致。
+        if (!forceFull && gateOk && cache != null && cache.digest == digest && digest == knownDigest) {
+            return InstalledAppsSnapshot(
+                InstalledAppsMode.UNCHANGED, digest!!, false, schema, users,
+                emptyList(), emptyList(), emptyList()
+            )
+        }
+
+        val entries = mutableListOf<InstalledAppEntry>()
+        val failedUsers = mutableSetOf<Int>()
+        for (user in users) {
+            val packages = try {
+                packageManagerHidden.getInstalledPackagesAsUser(0, user.id)
+            } catch (t: Throwable) {
+                // 某个用户采集失败时，它的空结果绝不能被当成「该用户已卸载全部应用」。
+                failedUsers.add(user.id)
+                Log.w("RemoteRootService", "Failed to list packages for user ${user.id}", t)
+                emptyList()
+            }
+            for (info in packages) {
+                val name = info.packageName ?: continue
+                if (name.isEmpty() || name == context.packageName) continue
+                entries.add(info.toInstalledAppEntry(user.id))
+            }
+        }
+
+        // PM 整体失败时绝不能返回「空 FULL」：app 侧会据此把 Room 里的存量记录全删掉。
+        val pmFailed = users.isEmpty() || entries.isEmpty() || failedUsers.isNotEmpty()
+        val partial = !gateOk || pmFailed
+        val serverDigest = if (partial) "" else digest!!
+
+        // 只有「root 缓存完好 + 门禁通过 + app 侧基线与 root 上轮一致」才可安全差分；
+        // 其余一律 FULL，避免两侧基线错配时漏掉 removed。
+        val canDelta = !forceFull && gateOk && !pmFailed && cache != null &&
+                cache.schema == schema && cache.digest != digest && knownDigest == cache.digest
+
+        val snapshot = if (canDelta) {
+            val currentByKey = entries.associateBy { it.key() }
+            val cachedByKey = cache!!.entries.associateBy { it.key() }
+            val added = currentByKey.keys.subtract(cachedByKey.keys).mapNotNull { currentByKey[it] }
+            val removed = cachedByKey.keys.subtract(currentByKey.keys).mapNotNull { cachedByKey[it] }
+                .map { InstalledAppKey(it.packageName, it.userId) }
+            val changed = currentByKey.keys.intersect(cachedByKey.keys).mapNotNull { key ->
+                val cur = currentByKey[key] ?: return@mapNotNull null
+                val old = cachedByKey[key] ?: return@mapNotNull null
+                if (cur.signatureEquals(old)) null else cur
+            }
+            InstalledAppsSnapshot(
+                InstalledAppsMode.DELTA, serverDigest, false, schema, users, added, changed, removed
+            )
+        } else {
+            InstalledAppsSnapshot(
+                InstalledAppsMode.FULL, serverDigest, partial, schema, users, entries, emptyList(), emptyList()
+            )
+        }
+
+        // partial 绝不落缓存：下次因 cache=null / digest 不一致必然走 FULL。
+        if (!partial && digest != null) writeSnapshotCache(schema, digest, entries)
+        return snapshot
+    }
+
+    private fun PackageInfo.toInstalledAppEntry(userId: Int): InstalledAppEntry {
+        val appInfo = applicationInfo
+        return InstalledAppEntry(
+            packageName = packageName ?: "",
+            userId = userId,
+            uid = appInfo?.uid ?: -1,
+            versionName = versionName ?: "",
+            versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) longVersionCode else versionCode.toLong(),
+            flags = appInfo?.flags ?: 0,
+            firstInstallTime = firstInstallTime,
+            lastUpdateTime = lastUpdateTime,
+            sourceDir = appInfo?.sourceDir ?: "",
+            splitSourceDirs = appInfo?.splitSourceDirs?.toList() ?: emptyList(),
+            enabled = appInfo?.enabled ?: false,
+        )
+    }
+
+    private fun InstalledAppEntry.signatureEquals(old: CachedApp): Boolean =
+        versionCode == old.versionCode && lastUpdateTime == old.lastUpdateTime &&
+                flags == old.flags && uid == old.uid && enabled == old.enabled &&
+                sourceDir == old.sourceDir
+
+    /** 内容 hash：不解析 packages.xml 的私有/binary XML 格式，故不受 ROM 与 Android 版本差异影响。 */
+    private fun computePackagesDigest(users: List<InstalledAppUser>): String? = try {
+        val md = MessageDigest.getInstance("SHA-256")
+        for (path in listOf("/data/system/packages.xml", "/data/system/packages.list")) {
+            val file = File(path)
+            if (!file.isFile || !file.canRead()) {
+                // packages.xml 是权威包信息，Direct Boot 下读不到必须判为 partial；
+                // packages.list 只是 UID 映射缓存，部分 ROM 不提供，缺失时跳过即可。
+                if (path.endsWith("packages.xml")) throw IOException("unreadable: $path")
+                md.update("$path=missing".toByteArray())
+                continue
+            }
+            md.update(path.toByteArray())
+            FileInputStream(file).use { input ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    md.update(buffer, 0, read)
+                }
+            }
+        }
+        // 用户解锁态参与摘要：false→true 会改变可见包集合，必须强制重算。
+        md.update(users.joinToString(",") { "${it.id}:${it.unlocked}" }.toByteArray())
+        md.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    } catch (t: Throwable) {
+        Log.w("InstalledApps", "Installed apps snapshot digest unavailable", t)
+        null
+    }
+
+    private fun readSnapshotCache(): SnapshotCache? = try {
+        val file = snapshotCacheFile()
+        if (!file.isFile) null
+        else {
+            val lines = file.readLines()
+            if (lines.size < 2) null
+            else {
+                val schema = lines[0].removePrefix("schema=").toIntOrNull()
+                val digest = lines[1].removePrefix("digest=")
+                if (schema == null || digest.isEmpty()) null
+                else SnapshotCache(
+                    schema, digest,
+                    lines.drop(2).mapNotNull { line ->
+                        val parts = line.split("|", limit = 8)
+                        if (parts.size != 8) return@mapNotNull null
+                        CachedApp(
+                            userId = parts[0].toIntOrNull() ?: return@mapNotNull null,
+                            packageName = parts[1],
+                            versionCode = parts[2].toLongOrNull() ?: return@mapNotNull null,
+                            lastUpdateTime = parts[3].toLongOrNull() ?: return@mapNotNull null,
+                            flags = parts[4].toIntOrNull() ?: return@mapNotNull null,
+                            uid = parts[5].toIntOrNull() ?: return@mapNotNull null,
+                            enabled = parts[6] == "1",
+                            sourceDir = parts[7],
+                        )
+                    }
+                )
+            }
+        }
+    } catch (t: Throwable) {
+        Log.w("InstalledApps", "Installed apps snapshot cache unreadable", t)
+        null
+    }
+
+    private fun writeSnapshotCache(schema: Int, digest: String, entries: List<InstalledAppEntry>) {
+        try {
+            val target = snapshotCacheFile()
+            val dir = target.parentFile ?: return
+            if (!dir.exists() && !dir.mkdirs()) return
+            val tmp = File(dir, "${target.name}.tmp")
+            tmp.writeText(buildString {
+                append("schema=").append(schema).append('\n')
+                append("digest=").append(digest).append('\n')
+                entries.forEach {
+                    append(it.userId).append('|')
+                        .append(it.packageName).append('|')
+                        .append(it.versionCode).append('|')
+                        .append(it.lastUpdateTime).append('|')
+                        .append(it.flags).append('|')
+                        .append(it.uid).append('|')
+                        .append(if (it.enabled) 1 else 0).append('|')
+                        .append(it.sourceDir).append('\n')
+                }
+            })
+            if (!tmp.renameTo(target)) tmp.copyTo(target, overwrite = true)
+        } catch (t: Throwable) {
+            // 写失败只会让下次走 FULL，属安全降级，不抛给调用方。
+            Log.w("InstalledApps", "Installed apps snapshot cache write failed", t)
         }
     }
 
