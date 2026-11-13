@@ -140,8 +140,10 @@
     <string name="diagnostic_log_verdict_rust_panic">Rust panic</string>
     <string name="diagnostic_log_verdict_art_oom">ART OOM</string>
     <string name="diagnostic_log_verdict_sigsegv">SIGSEGV</string>
+    <string name="diagnostic_log_verdict_native_crash">Native signal crash</string>
     <string name="diagnostic_log_verdict_daemon_java_crash">Uncaught exception</string>
     <string name="diagnostic_log_verdict_lmk">Low memory kill</string>
     <string name="diagnostic_log_verdict_self_kill">Self exit</string>
+    <string name="diagnostic_log_verdict_app_crash">App itself crashed</string>
     <string name="diagnostic_log_verdict_unknown">Unknown</string>
 </resources>

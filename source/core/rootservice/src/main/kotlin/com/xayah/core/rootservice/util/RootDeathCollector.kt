@@ -168,7 +168,7 @@ object RootDeathCollector {
         if (!running.compareAndSet(false, true)) return
         try {
             val windowStart = prevStart - RECOVERY_MARGIN_MS
-            val tombstoneHit = probeTombstone(windowStart, nowWall)
+            val tombstoneHit = probeTombstone(windowStart, nowWall, context.packageName)
             val probe = if (tombstoneHit) {
                 KillProbe(emptyList(), null)
             } else {
@@ -199,8 +199,14 @@ object RootDeathCollector {
         }
     }
 
-    /** 探针：先按 mtime 缩小到窗口内，再确认确实是我们的守护进程（app_process）崩的。 */
-    private fun probeTombstone(windowStartMs: Long, windowEndMs: Long): Boolean {
+    /**
+     * 探针：先按 mtime 缩小到窗口内，再确认崩的是**守护进程**。
+     *
+     * 归属只看 `Cmdline:` 行（见 [ownerOf]）：`Executable:` 一律是 `/system/bin/app_process64`，
+     * app 主进程的 tombstone 同样如此，用 `app_process|包名` 做关键词会把 app 自己的崩溃
+     * 当成守护进程的死因。
+     */
+    private fun probeTombstone(windowStartMs: Long, windowEndMs: Long, ownPackage: String): Boolean {
         val listing = sh(
             "ls -t /data/tombstones 2>/dev/null | head -n 6 | while read f; do echo \"\$f \$(stat -c %Y /data/tombstones/\$f 2>/dev/null)\"; done"
         )
@@ -211,10 +217,11 @@ object RootDeathCollector {
             val mtimeMs = parts.getOrNull(1)?.toLongOrNull()?.times(1000) ?: return@mapNotNull null
             name.takeIf { mtimeMs in windowStartMs..windowEndMs }
         }.any { name ->
-            // grep -q 成功时没有输出，`sh()` 会回落到空串，所以用 echo 1 把命中显式表达出来。
-            sh(
-                "head -c $MAX_TOMBSTONE_BYTES /data/tombstones/$name 2>/dev/null | grep -aqiE 'app_process|$PROCESS_HINT' && echo 1"
-            ).trim() == "1"
+            // 只取 Cmdline 行：整个 tombstone 几十 KB，传回进程只为了判断归属。
+            val cmdline = sh(
+                "head -c $MAX_TOMBSTONE_BYTES /data/tombstones/$name 2>/dev/null | grep -a '^Cmdline:' | head -n 1"
+            )
+            ownerOf(cmdline, ownPackage) == ProcessOwner.DAEMON
         }
     }
 
@@ -315,8 +322,12 @@ object RootDeathCollector {
         val lmkEvents = sh("$LMK_EVENTS_CMD | tail -n 200").cap()
         val dmesg = sh("dmesg 2>/dev/null | grep -aiE 'lowmemorykiller|lmkd|killed process|out of memory|oom-kill' | tail -n 60").cap()
         val memInfo = sh("head -n 12 /proc/meminfo").cap()
+        // 存储剩余空间：mmap 写日志时若 /data 或 app data quota 耗尽，内核会直接向进程投递
+        // SIGBUS；这条是区分「空间不足」与「介质/文件系统错误」的唯一现场证据。
+        // stat -f 给精确块计数（部分 toybox 的 df 输出格式不稳），两者一起采。
+        val disk = sh("stat -f /data 2>/dev/null; echo; df -h /data 2>/dev/null | tail -n 2").cap()
         val processes = sh("ps -A -o PID,PPID,UID,RSS,NAME 2>/dev/null | grep -aE 'app_process|databackup' | head -n 10").cap()
-        val tombstones = collectTombstones(windowStartMs, windowEndMs)
+        val tombstones = collectTombstones(windowStartMs, windowEndMs, context.packageName)
 
         // dmesg 在新系统上多半为空，作为 events buffer 的补充一起看。
         // 判定必须走与 startup-recovery 完全相同的过滤：整段 events 里混着全系统的 am_kill，
@@ -330,8 +341,9 @@ object RootDeathCollector {
 
         val (verdict, reason) = classify(
             ourBlocks = ourBlocks,
-            tombstoneText = tombstones,
+            tombstoneText = tombstones.daemon,
             lmkLines = lmkLines,
+            appCrashed = tombstones.app.isNotBlank(),
         )
 
         val report = buildString {
@@ -357,8 +369,10 @@ object RootDeathCollector {
             appendSection("lmk-events", lmkEvents)
             appendSection("dmesg", dmesg)
             appendSection("meminfo", memInfo)
+            appendSection("disk", disk)
             appendSection("processes", processes)
-            appendSection("tombstones", tombstones)
+            appendSection("tombstones", tombstones.daemon)
+            appendSection("app-tombstones", tombstones.app)
         }
 
         val dir = RootDeathLogStore.dir(context)
@@ -384,15 +398,30 @@ object RootDeathCollector {
         appendLine()
     }
 
-    /** 只取时间窗内、且正文里确实是我们进程的 tombstone，避免把历史文件或别的应用当成证据。 */
-    private fun collectTombstones(windowStartMs: Long, windowEndMs: Long): String {
+    /** tombstone 取证结果：按归属拆开，app 的绝不能算成守护进程的。 */
+    private data class TombstoneEvidence(
+        /** 守护进程的 tombstone 正文；无则为说明串。判定只用这一份。 */
+        val daemon: String,
+        /** app 主进程自己的 tombstone 正文；空串表示窗口内 app 没有 tombstone。 */
+        val app: String,
+    )
+
+    /**
+     * 只取时间窗内、且归属明确的 tombstone。
+     *
+     * 归属靠 `Cmdline:` 行判断（见 [ownerOf]）：旧的 `app_process|包名` 关键词会把 app 自己的
+     * tombstone 一并收进来（任何 tombstone 的 `Executable:` 都是 app_process64，守护进程的
+     * apk 路径里也含包名），于是 app 的 native 崩溃被记成「守护进程崩了」。
+     * 拿不到 Cmdline 的按 UNKNOWN 丢弃——宁可少认，也不要把 app 的死因安到守护进程头上。
+     */
+    private fun collectTombstones(windowStartMs: Long, windowEndMs: Long, ownPackage: String): TombstoneEvidence {
         val names = sh("ls -t /data/tombstones 2>/dev/null | head -n 6")
             .lineSequence()
             .map { it.trim() }
             .filter { it.isNotEmpty() }
             .take(6)
             .toList()
-        if (names.isEmpty()) return "<no tombstone directory entry>"
+        if (names.isEmpty()) return TombstoneEvidence("<no tombstone directory entry>", "")
 
         val fresh = names.mapNotNull { name ->
             val stat = sh("stat -c '%Y %s' /data/tombstones/$name 2>/dev/null").trim().split(' ')
@@ -402,23 +431,29 @@ object RootDeathCollector {
         }.filter { (_, mtimeMs, _) -> mtimeMs in windowStartMs..windowEndMs }
 
         if (fresh.isEmpty()) {
-            return "<no tombstone in [$windowStartMs, $windowEndMs]; candidates: ${names.joinToString()}>"
+            return TombstoneEvidence(
+                "<no tombstone in [$windowStartMs, $windowEndMs]; candidates: ${names.joinToString()}>",
+                "",
+            )
         }
 
-        // tombstone 目录全系统共用，同窗口内别的应用崩溃也会留文件；正文里不含我们进程特征的
-        // 一律不纳入，否则判定会把别人的 SIGSEGV 记到守护进程头上。
-        val ours = fresh.mapNotNull { (name, mtimeMs, size) ->
+        val daemon = mutableListOf<String>()
+        val app = mutableListOf<String>()
+        fresh.forEach { (name, mtimeMs, size) ->
             val body = sh("head -c $MAX_TOMBSTONE_BYTES /data/tombstones/$name 2>/dev/null")
-            if (!PROCESS_HINT_REGEX.containsMatchIn(body)) {
-                null
-            } else {
-                "--- /data/tombstones/$name (mtime=$mtimeMs, size=$size) ---\n${body.cap()}"
+            val entry = "--- /data/tombstones/$name (mtime=$mtimeMs, size=$size) ---\n${body.cap()}"
+            when (ownerOf(body, ownPackage)) {
+                ProcessOwner.DAEMON -> daemon += entry
+                ProcessOwner.APP -> app += entry
+                ProcessOwner.UNKNOWN -> Unit
             }
         }
-        if (ours.isEmpty()) {
-            return "<no tombstone of our process in [$windowStartMs, $windowEndMs]; candidates: ${names.joinToString()}>"
-        }
-        return ours.take(2).joinToString("\n\n").cap()
+        return TombstoneEvidence(
+            daemon = daemon.take(2).joinToString("\n\n").cap().ifBlank {
+                "<no daemon tombstone in [$windowStartMs, $windowEndMs]; candidates: ${names.joinToString()}>"
+            },
+            app = app.take(1).joinToString("\n\n").cap(),
+        )
     }
 
     /**
@@ -538,16 +573,52 @@ object RootDeathCollector {
         }.getOrElse { Long.MIN_VALUE }
     }
 
+    /** tombstone / 崩溃块归属。`Executable:` 区分不了（app 与守护进程都是 app_process64）。 */
+    private enum class ProcessOwner { DAEMON, APP, UNKNOWN }
+
     /**
-     * 判定顺序：崩溃证据（我们自己进程的崩溃块 + 我们自己的 tombstone）优先，其次 LMK，
-     * 两者都没有才归「被外部正常杀掉」。
+     * 从正文的 `Cmdline:` 行判断归属。
      *
-     * 前提：传入的两份证据都已按进程名筛过——crash 缓冲与 tombstone 目录都是全系统共用的。
+     * - app 进程：zygote fork 后 argv[0] 被改成包名，Cmdline 就是 `com.xayah.databackup.xxx`；
+     *   多进程组件（`:remote` 等）是 `com.xayah.databackup.xxx:remote`。
+     * - 守护进程：libsu 以
+     *   `app_process -Djava.class.path=/data/app/~~xx==/<pkg>-yy==/base.apk /system/bin --nice-name=.. <mainClass>`
+     *   启动，首 token 是 `app_process` / `app_process64`。
+     *
+     * 守护进程的 apk 路径里**也含包名**，所以「正文含包名」不能判成 app，必须整行相等。
+     * 拿不到 Cmdline 时返回 [ProcessOwner.UNKNOWN]，由调用方丢弃。
+     */
+    private fun ownerOf(text: String, ownPackage: String): ProcessOwner {
+        val cmdlines = CMDLINE_LINE.findAll(text)
+            .map { it.groupValues[1].trim() }
+            .filter { it.isNotEmpty() }
+            .toList()
+        if (cmdlines.isEmpty()) return ProcessOwner.UNKNOWN
+        if (cmdlines.any { it.substringBefore(' ').startsWith("app_process") }) return ProcessOwner.DAEMON
+        if (cmdlines.any { it == ownPackage || it.startsWith("$ownPackage:") }) return ProcessOwner.APP
+        return ProcessOwner.UNKNOWN
+    }
+
+    /**
+     * 提取 native 信号编号：tombstone 里是 `signal 7 (SIGBUS)`，logcat 里是 `Fatal signal 7`。
+     *
+     * 按编号判而不是给每个信号名单开正则：只认 SIGSEGV/SIGABRT 会把 SIGBUS(7)、SIGILL(4)、
+     * SIGFPE(8) 全漏到最后的兜底分支，把 native 崩溃误报成「被正常杀掉」。
+     */
+    private fun signalOf(text: String): Int? =
+        SIGNAL_WITH_NAME.find(text)?.groupValues?.get(1)?.toIntOrNull()
+            ?: SIGNAL_BARE.find(text)?.groupValues?.get(1)?.toIntOrNull()
+
+    /**
+     * 判定顺序：守护进程的崩溃证据 → LMK → app 自己崩溃 → 无证据。
+     *
+     * 前提：传入的两份证据都已按归属筛过——crash 缓冲与 tombstone 目录都是全系统共用的。
      */
     private fun classify(
         ourBlocks: List<String>,
         tombstoneText: String,
         lmkLines: List<String>,
+        appCrashed: Boolean,
     ): Pair<RootDeathVerdict, String> {
         // 只有命中守护进程特征（app_process / rootservice / 我们的线程名）的块才算它的崩溃。
         // app 自身的 Java 崩溃同样在 crash 缓冲里，绝不能混进守护进程的死因。
@@ -556,18 +627,26 @@ object RootDeathCollector {
             ownBlocks.forEach { appendLine(it) }
             appendLine(tombstoneText)
         }
+        val signal = signalOf(daemonCrash)
         return when {
-            SIGSEGV.containsMatchIn(daemonCrash) ->
-                RootDeathVerdict.SIGSEGV to "native SIGSEGV"
+            signal == 11 -> RootDeathVerdict.SIGSEGV to "native SIGSEGV (signal 11)"
 
-            SIGABRT.containsMatchIn(daemonCrash) && ART_OOM.containsMatchIn(daemonCrash) ->
+            signal == 6 && ART_OOM.containsMatchIn(daemonCrash) ->
                 RootDeathVerdict.ART_OOM to "ART heap exhausted -> abort"
 
-            SIGABRT.containsMatchIn(daemonCrash) && PANIC.containsMatchIn(daemonCrash) ->
+            signal == 6 && PANIC.containsMatchIn(daemonCrash) ->
                 RootDeathVerdict.RUST_PANIC to "rust panic -> abort"
 
-            SIGABRT.containsMatchIn(daemonCrash) ->
+            signal == 6 ->
                 RootDeathVerdict.RUST_PANIC to "SIGABRT without abort message (panic or alloc failure)"
+
+            // SIGBUS(7)/SIGILL(4)/SIGFPE(8)/SIGTRAP(5)：守护进程被 native 信号带走。
+            signal != null ->
+                RootDeathVerdict.NATIVE_CRASH to "native crash (signal $signal)"
+
+            // 缓冲区被 -t 截断时只剩 `Abort message`，没有 signal 行，仍按 abort 处理。
+            ABORT_MESSAGE.containsMatchIn(daemonCrash) ->
+                RootDeathVerdict.RUST_PANIC to "abort message without signal line (panic or alloc failure)"
 
             JAVA_OOM.containsMatchIn(daemonCrash) ->
                 RootDeathVerdict.ART_OOM to "uncaught OutOfMemoryError in the daemon"
@@ -577,6 +656,11 @@ object RootDeathCollector {
 
             lmkLines.isNotEmpty() ->
                 RootDeathVerdict.LMK to "low memory killer (${lmkLines.size} event(s))"
+
+            // 守护进程没有任何崩溃证据，但 app 主进程自己被 native 信号打死了：
+            // 真相是 app 崩了，不是 root 出了问题（本次报告的 SIGBUS 就属这一类）。
+            appCrashed ->
+                RootDeathVerdict.APP_CRASH to "daemon left no crash evidence; the app process itself crashed"
 
             else ->
                 RootDeathVerdict.SELF_KILL to "no crash record (killed by app or expected teardown)"
@@ -602,8 +686,15 @@ object RootDeathCollector {
         "${info.versionName} (${info.longVersionCode})"
     }.getOrElse { "unknown" }
 
-    private val SIGSEGV = Regex("""Fatal signal 11|signal 11 \(SIGSEGV\)""")
-    private val SIGABRT = Regex("""Fatal signal 6|signal 6 \(SIGABRT\)|Abort message""")
+    /** `signal 7 (SIGBUS)`：tombstone 与 logcat 的 native 崩溃行。 */
+    private val SIGNAL_WITH_NAME = Regex("""signal (\d+) \(SIG[A-Z0-9]+\)""")
+
+    /** `Fatal signal 7`：logcat 摘要行，不带信号名。 */
+    private val SIGNAL_BARE = Regex("""Fatal signal (\d+)""")
+
+    /** 缓冲区被截断时只剩 abort 摘要、没有 signal 行，用这条兜底。 */
+    private val ABORT_MESSAGE = Regex("""Abort message""")
+
     private val PANIC = Regex("""panicked at|thread '.*' panicked""")
     private val ART_OOM = Regex(
         """Out of memory|art::gc::Heap|Could not allocate|Failed to allocate|std::bad_alloc""",
@@ -670,9 +761,12 @@ object RootDeathCollector {
         RegexOption.IGNORE_CASE,
     )
 
-    /** 守护进程在系统侧的进程名特征（libsu 以 app_process 运行 + 我们的包名）。 */
-    private const val PROCESS_HINT = "databackup"
-    private val PROCESS_HINT_REGEX = Regex("""app_process|databackup""", RegexOption.IGNORE_CASE)
+    /**
+     * tombstone 的进程命令行，形如：
+     * - app：`Cmdline: com.xayah.databackup.revived.foss`
+     * - 守护进程：`Cmdline: app_process -Djava.class.path=/data/app/... /system/bin --nice-name=.. <mainClass>`
+     */
+    private val CMDLINE_LINE = Regex("""^Cmdline:[ \t]*(.+)$""", RegexOption.MULTILINE)
 
     private const val ONE_YEAR_MS = 365L * 24 * 60 * 60 * 1000L
 }

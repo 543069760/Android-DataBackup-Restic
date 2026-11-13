@@ -138,8 +138,10 @@
     <string name="diagnostic_log_verdict_rust_panic">Rust panic</string>
     <string name="diagnostic_log_verdict_art_oom">ART 内存溢出</string>
     <string name="diagnostic_log_verdict_sigsegv">SIGSEGV</string>
+    <string name="diagnostic_log_verdict_native_crash">native 信号崩溃</string>
     <string name="diagnostic_log_verdict_daemon_java_crash">未捕获异常</string>
     <string name="diagnostic_log_verdict_lmk">内存不足被杀</string>
     <string name="diagnostic_log_verdict_self_kill">主动退出</string>
+    <string name="diagnostic_log_verdict_app_crash">应用自身崩溃</string>
     <string name="diagnostic_log_verdict_unknown">未知</string>
 </resources>

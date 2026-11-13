@@ -231,16 +231,20 @@ private val RootDeathVerdict.isCrash: Boolean
     get() = this == RootDeathVerdict.RUST_PANIC ||
             this == RootDeathVerdict.ART_OOM ||
             this == RootDeathVerdict.SIGSEGV ||
-            this == RootDeathVerdict.DAEMON_JAVA_CRASH
+            this == RootDeathVerdict.NATIVE_CRASH ||
+            this == RootDeathVerdict.DAEMON_JAVA_CRASH ||
+            this == RootDeathVerdict.APP_CRASH
 
 private val RootDeathVerdict.titleRes: Int
     get() = when (this) {
         RootDeathVerdict.RUST_PANIC -> R.string.diagnostic_log_verdict_rust_panic
         RootDeathVerdict.ART_OOM -> R.string.diagnostic_log_verdict_art_oom
         RootDeathVerdict.SIGSEGV -> R.string.diagnostic_log_verdict_sigsegv
+        RootDeathVerdict.NATIVE_CRASH -> R.string.diagnostic_log_verdict_native_crash
         RootDeathVerdict.DAEMON_JAVA_CRASH -> R.string.diagnostic_log_verdict_daemon_java_crash
         RootDeathVerdict.LMK -> R.string.diagnostic_log_verdict_lmk
         RootDeathVerdict.SELF_KILL -> R.string.diagnostic_log_verdict_self_kill
+        RootDeathVerdict.APP_CRASH -> R.string.diagnostic_log_verdict_app_crash
         RootDeathVerdict.UNKNOWN -> R.string.diagnostic_log_verdict_unknown
     }
 

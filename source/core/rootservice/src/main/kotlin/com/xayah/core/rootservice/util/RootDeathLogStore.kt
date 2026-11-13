@@ -22,6 +22,14 @@ enum class RootDeathVerdict {
     SIGSEGV,
 
     /**
+     * SIGSEGV/SIGABRT 以外的 native 信号（SIGBUS/SIGILL/SIGFPE/SIGTRAP 等）。
+     *
+     * 这类死亡同样不带 abort message，也不走 ART 的异常处理：例如 mmap 写脏页时内核分配不到
+     * 数据块会向进程投递 SIGBUS。只认 SIGSEGV/SIGABRT 的话会被误判成 [SELF_KILL]。
+     */
+    NATIVE_CRASH,
+
+    /**
      * 守护进程里某个 Java 线程抛出未捕获异常，被 ART 的默认处理器直接杀掉整个进程。
      *
      * 这类死亡在系统里只有一条 `FATAL EXCEPTION: <thread>`，既没有 native signal
@@ -34,6 +42,14 @@ enum class RootDeathVerdict {
 
     /** 没有任何崩溃记录：被 app 自己或系统正常回收（取消兜底、NullReply 重载等）。 */
     SELF_KILL,
+
+    /**
+     * app 主进程自己崩溃了（tombstone 的 `Cmdline:` 就是本包名），而守护进程没有留下任何证据。
+     *
+     * 与 [SELF_KILL] 的区别：这不是「被正常回收」，而是一次用户可见的 app 崩溃——只是崩的
+     * 不是守护进程。本次那份 SIGBUS 报告就属这一类（旧的判定把它报成了 [SELF_KILL]）。
+     */
+    APP_CRASH,
 
     /** 采集失败或证据不足以定性。 */
     UNKNOWN,
