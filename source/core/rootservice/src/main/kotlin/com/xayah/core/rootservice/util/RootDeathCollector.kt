@@ -482,6 +482,10 @@ object RootDeathCollector {
             appendLine("daemon_started_ms=${heartbeat?.startedMs ?: "<none>"}")
             appendLine("daemon_last_beat_ms=${heartbeat?.beatMs ?: "<none>"}")
             appendLine("daemon_beat_mode=${heartbeat?.mode?.ifBlank { "<none>" } ?: "<none>"}")
+            // 门控依据：active / expired / absent / denied；<none> 是只有 mode 没有 lease 的旧心跳。
+            // 看到 denied 说明守护进程 stat 不到租约（SELinux），心跳其实一直没停过，
+            // 这时不能用「mode 是 idle」与否去推任务状态。
+            appendLine("daemon_lease=${heartbeat?.lease?.ifBlank { "<none>" } ?: "<none>"}")
             appendLine("daemon_silence_ms=${heartbeat?.takeIf { it.lastAliveMs > 0L }?.let { deathWallMs - it.lastAliveMs } ?: "<unknown>"}")
             appendLine("daemon_stop=${heartbeat?.stop ?: "<none>"}")
             appendLine("daemon_in_ps=${procScan.daemonPids.joinToString(",").ifBlank { "<absent>" }}")
@@ -824,6 +828,13 @@ object RootDeathCollector {
      *
      * 守护进程的 apk 路径里**也含包名**，所以「正文含包名」不能判成 app，必须整行相等。
      * 拿不到 Cmdline 时返回 [ProcessOwner.UNKNOWN]，由调用方丢弃。
+     *
+     * 判成 UNKNOWN 的代价是致命的：这份 tombstone 会被丢掉，`signalOf` 再也看不到那条
+     * `signal 7 (SIGBUS)`，一条确凿的 native 崩溃就落到兜底分支被报成「外部 SIGKILL」。
+     * 所以「像守护进程」的判定要留两条后路——首 token 的**basename**（`/system/bin/app_process64`
+     * 这种带路径的写法也得认），以及 app_process 的启动参数 `-Djava.class.path=`（部分
+     * libsu 版本用 `--nice-name` 改写了 argv[0]，首 token 已经不再是 app_process；而 zygote
+     * fork 出来的 app 进程 Cmdline 只有包名，不可能带这个参数）。
      */
     private fun ownerOf(text: String, ownPackage: String): ProcessOwner {
         val cmdlines = CMDLINE_LINE.findAll(text)
@@ -831,7 +842,10 @@ object RootDeathCollector {
             .filter { it.isNotEmpty() }
             .toList()
         if (cmdlines.isEmpty()) return ProcessOwner.UNKNOWN
-        if (cmdlines.any { it.substringBefore(' ').startsWith("app_process") }) return ProcessOwner.DAEMON
+        if (cmdlines.any { it.substringBefore(' ').substringAfterLast('/').startsWith("app_process") }) {
+            return ProcessOwner.DAEMON
+        }
+        if (cmdlines.any { it.contains("-Djava.class.path=") }) return ProcessOwner.DAEMON
         if (cmdlines.any { it == ownPackage || it.startsWith("$ownPackage:") }) return ProcessOwner.APP
         return ProcessOwner.UNKNOWN
     }

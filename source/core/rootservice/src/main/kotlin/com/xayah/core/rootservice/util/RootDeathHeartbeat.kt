@@ -2,6 +2,9 @@ package com.xayah.core.rootservice.util
 
 import android.content.Context
 import android.os.Process
+import android.system.ErrnoException
+import android.system.Os
+import android.system.OsConstants
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
@@ -46,6 +49,11 @@ import java.util.concurrent.atomic.AtomicInteger
  * [endActive]，守护进程每轮先看一眼租约（[ACTIVE_FILE_NAME]，只 stat 不写），有租约才写心跳；
  * 空闲期只轮询、不落盘。心跳文件因此多一个 `mode=` 字段，取证侧看到 `mode=idle` 就知道
  * mtime 是「主动停跳」而不是死亡上界（见 [Evidence.idle]）。
+ *
+ * 门控本身必须**失败时偏向取证**：su 域 stat 不到 app 私有目录时 `File.isFile()` 只会返回
+ * false（不抛异常），若当成「租约不存在 → 空闲」，心跳会永久停摆且毫无痕迹。所以探测走
+ * [Os.stat] 拿 errno（见 [LeaseState]），只有 ENOENT 才算真空闲，权限被拒一律按活跃处理，
+ * 并把结论写进 `lease=` 字段。
  */
 object RootDeathHeartbeat {
     const val FILE_NAME = "daemon.heartbeat"
@@ -97,6 +105,28 @@ object RootDeathHeartbeat {
     /** 心跳文件 `mode=` 取值：空闲期心跳主动停摆，mtime 不再代表死亡时刻的上界。 */
     const val MODE_IDLE = "idle"
 
+    /**
+     * 本轮探测到的租约状态，写进心跳文件的 `lease=` 字段。
+     *
+     * 存在的理由：`File.isFile()` 在 EACCES 时也**返回 false 而不是抛异常**，于是
+     * 「su 域 stat 不到 app 私有目录」会被当成「租约不存在 → 空闲」，心跳永久停摆且不留
+     * 任何痕迹。所以探测必须把「不存在」与「看不见」分开（见 [probeLease]），并把结论
+     * 留在文件里供人判读。
+     */
+    enum class LeaseState(val wire: String) {
+        /** 有租约且在 [ACTIVE_LEASE_MS] 内：正常跳。 */
+        ACTIVE("active"),
+
+        /** 文件在但已过期（app 被杀 / 续租线程被冻结）：按空闲处理。 */
+        EXPIRED("expired"),
+
+        /** 确认不存在（ENOENT）：任务真的没在跑，按空闲处理。 */
+        ABSENT("absent"),
+
+        /** stat 被拒（EACCES/EPERM/其他 errno）：看不见 ≠ 不存在，按活跃处理。 */
+        DENIED("denied"),
+    }
+
     private const val ACTIVE_LEASE_BODY = "active"
     private const val MAX_REASON_CHARS = 160
     private const val TAG_THREAD = "root-death-heartbeat"
@@ -125,6 +155,10 @@ object RootDeathHeartbeat {
     /** 当前写入模式（[MODE_ACTIVE] / [MODE_IDLE]），由心跳线程维护，[noteStop] 也带它。 */
     @Volatile
     private var mode: String = MODE_IDLE
+
+    /** 最近一轮探测到的租约状态：停跳时也要写进 `lease=`，解释「为什么停」。 */
+    @Volatile
+    private var leaseState: LeaseState = LeaseState.ABSENT
 
     /** app 侧的活跃任务计数：备份/恢复/基准可能嵌套，只有归零才算真正空闲。 */
     private val activeCount = AtomicInteger(0)
@@ -171,7 +205,7 @@ object RootDeathHeartbeat {
         cmdline = readCmdline()
         comm = renameComm()
         mode = if (isActive(appContext)) MODE_ACTIVE else MODE_IDLE
-        runCatching { write(target, pid, startedMs, beatMs, null, cmdline, comm, mode) }
+        runCatching { write(target, pid, startedMs, beatMs, null, cmdline, comm, mode, leaseState.wire) }
 
         beatThread = Thread({
             while (true) {
@@ -180,14 +214,16 @@ object RootDeathHeartbeat {
                     runCatching {
                         beatMs = System.currentTimeMillis()
                         mode = MODE_ACTIVE
-                        write(target, pid, startedMs, beatMs, stopReason, cmdline, comm, mode)
+                        write(target, pid, startedMs, beatMs, stopReason, cmdline, comm, mode, leaseState.wire)
                     }
                 } else {
                     // 空闲：只轮询租约，不落盘。从活跃转空闲时补最后一跳并标成 idle，
                     // 这样取证侧看到 mode=idle 就不会把它的 mtime 当成死亡上界。
                     if (mode == MODE_ACTIVE) {
                         mode = MODE_IDLE
-                        runCatching { write(target, pid, startedMs, beatMs, stopReason, cmdline, comm, mode) }
+                        runCatching {
+                            write(target, pid, startedMs, beatMs, stopReason, cmdline, comm, mode, leaseState.wire)
+                        }
                     }
                     runCatching { Thread.sleep(IDLE_POLL_MS) }
                 }
@@ -248,14 +284,33 @@ object RootDeathHeartbeat {
     /**
      * 守护进程侧：当前是否有长任务在跑。
      *
-     * 只有「文件确实不存在」才判空闲；读取异常按活跃处理——省写盘是优化，不能因为一次
-     * IO 抖动把死亡取证整段关掉。
+     * **「看不见」不等于「不存在」**：部分 ROM 的 SELinux 策略下 su 域 stat 不到 app 私有
+     * 目录，此时 `File.isFile()` 返回 false 而不是抛异常。如果按「不存在 → 空闲」处理，
+     * 心跳会在这些机器上永久停摆且不留任何痕迹——比优化前更糟。所以探测走 [Os.stat]
+     * 拿具体 errno：只有 ENOENT 才算真空闲，权限被拒或未知 errno 一律按活跃处理，
+     * 最坏情况退回「一直跳」（优化前的行为），而不是把死亡取证静默关掉。
      */
-    private fun isActive(context: Context): Boolean = runCatching {
-        val lease = activeFile(context)
-        if (!lease.isFile) return@runCatching false
-        System.currentTimeMillis() - lease.lastModified() <= ACTIVE_LEASE_MS
-    }.getOrDefault(true)
+    private fun isActive(context: Context): Boolean {
+        val state = probeLease(activeFile(context))
+        leaseState = state
+        return state == LeaseState.ACTIVE || state == LeaseState.DENIED
+    }
+
+    /** 用 errno 区分「文件不存在」与「看不见文件」，见 [isActive]。 */
+    private fun probeLease(lease: File): LeaseState = try {
+        val stat = Os.stat(lease.absolutePath)
+        // stat 的时间单位是秒，租约有效期是分钟级，精度足够。
+        if (System.currentTimeMillis() - stat.st_mtime * 1000L <= ACTIVE_LEASE_MS) {
+            LeaseState.ACTIVE
+        } else {
+            LeaseState.EXPIRED
+        }
+    } catch (e: ErrnoException) {
+        if (e.errno == OsConstants.ENOENT) LeaseState.ABSENT else LeaseState.DENIED
+    } catch (e: Throwable) {
+        // 连 syscall 都调不通：宁可多写盘，也不要把取证关掉。
+        LeaseState.DENIED
+    }
 
     /** 续租：优先只改 mtime（元数据写，不动数据块），失败才退回整份重写。 */
     private fun touchLease(context: Context) = runCatching {
@@ -293,7 +348,9 @@ object RootDeathHeartbeat {
         val appContext = context.applicationContext ?: context
         val clean = reason.replace('\n', ' ').take(MAX_REASON_CHARS)
         stopReason = clean
-        runCatching { write(file(appContext), Process.myPid(), startedMs, beatMs, clean, cmdline, comm, mode) }
+        runCatching {
+            write(file(appContext), Process.myPid(), startedMs, beatMs, clean, cmdline, comm, mode, leaseState.wire)
+        }
     }
 
     /** app 侧读取遗言文件，不存在或损坏时返回 null（调用方必须把它和「没有心跳」区分开）。 */
@@ -323,6 +380,7 @@ object RootDeathHeartbeat {
             cmdline = map["cmdline"].orEmpty(),
             comm = map["comm"].orEmpty(),
             mode = map["mode"].orEmpty(),
+            lease = map["lease"].orEmpty(),
             mtimeMs = mtime,
         )
     }
@@ -339,6 +397,13 @@ object RootDeathHeartbeat {
         val comm: String = "",
         /** 最后一跳的模式：[MODE_ACTIVE] / [MODE_IDLE]，空串代表旧版本没有这个字段。 */
         val mode: String = "",
+        /**
+         * 最后一跳看到的租约状态（见 [LeaseState]），空串代表旧版本没有这个字段。
+         *
+         * [LeaseState.DENIED] 说明这一跳是「stat 被拒所以退回一直跳」的结果，
+         * 也就是门控在这台机器上没生效——判读时别把它当成任务还在跑。
+         */
+        val lease: String = "",
         /** 心跳文件 mtime，即「最后一次写成功」的内核时间戳。 */
         val mtimeMs: Long = 0L,
     ) {
@@ -368,6 +433,7 @@ object RootDeathHeartbeat {
         cmdline: String,
         comm: String,
         mode: String,
+        lease: String,
     ) = runCatching {
         val dir = target.parentFile ?: return@runCatching
         if (!dir.exists()) dir.mkdirs()
@@ -383,6 +449,9 @@ object RootDeathHeartbeat {
             appendLine("started_ms=$started")
             appendLine("beat_ms=$beat")
             appendLine("mode=$mode")
+            // 门控的依据：active/expired/absent/denied。denied = 这台机器上 stat 被拒，
+            // 心跳退回「一直跳」，报告据此解释为什么没有省下写盘。
+            appendLine("lease=$lease")
             if (stop != null) appendLine("stop=$stop")
             if (cmdline.isNotBlank()) appendLine("cmdline=${cmdline.replace('\n', ' ')}")
             if (comm.isNotBlank()) appendLine("comm=$comm")
