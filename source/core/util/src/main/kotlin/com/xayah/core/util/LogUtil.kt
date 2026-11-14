@@ -113,6 +113,17 @@ object LogUtil {
         appendWithTimestamp(tag = TAG_COMMON, msg = msg)
     }
 
+    /**
+     * 当前进程正在写的日志文件。
+     *
+     * 崩溃取证要靠它：`[RootDeath]` / `[NullReply]` / `[CancelFallback]` 全部只经过 [log]，
+     * 写进这个文件而不是 logcat，因此「谁让守护进程死的」这条唯一线索只在文件里。
+     * 返回 null 表示日志未初始化（此时取证侧要显式说明，不能当成「没有日志」）。
+     */
+    fun currentLogFile(): File? = synchronized(lock) {
+        cacheDir?.let { File(it, getLogFileName()) }
+    }
+
     fun shareLog(context: Context, name: String) {
         val dir = cacheDir ?: run {
             Log.w(TAG, "shareLog ignored: log directory is not initialized")

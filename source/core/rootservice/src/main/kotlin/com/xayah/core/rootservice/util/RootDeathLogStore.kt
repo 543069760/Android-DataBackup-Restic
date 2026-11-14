@@ -91,7 +91,35 @@ object RootDeathLogStore {
     private const val FILE_PREFIX = "root-death-"
     private const val HEADER_LINES = 16
 
-    fun dir(context: Context): File = File(context.applicationContext.filesDir, DIR_NAME)
+    // 守护进程侧（libsu RootService 的 ContextWrapper）`applicationContext` 可能是 null，
+    // 而心跳文件与报告必须落在同一个目录里，所以这里对 null 兜底。
+    fun dir(context: Context): File = File((context.applicationContext ?: context).filesDir, DIR_NAME)
+
+    /**
+     * 取得并「开放」取证目录。
+     *
+     * 这个目录现在会被**两个 uid** 写：app 进程写报告与击杀日志，root 守护进程写心跳。
+     * 谁先创建谁决定属主——如果守护进程先建（root:root 0755），app 之后连报告文件都建不出来。
+     * 所以统一走这里：mkdirs 之后放宽到 0777，文件侧由写入方再调 [loosen]。
+     */
+    fun prepareDir(context: Context): File {
+        val target = dir(context)
+        if (!target.exists()) target.mkdirs()
+        runCatching {
+            target.setReadable(true, false)
+            target.setWritable(true, false)
+            target.setExecutable(true, false)
+        }
+        return target
+    }
+
+    /** 让 root 与 app 都能读写同一个文件（心跳、击杀日志都是双写）。 */
+    fun loosen(file: File) {
+        runCatching {
+            file.setReadable(true, false)
+            file.setWritable(true, false)
+        }
+    }
 
     fun list(context: Context): List<RootDeathLog> {
         val files = dir(context).listFiles { f -> f.isFile && f.name.startsWith(FILE_PREFIX) } ?: return emptyList()

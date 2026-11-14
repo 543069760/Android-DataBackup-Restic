@@ -24,6 +24,7 @@ import com.xayah.core.model.database.ProcessingInfoEntity
 import com.xayah.core.model.database.TaskEntity
 import com.xayah.core.model.util.set
 import com.xayah.core.rootservice.service.RemoteRootService
+import com.xayah.core.rootservice.util.RootDeathHeartbeat
 import com.xayah.core.rootservice.util.withIOContext
 import com.xayah.core.service.util.CommonBackupUtil
 import com.xayah.core.service.util.restoreScreenState
@@ -55,6 +56,13 @@ internal abstract class AbstractProcessingService : Service() {
      */
     private var mWifiLock: WifiManager.WifiLock? = null
 
+    override fun onCreate() {
+        super.onCreate()
+        // 心跳只在任务活跃期写盘：这个 Service 的存活区间就是「有长任务在跑」，
+        // 空闲期（app 被缓存、只翻页面）守护进程只轮询租约，不再每 3s 写一次 flash。
+        RootDeathHeartbeat.beginActive(this)
+    }
+
     override fun onBind(intent: Intent): IBinder {
         startForegroundCompat()
         acquireLocks()
@@ -69,6 +77,7 @@ internal abstract class AbstractProcessingService : Service() {
     }
 
     override fun onDestroy() {
+        RootDeathHeartbeat.endActive(this)
         releaseLocks()
         super.onDestroy()
     }

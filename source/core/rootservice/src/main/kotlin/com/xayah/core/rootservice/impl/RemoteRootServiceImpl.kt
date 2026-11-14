@@ -45,6 +45,8 @@ import com.xayah.core.rootservice.parcelables.StatFsParcelable
 import com.xayah.core.rootservice.parcelables.StorageStatsParcelable
 import com.xayah.core.rootservice.util.ExceptionUtil.tryOn
 import com.xayah.core.rootservice.util.ExceptionUtil.tryWithBoolean
+import com.xayah.core.rootservice.util.KillJournal
+import com.xayah.core.rootservice.util.RootDeathHeartbeat
 import com.xayah.core.rootservice.util.SsaidUtil
 import com.xayah.core.rootservice.ICallback
 import com.xayah.core.util.CpuCoreSampler
@@ -1331,6 +1333,11 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
     // 绝不能用 synchronized(lock)：卡死的 createRusticSnapshot 正持有 lock。
     override fun forceStopSelf() {
         Log.i("CancelFallback", "[CancelFallback] forceStopSelf called, pid=${android.os.Process.myPid()}, killing root process now")
+        // 先留遗言再杀进程：killProcess 走 SIGKILL，系统侧不会留下任何崩溃痕迹，
+        // 没有这一行的话下次取证只能看到 SILENCE 并被判成 SELF_KILL。
+        RootDeathHeartbeat.noteStop(context, "forceStopSelf (cooperative cancel timed out)")
+        // 遗言写在心跳文件里（会被下一次启动覆写），击杀日志是只增不删的，两条都留。
+        KillJournal.record(context, caller = "forceStopSelf", killDaemon = true, detail = "cooperative cancel timed out")
         // 杀掉本进程（root 守护进程），卡死的 native 调用随进程一起终止；
         // app 侧阻塞的 binder 调用会因进程死亡抛 DeadObjectException 解栈。
         android.os.Process.killProcess(android.os.Process.myPid())

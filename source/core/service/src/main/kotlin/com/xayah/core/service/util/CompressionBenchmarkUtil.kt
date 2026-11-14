@@ -12,6 +12,7 @@ import com.xayah.core.restic.COMPRESSION_KEY
 import com.xayah.core.restic.resticExtraVerifyOptions
 import com.xayah.core.rootservice.ICallback
 import com.xayah.core.rootservice.service.RemoteRootService
+import com.xayah.core.rootservice.util.RootDeathHeartbeat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
@@ -141,7 +142,18 @@ class CompressionBenchmarkUtil @Inject constructor(
      *
      * @throws IllegalStateException 磁盘不足，或 native 调用在取消后仍不返回（后续档必然卡死）
      */
-    suspend fun run(onProgress: (Progress) -> Unit): BenchmarkReport = withContext(Dispatchers.IO) {
+    suspend fun run(onProgress: (Progress) -> Unit): BenchmarkReport {
+        // 基准是几分钟量级的 root 任务：期间保持死亡取证心跳，结束（含失败/取消）立刻停，
+        // 与备份/恢复一致——空闲期心跳本来就该停摆。
+        RootDeathHeartbeat.beginActive(context)
+        return try {
+            runInternal(onProgress)
+        } finally {
+            RootDeathHeartbeat.endActive(context)
+        }
+    }
+
+    private suspend fun runInternal(onProgress: (Progress) -> Unit): BenchmarkReport = withContext(Dispatchers.IO) {
         val free = StatFs(context.filesDir.absolutePath).availableBytes
         require(free >= REQUIRED_FREE) {
             "insufficient storage: $free < $REQUIRED_FREE"

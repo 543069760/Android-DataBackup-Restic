@@ -26,7 +26,9 @@ import com.xayah.core.rootservice.parcelables.PathParcelable
 import com.xayah.core.rootservice.parcelables.StatFsParcelable
 import com.xayah.core.rootservice.parcelables.StorageStatsParcelable
 import com.xayah.core.rootservice.util.ExceptionUtil.tryOnScope
+import com.xayah.core.rootservice.util.KillJournal
 import com.xayah.core.rootservice.util.RootDeathCollector
+import com.xayah.core.rootservice.util.RootDeathHeartbeat
 import com.xayah.core.rootservice.util.withMainContext
 import com.xayah.core.rootservice.ICallback
 import com.xayah.core.util.GsonUtil
@@ -236,7 +238,17 @@ class RemoteRootService(private val context: Context) {
                     Log.e("LoadDiag", "[RootInit] initPlatformVerifier failed", e)
                     throw e
                 }
+                // 死亡取证的心跳与 pidfile：只有守护进程需要，
+                // 让下一次死因报告能把窗口对准真实死亡时刻（见 RootDeathHeartbeat）。
+                RootDeathHeartbeat.start(applicationContext)
             }
+        }
+
+        override fun onDestroy() {
+            // 走正常销毁路径时留下明确遗言，取证侧据此不必再靠证据推断死因。
+            RootDeathHeartbeat.noteStop(applicationContext, "RootService.onDestroy")
+            Log.d("LoadDiag", "[RootInit] onDestroy")
+            super.onDestroy()
         }
 
         override fun onBind(intent: Intent): IBinder {
@@ -343,6 +355,8 @@ class RemoteRootService(private val context: Context) {
                 }
             }
             if (killDaemon) {
+                // 动手之前先记账：守护进程起来后会重新 bind，这条记录是「谁杀的」的唯一旁证。
+                KillJournal.record(context, caller = "destroyService", killDaemon = true, detail = "stopOrTask")
                 runCatching {
                     RootService.stopOrTask(intent)
                 }.onFailure { e ->
@@ -398,6 +412,8 @@ class RemoteRootService(private val context: Context) {
     private suspend fun <T : Any> T?.orNullReply(what: String, fallback: () -> T): T {
         if (this != null) return this
         log { "[NullReply] $what returned null; killing the root daemon to reload the current APK" }
+        // 和 destroyService 各记一条：一个说「因为空回复」，一个说「硬停」，时间戳相邻可互相印证。
+        KillJournal.record(context, caller = "orNullReply", killDaemon = true, detail = what)
         runCatching {
             withMainContext { destroyService(killDaemon = true) }
         }.onFailure { e -> log { "[NullReply] destroyService threw (ignored): ${e.message}" } }
