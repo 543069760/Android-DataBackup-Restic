@@ -70,8 +70,12 @@ class PackageRepository @Inject constructor(
 
     fun getArchiveDst(dstDir: String, dataType: DataType, ct: CompressionType) = "${dstDir}/${dataType.type}.${ct.suffix}"
 
-    fun getKeyPredicateNew(key: String): (PackageEntity) -> Boolean = { p ->
-        p.packageInfo.label.lowercase().contains(key.lowercase()) || p.packageName.lowercase().contains(key.lowercase())
+    fun getKeyPredicateNew(key: String): (PackageEntity) -> Boolean {
+        // 关键词只小写一次：原实现每个 item 都要重算 3 次 lowercase，5000 项时是纯浪费
+        val lowerKey = key.lowercase()
+        return { p ->
+            p.packageInfo.label.lowercase().contains(lowerKey) || p.packageName.lowercase().contains(lowerKey)
+        }
     }
 
     fun getShowSystemAppsPredicate(value: Boolean): (PackageEntity) -> Boolean = { p ->
@@ -95,7 +99,8 @@ class PackageRepository @Inject constructor(
     }
 
     fun getUserIdPredicateNew(userId: Int?): (PackageEntity) -> Boolean = { p ->
-        runCatching { p.userId == userId }.getOrDefault(false)
+        // userId 是 Int 非空字段，原 runCatching 每项都建一个 try/catch 帧，纯开销
+        p.userId == userId
     }
 
     private fun sortByInstallTimeNew(type: SortType): Comparator<PackageEntity> = when (type) {
@@ -118,23 +123,13 @@ class PackageRepository @Inject constructor(
         }
     }
 
-    private fun sortByAlphabetNew(type: SortType): Comparator<PackageEntity> = Comparator { p1, p2 ->
-        if (p1 != null && p2 != null) {
-            when (type) {
-                SortType.ASCENDING -> {
-                    Collator.getInstance().let { collator ->
-                        collator.getCollationKey(p1.packageInfo.label).compareTo(collator.getCollationKey(p2.packageInfo.label))
-                    }
-                }
-
-                SortType.DESCENDING -> {
-                    Collator.getInstance().let { collator ->
-                        collator.getCollationKey(p2.packageInfo.label).compareTo(collator.getCollationKey(p1.packageInfo.label))
-                    }
-                }
-            }
-        } else {
-            0
+    private fun sortByAlphabetNew(type: SortType): Comparator<PackageEntity> {
+        // Collator 构造代价高，且 getCollationKey 每次比较都分配对象；
+        // 5000 项排序约 6 万次比较，原实现等于 6 万次 Collator 构造 + 12 万次分配。
+        val collator = Collator.getInstance()
+        return Comparator { p1, p2 ->
+            val result = collator.compare(p1.packageInfo.label, p2.packageInfo.label)
+            if (type == SortType.ASCENDING) result else -result
         }
     }
 

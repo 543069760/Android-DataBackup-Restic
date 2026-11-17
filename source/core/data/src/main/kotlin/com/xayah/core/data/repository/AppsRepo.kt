@@ -120,6 +120,25 @@ class AppsRepo @Inject constructor(
         }
     ) { lData, pSet, lRefs, lLabels, apps ->
         val data = lData.castTo<ListData.Apps>()
+        // 标签过滤原实现是「每个 item 线性扫一遍 refs」，5000 项 × N 标签是 O(n·m)；
+        // 先摊平成 Set 再判存在，整体降到 O(n + m)。
+        val labelKeys = if (lLabels.isEmpty()) null else lRefs.mapTo(HashSet(lRefs.size)) { ref ->
+            Triple(ref.packageName, ref.userId, ref.preserveId)
+        }
+        // 原实现先 sortedWith(排序规则) 再 sortedByDescending(已激活/已屏蔽)，
+        // 等于对整表排两遍；合并成一个比较器后只排一遍。
+        val pinnedFirst = Comparator<PackageEntity> { p1, p2 ->
+            val a = p1.extraInfo.activated || p1.extraInfo.blocked
+            val b = p2.extraInfo.activated || p2.extraInfo.blocked
+            when {
+                a == b -> 0
+                a -> -1
+                else -> 1
+            }
+        }
+        val comparator = pinnedFirst.then(
+            packageRepo.getSortComparatorNew(sortIndex = data.sortIndex, sortType = data.sortType)
+        )
         apps.asSequence().filter(packageRepo.getKeyPredicateNew(key = data.searchQuery))
             .filter(packageRepo.getShowSystemAppsPredicate(value = data.filters.showSystemApps))
             .filter(
@@ -140,12 +159,10 @@ class AppsRepo @Inject constructor(
                 )
             )
             .filter(packageRepo.getUserIdPredicateNew(userId = data.userList.getOrNull(data.userIndex)?.id))
-            .filter { if (lLabels.isNotEmpty()) lRefs.find { ref -> it.packageName == ref.packageName && it.userId == ref.userId && it.preserveId == ref.preserveId } != null else true }
-            .sortedWith(
-                packageRepo.getSortComparatorNew(
-                    sortIndex = data.sortIndex, sortType = data.sortType
-                )
-            ).sortedByDescending { p -> p.extraInfo.activated || p.extraInfo.blocked }.toList()
+            .filter { p ->
+                labelKeys == null || Triple(p.packageName, p.userId, p.preserveId) in labelKeys
+            }
+            .sortedWith(comparator).toList()
             .map(PackageEntity::asExternalModel)
     }.flowOn(defaultDispatcher)
 
@@ -250,21 +267,19 @@ class AppsRepo @Inject constructor(
             rootService.getInstalledAppsSnapshot(knownDigest, forceFull, InstalledAppsSnapshotCodec.SCHEMA)
         } catch (t: Throwable) {
             LogUtil.log { "AppsRepo" to "Installed apps snapshot unavailable: ${t.message}" }
-            Log.d("InstalledApps", "[app] unavailable, fallback to legacy: ${t.message}")
             null
         }
         if (snapshot == null) {
-            Log.d("InstalledApps", "[app] snapshot=null, fallback to legacy")
+            LogUtil.log { "AppsRepo" to "Installed apps snapshot=null, fallback to legacy" }
             return false
         }
 
-        Log.d(
-            "InstalledApps",
-            "[app] mode=${snapshot.mode} known=${knownDigest.take(8)} " +
+        LogUtil.log {
+            "AppsRepo" to "[app] mode=${snapshot.mode} known=${knownDigest.take(8)} " +
                     "server=${snapshot.serverDigest.take(8)} partial=${snapshot.partial} " +
                     "force=$forceFull prefChanged=$preferenceChanged " +
                     "added=${snapshot.added.size} changed=${snapshot.changed.size} removed=${snapshot.removed.size}"
-        )
+        }
 
         when (snapshot.mode) {
             InstalledAppsMode.UNCHANGED -> {
@@ -275,7 +290,7 @@ class AppsRepo @Inject constructor(
             InstalledAppsMode.FULL -> {
                 // 空 FULL 视为 PM 采集失败：绝不能据此清空 Room。
                 if (snapshot.added.isEmpty()) {
-                    Log.w("InstalledApps", "[app] empty FULL, fallback to legacy (Room untouched)")
+                    LogUtil.log { "AppsRepo" to "[app] empty FULL, fallback to legacy (Room untouched)" }
                     return false
                 }
                 applyFullSnapshot(snapshot, onInit)

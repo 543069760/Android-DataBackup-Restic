@@ -6,7 +6,6 @@ import android.content.pm.ApplicationInfo
 import android.os.Build
 import android.os.Parcel
 import android.os.Parcelable
-import android.util.Log
 import androidx.room.ColumnInfo
 import androidx.room.Embedded
 import androidx.room.Entity
@@ -288,11 +287,7 @@ fun PackageEntity.asExternalModel() = App(
     backupTimestamp = indexInfo.backupTimestamp,
     isProtected = extraInfo.isProtected,
     blocked = extraInfo.blocked,
-    resticSnapshotId = resticSnapshotId.let {
-        // 添加日志
-        Log.d("ResticFlow", "asExternalModel() - packageName: $packageName, resticSnapshotId: $it")
-        it
-    }
+    resticSnapshotId = resticSnapshotId
 )
 
 // Part update entity

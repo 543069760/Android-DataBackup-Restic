@@ -56,8 +56,12 @@ class MediaRepository @Inject constructor(
 
     fun getArchiveDst(dstDir: String, ct: CompressionType) = "${dstDir}/${DataType.MEDIA_MEDIA.type}.${ct.suffix}"
 
-    fun getKeyPredicateNew(key: String): (MediaEntity) -> Boolean = { m ->
-        m.name.lowercase().contains(key.lowercase()) || m.path.lowercase().contains(key.lowercase())
+    fun getKeyPredicateNew(key: String): (MediaEntity) -> Boolean {
+        // 关键词只小写一次：原实现每个 item 都要重算 2 次 lowercase
+        val lowerKey = key.lowercase()
+        return { m ->
+            m.name.lowercase().contains(lowerKey) || m.path.lowercase().contains(lowerKey)
+        }
     }
 
     private fun sortByDataSizeNew(type: SortType): Comparator<MediaEntity> = when (type) {
@@ -70,23 +74,13 @@ class MediaRepository @Inject constructor(
         }
     }
 
-    private fun sortByAlphabetNew(type: SortType): Comparator<MediaEntity> = Comparator { m1, m2 ->
-        if (m1 != null && m2 != null) {
-            when (type) {
-                SortType.ASCENDING -> {
-                    Collator.getInstance().let { collator ->
-                        collator.getCollationKey(m1.name).compareTo(collator.getCollationKey(m2.name))
-                    }
-                }
-
-                SortType.DESCENDING -> {
-                    Collator.getInstance().let { collator ->
-                        collator.getCollationKey(m2.name).compareTo(collator.getCollationKey(m1.name))
-                    }
-                }
-            }
-        } else {
-            0
+    private fun sortByAlphabetNew(type: SortType): Comparator<MediaEntity> {
+        // Collator 构造代价高，且 getCollationKey 每次比较都分配对象；
+        // 提到比较器外只构造一次，并改用 compare 避免分配。
+        val collator = Collator.getInstance()
+        return Comparator { m1, m2 ->
+            val result = collator.compare(m1.name, m2.name)
+            if (type == SortType.ASCENDING) result else -result
         }
     }
 

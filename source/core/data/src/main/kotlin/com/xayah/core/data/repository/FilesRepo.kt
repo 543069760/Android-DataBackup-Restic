@@ -65,11 +65,29 @@ class FilesRepo @Inject constructor(
         }
     ) { lData, lRefs, lLabels, files ->
         val data = lData.castTo<ListData.Files>()
+        // 标签过滤原实现是「每个 item 线性扫一遍 refs」，文件多时是 O(n·m)；
+        // 先摊平成 Set 再判存在，整体降到 O(n + m)。
+        val labelKeys = if (lLabels.isEmpty()) null else lRefs.mapTo(HashSet(lRefs.size)) { ref ->
+            ref.path to ref.preserveId
+        }
+        // 原实现先 sortedWith(排序规则) 再 sortedByDescending(已激活)，等于对整表排两遍；
+        // 合并成一个比较器后只排一遍。
+        val pinnedFirst = Comparator<MediaEntity> { p1, p2 ->
+            val a = p1.extraInfo.activated
+            val b = p2.extraInfo.activated
+            when {
+                a == b -> 0
+                a -> -1
+                else -> 1
+            }
+        }
+        val comparator = pinnedFirst.then(
+            mediaRepo.getSortComparatorNew(sortIndex = data.sortIndex, sortType = data.sortType)
+        )
         files.asSequence()
             .filter(mediaRepo.getKeyPredicateNew(key = data.searchQuery))
-            .filter { if (lLabels.isNotEmpty()) lRefs.find { ref -> it.path == ref.path && it.preserveId == ref.preserveId } != null else true }
-            .sortedWith(mediaRepo.getSortComparatorNew(sortIndex = data.sortIndex, sortType = data.sortType))
-            .sortedByDescending { p -> p.extraInfo.activated }.toList()
+            .filter { p -> labelKeys == null || (p.path to p.preserveId) in labelKeys }
+            .sortedWith(comparator).toList()
             .map(MediaEntity::asExternalModel)
     }.flowOn(defaultDispatcher)
 
