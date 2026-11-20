@@ -79,6 +79,8 @@ interface IRemoteRootService {
         // 兜底：协作式取消无效时，从 root 进程内部硬杀自己
         void forceStopSelf();
     void restoreRusticSnapshot(String repositoryPath, String password, String snapshotId, String destinationPath, in Map options, String includeGlob, ICallback callback);
+    // 批量解快照：一次打开仓库解 N 个快照，返回逗号分隔的布尔串（如 "true,false,true"），与三个数组按下标对应
+    String restoreRusticSnapshotsBatch(String repositoryPath, String password, in List<String> snapshotIds, in List<String> destinationPaths, in List<String> includeGlobs, in Map options);
     void checkRusticRepository(String repositoryPath, String password, in Map options);
     void forgetRusticSnapshot(String repositoryPath, String password, in Map options, String snapshotId);
     void pruneRusticRepository(String repositoryPath, String password, in Map options, String maxUnused, boolean instantDelete);

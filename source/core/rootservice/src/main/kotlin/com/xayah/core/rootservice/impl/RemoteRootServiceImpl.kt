@@ -1365,6 +1365,22 @@ internal class RemoteRootServiceImpl(private val context: Context) : IRemoteRoot
         )
     }
 
+    override fun restoreRusticSnapshotsBatch(
+        repositoryPath: String,
+        password: String,
+        snapshotIds: MutableList<String>?,
+        destinationPaths: MutableList<String>?,
+        includeGlobs: MutableList<String>?,
+        options: MutableMap<Any?, Any?>?,
+    ): String = Rustic.restoreSnapshotsBatch(
+        repositoryPath = repositoryPath,
+        password = password,
+        snapshotIds = snapshotIds ?: emptyList(),
+        destinationPaths = destinationPaths ?: emptyList(),
+        includeGlobs = includeGlobs ?: emptyList(),
+        options = options.toStringMap(),
+    ).joinToString(",") { it.toString() }
+
     override fun checkRusticRepository(repositoryPath: String, password: String, options: MutableMap<Any?, Any?>?): Unit = synchronized(lock) {
         try {
             Rustic.checkRepository(repositoryPath, password, options.toStringMap())

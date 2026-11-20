@@ -28,10 +28,23 @@ object DateUtil {
     fun getTimestamp(): Long = System.currentTimeMillis()
 
     /**
+     * 按 pattern 缓存 [SimpleDateFormat]。
+     *
+     * 构造一个 SimpleDateFormat 约 0.1~0.5ms，而列表项在滚动/重组时会反复调用
+     * [formatTimestamp]，每次新建会累积成可见的掉帧。SimpleDateFormat 非线程安全，
+     * 因此按线程各存一份（ThreadLocal），不能跨线程共享。
+     */
+    private val formatters = object : ThreadLocal<HashMap<String, SimpleDateFormat>>() {
+        override fun initialValue(): HashMap<String, SimpleDateFormat> = HashMap()
+    }
+
+    /**
      * Format given [timestamp] as date.
      */
     fun formatTimestamp(timestamp: Long?, pattern: String = PATTERN_DEFAULT): String = runCatching {
-        SimpleDateFormat(pattern, Locale.getDefault()).format(Date(timestamp!!))
+        val cache = formatters.get()!!
+        val formatter = cache.getOrPut(pattern) { SimpleDateFormat(pattern, Locale.getDefault()) }
+        formatter.format(Date(timestamp!!))
     }.getOrDefault("Unknown")
 
     /**

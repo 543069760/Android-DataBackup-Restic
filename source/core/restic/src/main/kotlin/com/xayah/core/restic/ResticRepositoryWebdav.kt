@@ -76,6 +76,27 @@ class ResticRepositoryWebdav @Inject constructor(
         cloudEntity, password, snapshotId, targetPath, snapshotSubPath, includePath, progressCallback
     )
 
+    override suspend fun restoreSnapshotsBatch(
+        cloudEntity: CloudEntity,
+        password: String,
+        items: List<RestoreBatchItem>,
+    ): List<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val options = buildWebdavBackendOptions(cloudEntity, cloudEntity.remote)
+            shared.rootService.restoreRusticSnapshotsBatch(
+                repositoryPath = "opendal:webdav",
+                password = password,
+                snapshotIds = items.map { it.snapshotId },
+                destinationPaths = items.map { it.destinationPath },
+                includeGlobs = items.map { if (it.includeGlob.isEmpty()) "" else "!${it.includeGlob}" },
+                options = options,
+            )
+        } catch (e: Exception) {
+            Log.e(ResticShared.TAG, "restoreSnapshotsBatch(WebDAV) 异常", e)
+            emptyList()
+        }
+    }
+
     override suspend fun forgetSnapshot(
         cloudEntity: CloudEntity, password: String, snapshotId: String
     ): Boolean = forgetSnapshotFromWebdav(cloudEntity, password, snapshotId)

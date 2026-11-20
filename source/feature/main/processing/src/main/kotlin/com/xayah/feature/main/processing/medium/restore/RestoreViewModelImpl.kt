@@ -99,7 +99,10 @@ class RestoreViewModelImpl @Inject constructor(
                 val allActivatedMedia = mMediaRepo.queryActivated(OpType.RESTORE, cloud, backupSaveDir)
                 Log.d("RestoreViewModelImpl", "所有激活媒体数: ${allActivatedMedia.size}")
 
-                val media = allActivatedMedia.filter { it.name == intent.mediaNameFilter }
+                // 支持批量：mediaNameFilter 可能是逗号拼接的多个媒体名（文件恢复列表页「下一步」）
+                val nameFilters = intent.mediaNameFilter.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+                val media = if (nameFilters.isEmpty()) allActivatedMedia
+                else allActivatedMedia.filter { it.name in nameFilters }
                 Log.d("RestoreViewModelImpl", "筛选结果: 找到 ${media.size} 个媒体")
 
                 var bytes = 0.0

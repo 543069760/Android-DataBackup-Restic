@@ -96,6 +96,29 @@ class ResticRepositorySftp @Inject constructor(
         cloudEntity, password, snapshotId, targetPath, snapshotSubPath, includePath, progressCallback
     )
 
+    override suspend fun restoreSnapshotsBatch(
+        cloudEntity: CloudEntity,
+        password: String,
+        items: List<RestoreBatchItem>,
+    ): List<Boolean> = withContext(Dispatchers.IO) {
+        val session = startServe(cloudEntity, cloudEntity.remote)
+        try {
+            shared.rootService.restoreRusticSnapshotsBatch(
+                repositoryPath = session.restUrl,
+                password = password,
+                snapshotIds = items.map { it.snapshotId },
+                destinationPaths = items.map { it.destinationPath },
+                includeGlobs = items.map { if (it.includeGlob.isEmpty()) "" else "!${it.includeGlob}" },
+                options = emptyMap(),
+            )
+        } catch (e: Exception) {
+            Log.e(ResticShared.TAG, "restoreSnapshotsBatch(SFTP) 异常", e)
+            emptyList()
+        } finally {
+            stopServe(session)
+        }
+    }
+
     override suspend fun forgetSnapshot(
         cloudEntity: CloudEntity, password: String, snapshotId: String
     ): Boolean = forgetSnapshotFromSftp(cloudEntity, password, snapshotId)

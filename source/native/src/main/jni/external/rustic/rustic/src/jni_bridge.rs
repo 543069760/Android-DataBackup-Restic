@@ -13,7 +13,8 @@ use crate::repository::{
     check_repository, create_snapshot, create_snapshot_from_fd_with_progress,
     create_snapshot_with_progress, forget_snapshot, get_version, init_repository,
     list_snapshots_db, prune_repository, repository_config_id, repository_exists,
-    restore_snapshot, restore_snapshot_with_progress, set_extra_verify, validate_repository,
+    restore_snapshot, restore_snapshot_with_progress, restore_snapshots_batch,
+    set_extra_verify, validate_repository,
 };
 use crate::opendal_ops::{opendal_create_dir, opendal_list};
 
@@ -333,6 +334,68 @@ pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeRestoreSnapshot<'lo
             }
 
             Ok(())
+        })
+        .resolve::<ThrowRuntimeExAndDefault>()
+}
+
+/// 批量解快照：一次 open_repository 后解 N 个快照，返回 JSON 布尔数组字符串，
+/// 例如 `[true,false,true]`，与入参三个数组按下标一一对应。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_com_xayah_libnative_Rustic_nativeRestoreSnapshotsBatch<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _this: JObject<'local>,
+    repository_path: JString<'local>,
+    password: JString<'local>,
+    option_keys: JObjectArray<'local, JString<'local>>,
+    option_values: JObjectArray<'local, JString<'local>>,
+    snapshot_ids: JObjectArray<'local, JString<'local>>,
+    destination_paths: JObjectArray<'local, JString<'local>>,
+    include_globs: JObjectArray<'local, JString<'local>>,
+) -> JString<'local> {
+    unowned_env
+        .with_env(|env| -> Result<JString<'local>, NativeError> {
+            let options = string_arrays_to_map(env, &option_keys, &option_values)?;
+            let ids = string_array_to_vec(env, &snapshot_ids)?;
+            let dsts = string_array_to_vec(env, &destination_paths)?;
+            let globs = string_array_to_vec(env, &include_globs)?;
+
+            if ids.len() != dsts.len() || ids.len() != globs.len() {
+                return Err(NativeError::from(format!(
+                    "batch restore: array length mismatch ids={} dsts={} globs={}",
+                    ids.len(),
+                    dsts.len(),
+                    globs.len()
+                )));
+            }
+
+            // 空字符串视为「不过滤」(None)，非空则作为 include glob。
+            let items: Vec<(String, String, Option<String>)> = ids
+                .into_iter()
+                .zip(dsts)
+                .zip(globs)
+                .map(|((id, dst), glob)| {
+                    let g = if glob.is_empty() { None } else { Some(glob) };
+                    (id, dst, g)
+                })
+                .collect();
+
+            let results = restore_snapshots_batch(
+                &repository_path.to_string(),
+                &password.to_string(),
+                &items,
+                &options,
+            )
+            .map_err(NativeError::from)?;
+
+            let json = format!(
+                "[{}]",
+                results
+                    .iter()
+                    .map(|b| b.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+            env.new_string(json).map_err(NativeError::from)
         })
         .resolve::<ThrowRuntimeExAndDefault>()
 }

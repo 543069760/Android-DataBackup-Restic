@@ -196,6 +196,28 @@ class ResticRepositoryHuaweiObs @Inject constructor(
         } catch (e: Exception) { false }
     }
 
+    override suspend fun restoreSnapshotsBatch(
+        cloudEntity: CloudEntity,
+        password: String,
+        items: List<RestoreBatchItem>,
+    ): List<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val extra = ResticShared.json.decodeFromString<HuaweiObsExtra>(cloudEntity.extra)
+            val options = buildHuaweiObsBackendOptions(extra, cloudEntity.remote)
+            shared.rootService.restoreRusticSnapshotsBatch(
+                repositoryPath = "opendal:obs",
+                password = password,
+                snapshotIds = items.map { it.snapshotId },
+                destinationPaths = items.map { it.destinationPath },
+                includeGlobs = items.map { if (it.includeGlob.isEmpty()) "" else "!${it.includeGlob}" },
+                options = options,
+            )
+        } catch (e: Exception) {
+            Log.e(ResticShared.TAG, "restoreSnapshotsBatch(HuaweiObs) 异常", e)
+            emptyList()
+        }
+    }
+
     override suspend fun forgetSnapshot(
         cloudEntity: CloudEntity, password: String, snapshotId: String
     ): Boolean = withContext(Dispatchers.IO) {

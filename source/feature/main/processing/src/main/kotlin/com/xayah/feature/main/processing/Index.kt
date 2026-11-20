@@ -200,17 +200,19 @@ fun PageProcessing(
     val postItemsProgress by viewModel.postItemsProgress.collectAsStateWithLifecycle()
     val postItems by viewModel.postItems.collectAsStateWithLifecycle()
     val dataItems by viewModel.dataItems.collectAsStateWithLifecycle()
+    // 收尾态：正常完成或取消/异常终止。两者在 UI 上等价（都显示结果页 + 可离开），
+    // 区别只在顶部图标与计数文案按失败渲染。
+    val isTerminal = uiState.state == OperationState.DONE || uiState.state == OperationState.ERROR
     // 内存实时进度（总量/增量/速度）：与 DB 完全解耦的第二条数据源
     val stats by viewModel.progressStats.collectAsStateWithLifecycle()
     val navController = LocalNavController.current!!
     val dialogState = LocalSlotScope.current!!.dialogSlot
-    val progress: Float by remember(task?.processingIndex, dataItems.size) {
-        mutableFloatStateOf(
-            if (task != null)
-                task!!.processingIndex.toFloat() / (dataItems.size + 1)
-            else
-                -1f
-        )
+    // 收尾后进度条直接满格：取消/异常终止时 processingIndex 停在半路，
+    // 若继续按它算，顶部进度条会永远停在中间。
+    val progress: Float = when {
+        isTerminal -> 1f
+        task != null -> task!!.processingIndex.toFloat() / (dataItems.size + 1)
+        else -> -1f
     }
     val screenOffCountDown by viewModel.screenOffCountDown.collectAsStateWithLifecycle()
 
@@ -248,10 +250,10 @@ fun PageProcessing(
         }
     }
 
-    // 等待 CancelAndCleanup 完成（state 回到 IDLE）后再导航，
+    // 等待 CancelAndCleanup 完成（state 收尾为 ERROR）后再导航，
     // 避免立即 pop 清除处理页 ViewModel 而中断清理协程、留下孤儿 root 进程
     LaunchedEffect(uiState.state, pendingBackHomeOnCancel) {
-        if (pendingBackHomeOnCancel && uiState.state == OperationState.IDLE) {
+        if (pendingBackHomeOnCancel && (uiState.state == OperationState.ERROR || uiState.state == OperationState.DONE)) {
             pendingBackHomeOnCancel = false
             Toast.makeText(context, otgDisconnectedBackHomeText, Toast.LENGTH_SHORT).show()
             navController.popBackStack(MainRoutes.Dashboard.route, false)
@@ -327,7 +329,8 @@ fun PageProcessing(
     ProcessingSetupScaffold(
         scrollBehavior = null,
         snackbarHostState = viewModel.snackbarHostState,
-        title = stringResource(id = topBarTitleId.invoke(uiState.state)),
+        // ERROR 也走「已完成」标题，避免取消后标题回退成「恢复/备份」
+        title = stringResource(id = topBarTitleId.invoke(if (uiState.state == OperationState.ERROR) OperationState.DONE else uiState.state)),
         progress = progress,
         actions = {
             Column(
@@ -336,7 +339,7 @@ fun PageProcessing(
                     .paddingHorizontal(SizeTokens.Level24)
                     .paddingVertical(SizeTokens.Level8),
             ) {
-                AnimatedVisibility(uiState.state == OperationState.DONE) {
+                AnimatedVisibility(isTerminal) {
                     Button(
                         modifier = Modifier.fillMaxWidth(),
                         onClick = {
@@ -383,14 +386,14 @@ fun PageProcessing(
                 // 继续/完成按钮 / Continue/Finish button
                 Button(
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = uiState.state == OperationState.IDLE || uiState.state == OperationState.DONE,
+                    enabled = uiState.state == OperationState.IDLE || isTerminal,
                     onClick = {
                         if (uiState.state == OperationState.IDLE) viewModel.emitIntentOnIO(ProcessingUiIntent.Process)
                         else navController.popBackStack()
                     }
                 ) {
                     AnimatedTextContainer(
-                        targetState = if (uiState.state == OperationState.DONE)
+                        targetState = if (isTerminal)
                             stringResource(id = R.string.finish)
                         else
                             stringResource(id = R.string._continue)
@@ -426,7 +429,13 @@ fun PageProcessing(
                 // 而不是沿用成功对勾；下方计数文案本身已按成功/失败分流。
                 val finishedWithErrors = (task?.failureCount ?: 0) > 0 || uiState.state == OperationState.ERROR
 
-                AnimatedContent(modifier = Modifier.fillMaxWidth(), targetState = task?.processingIndex, label = AnimationTokens.AnimatedContentLabel) {
+                // 取消/异常终止时 processingIndex 不会推进到收尾位（服务被强杀或协程被取消），
+                // 若仍按 processingIndex 渲染，顶部会一直停在「处理中」的转圈环上。
+                // 任务一旦收尾就强制切到收尾位，让顶部图标与下方明细保持一致。
+                val finishedIndex = dataItems.size + 2
+                val displayIndex = if (isTerminal) finishedIndex else task?.processingIndex
+
+                AnimatedContent(modifier = Modifier.fillMaxWidth(), targetState = displayIndex, label = AnimationTokens.AnimatedContentLabel) {
                     Box(
                         modifier = Modifier
                             .paddingTop(SizeTokens.Level24)
@@ -534,7 +543,7 @@ fun PageProcessing(
                     }
                 }
 
-                val displayItems = if (uiState.state == OperationState.DONE) {
+                val displayItems = if (isTerminal) {
                     dataItems.sortedBy { if (it.state == OperationState.ERROR) 0 else 1 }
                 } else {
                     dataItems

@@ -7,9 +7,10 @@ use rustic_backend::{BackendOptions, OpenDALBackend};
 use std::os::unix::io::FromRawFd;
 
 use rustic_core::{
-    BackupOptions, CheckOptions, ConfigOptions, Credentials, Excludes, FdSource, KeyOptions,
-    LimitOption, LocalDestination, LsOptions, OpenStatus, PathList, PruneOptions, Repository,
-    RepositoryBackends, RepositoryOptions, RestoreOptions, SnapshotOptions, WriteBackend,
+    BackupOptions, CheckOptions, ConfigOptions, Credentials, Excludes, FdSource,
+    IndexedFullStatus, KeyOptions, LimitOption, LocalDestination, LsOptions, OpenStatus, PathList,
+    PruneOptions, Repository, RepositoryBackends, RepositoryOptions, RestoreOptions,
+    SnapshotOptions, WriteBackend,
 };
 
 use crate::Result;
@@ -443,6 +444,70 @@ pub fn restore_snapshot(
     let node = repo.node_from_snapshot_path(snapshot_id, |_| true)?;
     let ls_options = LsOptions::default();
     let nodes = repo.ls(&node, &ls_options)?;
+    let destination = LocalDestination::new(destination_path, true, !node.is_dir())?;
+    let restore_options = RestoreOptions::default();
+    let restore_plan =
+        repo.prepare_restore(&restore_options, nodes.clone(), &destination, false)?;
+
+    repo.restore(restore_plan, &restore_options, nodes, &destination)?;
+
+    Ok(())
+}
+
+/// 批量解快照：只打开一次仓库（open + to_indexed 的固定开销只付一次），
+/// 然后对每个 item 复用同一个 `Repository<IndexedFullStatus>` 依次解包。
+///
+/// `items` 每项为 `(snapshot_id, destination_path, include_glob)`，
+/// `include_glob` 为 `None` 表示不过滤，`Some(g)` 表示只解匹配 `g` 的路径
+/// （restic 风格 include 语义，内部拼成 `!g` 传给 Excludes）。
+///
+/// 返回与 `items` 等长的结果向量：`true` 表示该条成功，`false` 表示失败。
+/// 单条失败不会中断后续条目，便于调用方按 index 清理失败目录。
+pub fn restore_snapshots_batch(
+    repository_path: &str,
+    password: &str,
+    items: &[(String, String, Option<String>)],
+    options: &HashMap<String, String>,
+) -> Result<Vec<bool>> {
+    if items.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let repo = open_repository(repository_path, password, options)?.to_indexed()?;
+    let mut results = Vec::with_capacity(items.len());
+    for (snapshot_id, destination_path, include_glob) in items {
+        // 空 snapshotId 表示该组没有对应快照（如只有 media 没有 config），直接记失败
+        if snapshot_id.is_empty() {
+            results.push(false);
+            continue;
+        }
+        let r = restore_one(&repo, snapshot_id, destination_path, include_glob.as_deref());
+        if let Err(e) = &r {
+            log::warn!("[BatchRestore] snapshot={snapshot_id} failed: {e}");
+        }
+        results.push(r.is_ok());
+    }
+    Ok(results)
+}
+
+/// 单条解包，逻辑与 `restore_snapshot` 一致，但复用外部已打开的仓库句柄。
+fn restore_one(
+    repo: &Repository<IndexedFullStatus>,
+    snapshot_id: &str,
+    destination_path: &str,
+    include_glob: Option<&str>,
+) -> Result<()> {
+    let node = repo.node_from_snapshot_path(snapshot_id, |_| true)?;
+
+    // include 语义用 restic 风格的 "!" 前缀（纯 pattern 为 exclude）。
+    let ls_options = match include_glob {
+        Some(glob) => {
+            LsOptions::default().excludes(Excludes::default().globs(vec![format!("!{glob}")]))
+        }
+        None => LsOptions::default(),
+    };
+    let nodes = repo.ls(&node, &ls_options)?;
+
     let destination = LocalDestination::new(destination_path, true, !node.is_dir())?;
     let restore_options = RestoreOptions::default();
     let restore_plan =

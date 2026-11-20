@@ -736,6 +736,23 @@ class RemoteRootService(private val context: Context) {
         )
     }.onFailure(::reportFailure)
 
+    /**
+     * 批量解快照：一次打开仓库解 N 个快照，返回与入参等长的结果列表。
+     * 失败时返回空列表，调用方需按 `getOrNull(index)` 判空处理。
+     */
+    suspend fun restoreRusticSnapshotsBatch(
+        repositoryPath: String,
+        password: String,
+        snapshotIds: List<String>,
+        destinationPaths: List<String>,
+        includeGlobs: List<String>,
+        options: Map<String, String> = emptyMap(),
+    ): List<Boolean> = runCatching {
+        getService().restoreRusticSnapshotsBatch(
+            repositoryPath, password, snapshotIds, destinationPaths, includeGlobs, options
+        ).split(",").filter { it.isNotEmpty() }.map { it.toBoolean() }
+    }.onFailure(::reportFailure).getOrDefault(emptyList())
+
     suspend fun callTarCli(stdOut: String, stdErr: String, argv: Array<String>): Int =
         runCatching { getService().callTarCli(stdOut, stdErr, argv) }.onFailure(::reportFailure).getOrElse { -1 }
 

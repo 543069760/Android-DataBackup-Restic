@@ -156,6 +156,28 @@ class ResticRepositoryCos @Inject constructor(
         cloudEntity, password, snapshotId, targetPath, snapshotSubPath, includePath, progressCallback
     )
 
+    override suspend fun restoreSnapshotsBatch(
+        cloudEntity: CloudEntity,
+        password: String,
+        items: List<RestoreBatchItem>,
+    ): List<Boolean> = withContext(Dispatchers.IO) {
+        try {
+            val extra = ResticShared.json.decodeFromString<S3Extra>(cloudEntity.extra)
+            val options = buildS3BackendOptions(extra, cloudEntity.remote)
+            shared.rootService.restoreRusticSnapshotsBatch(
+                repositoryPath = "opendal:cos",
+                password = password,
+                snapshotIds = items.map { it.snapshotId },
+                destinationPaths = items.map { it.destinationPath },
+                includeGlobs = items.map { if (it.includeGlob.isEmpty()) "" else "!${it.includeGlob}" },
+                options = options,
+            )
+        } catch (e: Exception) {
+            Log.e(ResticShared.TAG, "restoreSnapshotsBatch(COS) 异常", e)
+            emptyList()
+        }
+    }
+
     override suspend fun forgetSnapshot(
         cloudEntity: CloudEntity, password: String, snapshotId: String
     ): Boolean = forgetSnapshotFromCos(cloudEntity, password, snapshotId)

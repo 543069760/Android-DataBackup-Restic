@@ -262,7 +262,9 @@ class ResticRestoreViewModel @Inject constructor(
         if (!force && hasLoaded && _uiState.value is ResticRestoreUiState.Success) {
             return
         }
-        viewModelScope.launch {
+        // 整个加载流程（SQLite 缓存解析 / labels.json / PackageManager 取标签 / 分组）
+        // 全部放到 IO 线程：这些操作在应用数量多时会在主线程造成明显卡顿。
+        viewModelScope.launch(Dispatchers.IO) {
             // 首次进入列表时捕获 OTG 决策（此刻全局标记仍正确）
             if (capturedIsOtg == null) {
                 capturedIsOtg = context.readResticActiveIsOtg()

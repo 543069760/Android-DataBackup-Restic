@@ -154,6 +154,10 @@ fun CloudFilesBackupDetailPage(
                                     )) {
                                     val success = viewModel.deleteCloudFileSnapshots(group)
                                     if (success) {
+                                        // 通知列表页强制刷新（绕过已加载守卫），否则删除后返回仍显示旧列表
+                                        navController.previousBackStackEntry
+                                            ?.savedStateHandle
+                                            ?.set("cloud_needs_refresh", true)
                                         navController.popBackStack()
                                     }
                                 }

@@ -155,6 +155,13 @@ abstract class AbstractProcessingViewModel(
                         mLocalService.destroyService()
                     }
                     emitState(state.copy(state = OperationState.DONE))
+                } catch (e: CancellationException) {
+                    // 取消路径由 CancelAndCleanup 统一收尾，这里不覆盖状态
+                    throw e
+                } catch (e: Exception) {
+                    // 异常终止：必须把状态从 PROCESSING 收尾，否则顶部会一直停在转圈环上
+                    log { "Process failed: ${e.message}" }
+                    emitState(state.copy(state = OperationState.ERROR))
                 } finally {
                     mProcessJob = null
                 }
@@ -245,9 +252,10 @@ abstract class AbstractProcessingViewModel(
                     type = SnackbarType.Error
                 ))
 
-                // 8. 取消按"失败完成"收尾：状态发 DONE，UI 走正常完成页渲染
+                // 8. 取消按"失败完成"收尾：状态发 ERROR，UI 走收尾页渲染并显示红色失败图标
                 //    （成功/失败计数从 task 实体读——service 侧已 +1 failureCount）。
-                emitState(state.copy(state = OperationState.DONE))
+                //    注意：不能发 DONE，否则顶部图标会按「全部成功」渲染成绿色对勾。
+                emitState(state.copy(state = OperationState.ERROR))
 
                 // 9. 不发送 NavBack——停留在完成页让用户看到失败结果，
                 //    返回动作交给用户自己点返回键/详情按钮。

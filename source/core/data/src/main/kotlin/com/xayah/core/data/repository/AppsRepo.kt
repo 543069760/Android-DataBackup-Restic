@@ -997,38 +997,28 @@ class AppsRepo @Inject constructor(
         }
     }
 
-    // 添加云端单个数据类型大小计算
-    private suspend fun calculateCloudAppArchiveSize(
-        cloudName: String, p: PackageEntity, dataType: DataType
-    ): Long = runCatching {
-        var size = 0L
-        cloudRepo.withClient(cloudName) { client, entity ->
-            val remote = entity.remote
-            val remoteAppsDir = pathUtil.getCloudRemoteAppsDir(remote)
-            val archivePath = getArchiveSrc(
-                "${remoteAppsDir}/${p.archivesRelativeDir}", dataType, p.indexInfo.compressionType
-            )
-            if (client.exists(archivePath)) {
-                size = client.size(archivePath)
-            }
-        }
-        size
-    }.getOrDefault(0L)
-
     // 添加云端应用完整大小计算
+    // 注意：必须只开一次 cloud client。旧实现每个数据类型各调一次 withClient，
+    // 云端会建立 6 次连接/会话，进入详情页时表现为明显卡顿（云端最明显）。
     suspend fun calculateCloudAppArchiveSize(cloudName: String, app: PackageEntity) {
-        app.displayStats.apkBytes =
-            calculateCloudAppArchiveSize(cloudName, app, DataType.PACKAGE_APK)
-        app.displayStats.userBytes =
-            calculateCloudAppArchiveSize(cloudName, app, DataType.PACKAGE_USER)
-        app.displayStats.userDeBytes =
-            calculateCloudAppArchiveSize(cloudName, app, DataType.PACKAGE_USER_DE)
-        app.displayStats.dataBytes =
-            calculateCloudAppArchiveSize(cloudName, app, DataType.PACKAGE_DATA)
-        app.displayStats.obbBytes =
-            calculateCloudAppArchiveSize(cloudName, app, DataType.PACKAGE_OBB)
-        app.displayStats.mediaBytes =
-            calculateCloudAppArchiveSize(cloudName, app, DataType.PACKAGE_MEDIA)
+        runCatching {
+            cloudRepo.withClient(cloudName) { client, entity ->
+                val remoteAppsDir = pathUtil.getCloudRemoteAppsDir(entity.remote)
+                val baseDir = "${remoteAppsDir}/${app.archivesRelativeDir}"
+
+                fun sizeOf(dataType: DataType): Long = runCatching {
+                    val archivePath = getArchiveSrc(baseDir, dataType, app.indexInfo.compressionType)
+                    if (client.exists(archivePath)) client.size(archivePath) else 0L
+                }.getOrDefault(0L)
+
+                app.displayStats.apkBytes = sizeOf(DataType.PACKAGE_APK)
+                app.displayStats.userBytes = sizeOf(DataType.PACKAGE_USER)
+                app.displayStats.userDeBytes = sizeOf(DataType.PACKAGE_USER_DE)
+                app.displayStats.dataBytes = sizeOf(DataType.PACKAGE_DATA)
+                app.displayStats.obbBytes = sizeOf(DataType.PACKAGE_OBB)
+                app.displayStats.mediaBytes = sizeOf(DataType.PACKAGE_MEDIA)
+            }
+        }.withLog()
         appsDao.upsert(app)
     }
 

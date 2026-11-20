@@ -143,6 +143,44 @@ object Rustic {
         )
     }
 
+    /**
+     * 批量解快照：只打开一次仓库，依次解 [snapshotIds] 对应的快照。
+     *
+     * 三个数组必须等长，按下标一一对应：
+     * - [snapshotIds] 快照 ID（可带 `:subPath`）
+     * - [destinationPaths] 每条的目标目录
+     * - [includeGlobs] 每条只解匹配的路径，空串表示不过滤
+     *
+     * @return 与入参等长的结果列表，true 表示该条成功；单条失败不影响后续条目。
+     */
+    fun restoreSnapshotsBatch(
+        repositoryPath: String,
+        password: String,
+        snapshotIds: List<String>,
+        destinationPaths: List<String>,
+        includeGlobs: List<String>,
+        options: Map<String, String> = emptyMap(),
+    ): List<Boolean> {
+        require(snapshotIds.size == destinationPaths.size && snapshotIds.size == includeGlobs.size) {
+            "restoreSnapshotsBatch: 数组长度不一致 ids=${snapshotIds.size} " +
+                "dsts=${destinationPaths.size} globs=${includeGlobs.size}"
+        }
+        if (snapshotIds.isEmpty()) return emptyList()
+
+        val (optionKeys, optionValues) = options.toKeyValueArrays()
+        val json = nativeRestoreSnapshotsBatch(
+            repositoryPath,
+            password,
+            optionKeys,
+            optionValues,
+            snapshotIds.toTypedArray(),
+            destinationPaths.toTypedArray(),
+            includeGlobs.toTypedArray(),
+        )
+        val body = json.trim().removePrefix("[").removeSuffix("]")
+        return if (body.isEmpty()) emptyList() else body.split(",").map { it.trim().toBoolean() }
+    }
+
     fun checkRepository(
         repositoryPath: String,
         password: String,
@@ -285,6 +323,16 @@ object Rustic {
         includeGlob: String,
         callback: Any?,
     )
+
+    private external fun nativeRestoreSnapshotsBatch(
+        repositoryPath: String,
+        password: String,
+        optionKeys: Array<String>,
+        optionValues: Array<String>,
+        snapshotIds: Array<String>,
+        destinationPaths: Array<String>,
+        includeGlobs: Array<String>,
+    ): String
 
     private external fun nativeCheckRepository(
         repositoryPath: String,

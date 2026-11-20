@@ -257,7 +257,9 @@ class CloudRestoreViewModel @Inject constructor(
             && _uiState.value is CloudRestoreUiState.Success) {
             return
         }
-        viewModelScope.launch {
+        // 整个加载流程（SQLite 缓存解析 / labels.json / PackageManager 取标签 / 分组）
+        // 全部放到 IO 线程：云端应用数量多时这些操作在主线程会造成明显卡顿。
+        viewModelScope.launch(Dispatchers.IO) {
             val password = resolveResticPassword(cloudEntity)
             if (password.isNullOrEmpty()) {
                 _uiState.value = CloudRestoreUiState.Error(context.getString(R.string.restore_password_not_configured))

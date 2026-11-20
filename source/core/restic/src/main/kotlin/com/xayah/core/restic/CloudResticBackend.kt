@@ -5,6 +5,18 @@ import com.xayah.core.model.restic.ResticBackupApp
 import com.xayah.core.model.restic.ResticBackupFiles
 
 /**
+ * 批量解快照的单条描述。
+ *
+ * [includeGlob] 为纯路径（如 `media_restore_config.json`），空串表示不过滤；
+ * 后端实现内部会拼 `!` 前缀，与单条 [CloudResticBackend.restoreSnapshot] 的 includePath 语义保持一致。
+ */
+data class RestoreBatchItem(
+    val snapshotId: String,
+    val destinationPath: String,
+    val includeGlob: String = "",
+)
+
+/**
  * 云端 restic 后端统一接口。所有实现以 CloudEntity + remotePath + password 为统一入参，
  * 内部各自 decode extra / 起 serve。用于把散落的 when(CloudType) 收敛为多态调用。
  */
@@ -55,6 +67,21 @@ interface CloudResticBackend {
         includePath: String? = null,
         progressCallback: ResticRepository.ResticProgressCallback? = null
     ): Boolean
+
+    /**
+     * 批量解快照：只打开一次仓库，依次解 [items] 中的快照。
+     *
+     * 相比逐条调用 [restoreSnapshot]，省掉 N-1 次 open_repository + index 加载的固定开销，
+     * 适合「一次解 N 个 KB 级 config」的场景。
+     *
+     * @return 与 [items] 等长的结果列表，true 表示该条成功；单条失败不影响后续条目。
+     *         整体失败（如仓库打不开）时返回空列表。
+     */
+    suspend fun restoreSnapshotsBatch(
+        cloudEntity: CloudEntity,
+        password: String,
+        items: List<RestoreBatchItem>,
+    ): List<Boolean>
 
     suspend fun forgetSnapshot(
         cloudEntity: CloudEntity, password: String, snapshotId: String
